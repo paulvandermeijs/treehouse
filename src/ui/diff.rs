@@ -285,7 +285,8 @@ impl Render for DiffPanel {
                         )
                     })
                     .when(!empty && self.error.is_none(), |this| {
-                        this.child(Diff::new(&self.state).size_full())
+                        // The dock draws its own edges; drop the viewer's outer border.
+                        this.child(Diff::new(&self.state).size_full().border_0())
                     }),
             )
     }

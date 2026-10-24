@@ -33,6 +33,8 @@ pub struct TreehouseApp {
     dock: Option<Dock>,
     dock_full: bool,
     sidebar_open: bool,
+    /// Projects and worktrees the user collapsed in the sidebar.
+    collapsed: std::collections::HashSet<PathBuf>,
     chats: HashMap<EntityId, Entity<ChatView>>,
     palette_state: Entity<CommandState>,
     _subscriptions: Vec<Subscription>,
@@ -68,6 +70,7 @@ impl TreehouseApp {
             dock: None,
             dock_full: false,
             sidebar_open: true,
+            collapsed: Default::default(),
             chats: HashMap::new(),
             palette_state: cx.new(|cx| CommandState::new(window, cx)),
             _subscriptions: subscriptions,
@@ -89,6 +92,17 @@ impl TreehouseApp {
             crate::theme::apply(ThemeChoice::System, Some(window), cx);
         }
         this
+    }
+
+    pub fn is_collapsed(&self, path: &std::path::Path) -> bool {
+        self.collapsed.contains(path)
+    }
+
+    pub fn toggle_collapsed(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.collapsed.remove(&path) {
+            self.collapsed.insert(path);
+        }
+        cx.notify();
     }
 
     pub fn main_session_id(&self, cx: &App) -> Option<EntityId> {

@@ -53,7 +53,7 @@ Pi has no built-in tool approval or sub-agents. Treehouse adds both with a small
 
 ### gpui-kit components used
 
-`Sidebar` and `SidebarMenuItem` for projects, worktrees and sub-agents; `Diff` for the worktree diff in unified and split layouts; `Command` in a `Dialog` for the command palette; `Settings` for the settings dialog; `TextView` for streaming Markdown; `ShimmerText` and `Spinner` for running work; `Textarea`, `Button`, `ButtonGroup`, `PopupMenu`, `Kbd` and alert dialogs throughout.
+The sidebar is laid out by hand to the design with gpui-kit buttons and context menus; `Diff` for the worktree diff in unified and split layouts; `Command` in a `Dialog` for the command palette; `Settings` for the settings dialog; `TextView` for streaming Markdown; `ShimmerText` and `Spinner` for running work; `Textarea`, `Button`, `ButtonGroup`, `PopupMenu`, `Kbd` and alert dialogs throughout.
 
 ## Status
 

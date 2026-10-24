@@ -229,7 +229,14 @@ impl Session {
             cwd: self.cwd.clone(),
             model: self.model.as_ref().map(ModelInfo::full_name),
             thinking: Some(self.thinking.clone()),
-            tools: config.tools.clone(),
+            // `--tools` replaces Pi's whole selection, so the bridge's own tool
+            // has to be named. Sub-agents don't get it: no nested sub-agents.
+            tools: config
+                .tools
+                .iter()
+                .cloned()
+                .chain((!self.is_subagent()).then(|| "subagent".to_string()))
+                .collect(),
             extensions: vec![extension],
             session_dir: Some(Config::data_dir().join("sessions")),
         };
