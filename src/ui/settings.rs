@@ -31,8 +31,45 @@ pub fn open(section: Section, window: &mut Window, cx: &mut App) {
             .w(px(860.))
             .margin_top(px(110.))
             .p_0()
-            .content(move |content, _, _| content.child(div().h(px(588.)).child(settings(section))))
+            // The dialog's own close button sits 8px from the top whatever
+            // the header; ours is centred on the 52px page heading instead.
+            .close_button(false)
+            .content(move |content, _, _| {
+                content.child(
+                    div().relative().h(px(588.)).child(settings(section)).child(
+                        div()
+                            .absolute()
+                            .top_0()
+                            .right(px(10.))
+                            .h(px(HEADER_HEIGHT))
+                            .flex()
+                            .items_center()
+                            .child(
+                                Button::new("close-settings")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Close)
+                                    .tooltip("Close · Esc")
+                                    .on_click(|_, window, cx| window.close_dialog(cx)),
+                            ),
+                    ),
+                )
+            })
     });
+}
+
+/// The page heading's height, as the design's settings dialog has it.
+const HEADER_HEIGHT: f32 = 52.;
+
+/// A settings page with the design's heading: 52px high, title centred.
+fn page(title: &'static str) -> SettingPage {
+    let style = StyleRefinement::default()
+        .h(px(HEADER_HEIGHT))
+        .py_0()
+        .pl(px(24.))
+        .pr(px(48.))
+        .justify_center();
+    SettingPage::new(title).header_style(&style)
 }
 
 fn opts(values: &[(&str, &str)]) -> Vec<(SharedString, SharedString)> {
@@ -70,7 +107,7 @@ fn providers_page() -> SettingPage {
         SettingItem::render(move |_, _, cx| provider_row(id, name, var, cx))
             .keywords([name, "API key", "provider"])
     });
-    SettingPage::new("Providers")
+    page("Providers")
         .icon(Lucide::KeyRound)
         .group(
             SettingGroup::new()
@@ -204,7 +241,7 @@ fn defaults_page() -> SettingPage {
             ),
         )
     });
-    SettingPage::new("Agent defaults")
+    page("Agent defaults")
         .icon(Lucide::Bot)
         .group(
             SettingGroup::new()
@@ -268,7 +305,7 @@ fn defaults_page() -> SettingPage {
 }
 
 fn approvals_page() -> SettingPage {
-    SettingPage::new("Approvals")
+    page("Approvals")
         .icon(Lucide::Shield)
         .group(
             SettingGroup::new()
@@ -359,7 +396,7 @@ fn allowed_list(cx: &mut App) -> AnyElement {
 }
 
 fn worktrees_page() -> SettingPage {
-    SettingPage::new("Worktrees").icon(Lucide::GitBranch).group(
+    page("Worktrees").icon(Lucide::GitBranch).group(
         SettingGroup::new()
             .item(
                 SettingItem::new(
@@ -446,7 +483,7 @@ fn worktrees_page() -> SettingPage {
 }
 
 fn appearance_page() -> SettingPage {
-    SettingPage::new("Appearance").icon(Lucide::Palette).group(
+    page("Appearance").icon(Lucide::Palette).group(
         SettingGroup::new()
             .item(
                 SettingItem::new(
@@ -516,7 +553,7 @@ fn shortcuts_page() -> SettingPage {
         })
         .keywords([label])
     });
-    SettingPage::new("Shortcuts").icon(Lucide::Keyboard).group(
+    page("Shortcuts").icon(Lucide::Keyboard).group(
         SettingGroup::new()
             .items(items.collect::<Vec<_>>())
             .footer(|_, _| "Hold Ctrl (⌘ on macOS) and click a worktree or sub-agent to open it in the right dock."),
