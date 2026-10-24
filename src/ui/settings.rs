@@ -1,11 +1,13 @@
 //! Settings (⌘,): gpui-kit's `Settings` in a dialog, one page per section.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::kbd::Kbd;
-use gpui_kit::component::setting::{SettingField, SettingGroup, SettingItem, SettingPage, Settings};
+use gpui_kit::component::setting::{
+    SettingField, SettingGroup, SettingItem, SettingPage, Settings,
+};
 use gpui_kit::component::{IconName, Sizable as _, WindowExt as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -15,21 +17,17 @@ use crate::config::{CompareBase, Config, THINKING_LEVELS, TOOLS, ThemeChoice};
 use crate::pi::auth::{self, Credential, PROVIDERS};
 use crate::theme::{MONO, palette};
 
-/// The sections, in the order the design lists them.
+/// The sections other views link to; the value is the page index.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Section {
     Providers,
     Defaults,
     Approvals,
-    Worktrees,
-    Appearance,
-    Shortcuts,
 }
 
 pub fn open(section: Section, window: &mut Window, cx: &mut App) {
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
-            .title("Settings")
             .w(px(860.))
             .margin_top(px(110.))
             .p_0()
@@ -38,14 +36,25 @@ pub fn open(section: Section, window: &mut Window, cx: &mut App) {
 }
 
 fn opts(values: &[(&str, &str)]) -> Vec<(SharedString, SharedString)> {
-    values.iter().map(|(v, l)| (SharedString::from(v.to_string()), SharedString::from(l.to_string()))).collect()
+    values
+        .iter()
+        .map(|(v, l)| {
+            (
+                SharedString::from(v.to_string()),
+                SharedString::from(l.to_string()),
+            )
+        })
+        .collect()
 }
 
 fn settings(section: Section) -> Settings {
     let index = section as usize;
     Settings::new("settings")
         .sidebar_width(px(200.))
-        .default_selected_index(gpui_kit::component::setting::SelectIndex { page_ix: index, ..Default::default() })
+        .default_selected_index(gpui_kit::component::setting::SelectIndex {
+            page_ix: index,
+            ..Default::default()
+        })
         .pages(vec![
             providers_page(),
             defaults_page(),
@@ -72,31 +81,58 @@ fn providers_page() -> SettingPage {
                 .items(items.collect::<Vec<_>>()),
         )
         .group(
-            SettingGroup::new().title("API keys").items(PROVIDERS.iter().map(|&(id, name, _)| {
-                SettingItem::new(
-                    format!("{name} API key"),
-                    SettingField::input(|_| SharedString::default(), move |key: SharedString, cx| {
-                        if !key.trim().is_empty() {
-                            if let Err(err) = auth::save_key(id, &key) {
-                                eprintln!("treehouse: couldn't save the {id} key: {err}");
-                            }
-                            cx.refresh_windows();
-                        }
-                    }),
-                )
-                .description("Paste a key and press Enter. It replaces the stored key.")
-            }).collect::<Vec<_>>()),
+            SettingGroup::new().title("API keys").items(
+                PROVIDERS
+                    .iter()
+                    .map(|&(id, name, _)| {
+                        SettingItem::new(
+                            format!("{name} API key"),
+                            SettingField::input(
+                                |_| SharedString::default(),
+                                move |key: SharedString, cx| {
+                                    if !key.trim().is_empty() {
+                                        if let Err(err) = auth::save_key(id, &key) {
+                                            eprintln!(
+                                                "treehouse: couldn't save the {id} key: {err}"
+                                            );
+                                        }
+                                        cx.refresh_windows();
+                                    }
+                                },
+                            ),
+                        )
+                        .description("Paste a key and press Enter. It replaces the stored key.")
+                    })
+                    .collect::<Vec<_>>(),
+            ),
         )
 }
 
-fn provider_row(id: &'static str, name: &'static str, var: &'static str, cx: &mut App) -> AnyElement {
+fn provider_row(
+    id: &'static str,
+    name: &'static str,
+    var: &'static str,
+    cx: &mut App,
+) -> AnyElement {
     let p = palette(cx);
     let credential = auth::credential(id);
     let (detail, status, color): (String, String, Hsla) = match &credential {
         Credential::Stored(masked) => (masked.clone(), "Saved in Pi's auth.json".into(), p.green),
-        Credential::OAuth => ("Signed in with Pi".into(), "OAuth credential".into(), p.green),
-        Credential::Environment(var) => (format!("${var}"), "Read from the environment".into(), p.green),
-        Credential::Missing => (format!("Not set up · or set ${var}"), "No key".into(), p.subtext0),
+        Credential::OAuth => (
+            "Signed in with Pi".into(),
+            "OAuth credential".into(),
+            p.green,
+        ),
+        Credential::Environment(var) => (
+            format!("${var}"),
+            "Read from the environment".into(),
+            p.green,
+        ),
+        Credential::Missing => (
+            "Not set up".into(),
+            format!("Paste a key below, or set ${var}"),
+            p.subtext0,
+        ),
     };
     let removable = matches!(credential, Credential::Stored(_) | Credential::OAuth);
     h_flex()
@@ -107,7 +143,13 @@ fn provider_row(id: &'static str, name: &'static str, var: &'static str, cx: &mu
             v_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().font_family(MONO).text_size(px(12.5)).text_color(p.subtext1).child(detail))
+                .child(
+                    div()
+                        .font_family(MONO)
+                        .text_size(px(12.5))
+                        .text_color(p.subtext1)
+                        .child(detail),
+                )
                 .child(
                     h_flex()
                         .gap(px(6.))
@@ -139,7 +181,12 @@ fn defaults_page() -> SettingPage {
         .collect();
     let approvals: Vec<(SharedString, SharedString)> = ApprovalMode::ALL
         .iter()
-        .map(|m| (SharedString::from(format!("{m:?}")), SharedString::from(m.label())))
+        .map(|m| {
+            (
+                SharedString::from(format!("{m:?}")),
+                SharedString::from(m.label()),
+            )
+        })
         .collect();
     let tools = TOOLS.iter().map(|&tool| {
         SettingItem::new(
@@ -226,8 +273,13 @@ fn approvals_page() -> SettingPage {
         .group(
             SettingGroup::new()
                 .title("Always allowed")
-                .item(SettingItem::render(|_, _, cx| allowed_list(cx)).keywords(["pattern", "allow", "bash"]))
-                .footer(|_, _| "Added with \"Always allow\" on a bash approval. Use * as a wildcard."),
+                .item(
+                    SettingItem::render(|_, _, cx| allowed_list(cx))
+                        .keywords(["pattern", "allow", "bash"]),
+                )
+                .footer(
+                    |_, _| "Added with \"Always allow\" on a bash approval. Use * as a wildcard.",
+                ),
         )
         .group(
             SettingGroup::new()
@@ -262,7 +314,12 @@ fn allowed_list(cx: &mut App) -> AnyElement {
     v_flex()
         .w_full()
         .when(allowed.is_empty(), |this| {
-            this.child(div().text_size(px(13.)).text_color(p.subtext0).child("Nothing yet."))
+            this.child(
+                div()
+                    .text_size(px(13.))
+                    .text_color(p.subtext0)
+                    .child("Nothing yet."),
+            )
         })
         .children(allowed.into_iter().enumerate().map(|(ix, allowed)| {
             let scope = allowed
@@ -275,7 +332,12 @@ fn allowed_list(cx: &mut App) -> AnyElement {
             h_flex()
                 .h(px(38.))
                 .gap_3()
-                .child(div().font_family(MONO).text_size(px(12.5)).child(pattern.clone()))
+                .child(
+                    div()
+                        .font_family(MONO)
+                        .text_size(px(12.5))
+                        .child(pattern.clone()),
+                )
                 .child(div().flex_1())
                 .child(div().text_size(px(12.)).text_color(p.subtext0).child(scope))
                 .child(
@@ -304,7 +366,9 @@ fn worktrees_page() -> SettingPage {
                     "Location",
                     SettingField::input(
                         |cx| Config::global(cx).worktree_location.clone().into(),
-                        |v: SharedString, cx| Config::update(cx, |c| c.worktree_location = v.to_string()),
+                        |v: SharedString, cx| {
+                            Config::update(cx, |c| c.worktree_location = v.to_string())
+                        },
                     ),
                 )
                 .description("Where new worktrees go. {project} and {branch} are filled in."),
@@ -313,15 +377,21 @@ fn worktrees_page() -> SettingPage {
                 SettingItem::new(
                     "Compare against",
                     SettingField::dropdown(
-                        opts(&[("created_from", "The branch it was created from"), ("origin_main", "origin/main")]),
+                        opts(&[
+                            ("created_from", "The branch it was created from"),
+                            ("origin_main", "origin/main"),
+                        ]),
                         |cx| match Config::global(cx).compare_base {
                             CompareBase::CreatedFrom => "created_from".into(),
                             CompareBase::OriginMain => "origin_main".into(),
                         },
                         |v: SharedString, cx| {
                             Config::update(cx, |c| {
-                                c.compare_base =
-                                    if v == "origin_main" { CompareBase::OriginMain } else { CompareBase::CreatedFrom }
+                                c.compare_base = if v == "origin_main" {
+                                    CompareBase::OriginMain
+                                } else {
+                                    CompareBase::CreatedFrom
+                                }
                             })
                         },
                     ),
@@ -333,7 +403,9 @@ fn worktrees_page() -> SettingPage {
                     "Setup command",
                     SettingField::input(
                         |cx| Config::global(cx).setup_command.clone().into(),
-                        |v: SharedString, cx| Config::update(cx, |c| c.setup_command = v.to_string()),
+                        |v: SharedString, cx| {
+                            Config::update(cx, |c| c.setup_command = v.to_string())
+                        },
                     ),
                 )
                 .description("Runs once after a worktree is created, e.g. npm install"),
@@ -362,7 +434,9 @@ fn worktrees_page() -> SettingPage {
                         .child(
                             v_flex()
                                 .child(div().font_medium().child("Commit author"))
-                                .child(div().text_size(px(12.)).text_color(p.subtext0).child("Read from git config user.name; can differ per project")),
+                                .child(div().text_size(px(12.)).text_color(p.subtext0).child(
+                                    "Read from git config user.name; can differ per project",
+                                )),
                         )
                         .child(name)
                 })
@@ -378,7 +452,11 @@ fn appearance_page() -> SettingPage {
                 SettingItem::new(
                     "Theme",
                     SettingField::dropdown(
-                        opts(&[("mocha", "Mocha"), ("latte", "Latte"), ("system", "Match system")]),
+                        opts(&[
+                            ("mocha", "Mocha"),
+                            ("latte", "Latte"),
+                            ("system", "Match system"),
+                        ]),
                         |cx| match Config::global(cx).theme {
                             ThemeChoice::Mocha => "mocha".into(),
                             ThemeChoice::Latte => "latte".into(),

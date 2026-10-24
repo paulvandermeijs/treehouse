@@ -27,16 +27,6 @@ pub enum AgentStatus {
 }
 
 impl AgentStatus {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::NeedsInput => "Needs input",
-            Self::Failed => "Failed",
-            Self::Working => "Working",
-            Self::Finished => "Finished",
-            Self::Idle => "Idle",
-        }
-    }
-
     /// A worktree shows its most urgent status, so a collapsed worktree
     /// still says a sub-agent is waiting.
     pub fn most_urgent(statuses: impl IntoIterator<Item = AgentStatus>) -> AgentStatus {
@@ -47,12 +37,7 @@ impl AgentStatus {
 #[derive(Clone, Debug)]
 pub enum SessionKind {
     Worktree,
-    SubAgent {
-        title: SharedString,
-        task: String,
-        /// The parent's `subagent` tool call this sub-agent answers.
-        tool_call_id: String,
-    },
+    SubAgent { title: SharedString, task: String },
 }
 
 /// A tool call waiting for the user's decision.
@@ -89,7 +74,12 @@ impl ModelInfo {
 
 pub enum SessionEvent {
     /// The parent asked for a sub-agent; the workspace starts it.
-    SubAgentRequested { request_id: String, tool_call_id: String, title: String, task: String },
+    SubAgentRequested {
+        request_id: String,
+        tool_call_id: String,
+        title: String,
+        task: String,
+    },
     /// A turn ended; the worktree's diff may have changed.
     TurnEnded,
     StatusChanged,
@@ -137,7 +127,11 @@ impl Session {
             viewed: true,
             model: model.and_then(|m| {
                 let (provider, id) = m.split_once('/')?;
-                Some(ModelInfo { provider: provider.into(), id: id.into(), context_window: None })
+                Some(ModelInfo {
+                    provider: provider.into(),
+                    id: id.into(),
+                    context_window: None,
+                })
             }),
             models: Vec::new(),
             thinking: config.thinking.clone(),
@@ -196,7 +190,10 @@ impl Session {
     }
 
     pub fn tool_call_count(&self) -> usize {
-        self.items().iter().filter(|item| matches!(item, Item::Tool(_))).count()
+        self.items()
+            .iter()
+            .filter(|item| matches!(item, Item::Tool(_)))
+            .count()
     }
 
     /// The rendered markdown of an assistant text item.
@@ -220,7 +217,10 @@ impl Session {
         let extension = match crate::pi::extension_path() {
             Ok(path) => path,
             Err(err) => {
-                self.fail_to_start(format!("Couldn't write the Treehouse extension for Pi: {err}"), cx);
+                self.fail_to_start(
+                    format!("Couldn't write the Treehouse extension for Pi: {err}"),
+                    cx,
+                );
                 return false;
             }
         };
@@ -257,7 +257,8 @@ impl Session {
     }
 
     fn fail_to_start(&mut self, error: String, cx: &mut Context<Self>) {
-        self.transcript.push_error(format!("Couldn't start Pi. {error}"));
+        self.transcript
+            .push_error(format!("Couldn't start Pi. {error}"));
         self.start_error = Some(error);
         cx.emit(SessionEvent::StatusChanged);
         cx.notify();
@@ -293,7 +294,8 @@ impl Session {
         if let Some(client) = &self.client {
             client.send(command::set_model(&model.provider, &model.id));
             if changed {
-                self.transcript.push_notice(format!("Model changed to {}", model.id));
+                self.transcript
+                    .push_notice(format!("Model changed to {}", model.id));
             }
         }
         cx.notify();
@@ -309,10 +311,10 @@ impl Session {
 
     /// Fetches the model list, starting Pi if it isn't running yet.
     pub fn load_models(&mut self, cx: &mut Context<Self>) {
-        if self.ensure_started(cx) {
-            if let Some(client) = &self.client {
-                client.send(command::get_available_models());
-            }
+        if self.ensure_started(cx)
+            && let Some(client) = &self.client
+        {
+            client.send(command::get_available_models());
         }
     }
 
@@ -323,8 +325,17 @@ impl Session {
     }
 
     /// The user decided on a pending tool call.
-    pub fn resolve_approval(&mut self, request_id: &str, choice: ApprovalChoice, cx: &mut Context<Self>) {
-        let Some(ix) = self.approvals.iter().position(|a| a.request_id == request_id) else {
+    pub fn resolve_approval(
+        &mut self,
+        request_id: &str,
+        choice: ApprovalChoice,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(ix) = self
+            .approvals
+            .iter()
+            .position(|a| a.request_id == request_id)
+        else {
             return;
         };
         let approval = self.approvals.remove(ix);
@@ -334,7 +345,10 @@ impl Session {
                 let pattern = pattern.clone();
                 let project = self.project.clone();
                 Config::update(cx, |config| {
-                    let allowed = AllowedPattern { pattern, project: Some(project) };
+                    let allowed = AllowedPattern {
+                        pattern,
+                        project: Some(project),
+                    };
                     if !config.allowed.contains(&allowed) {
                         config.allowed.push(allowed);
                     }
@@ -355,7 +369,12 @@ impl Session {
     }
 
     /// A sub-agent this session started has reported back, or was stopped.
-    pub fn finish_subagent(&mut self, request_id: &str, report: Option<String>, cx: &mut Context<Self>) {
+    pub fn finish_subagent(
+        &mut self,
+        request_id: &str,
+        report: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
         self.subagent_requests.remove(request_id);
         self.answer(request_id, report.as_deref());
         cx.notify();
@@ -369,10 +388,15 @@ impl Session {
                 self.client = None;
                 let was_running = self.is_running();
                 if was_running || code.is_some_and(|c| c != 0) {
-                    let detail = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("");
+                    let detail = stderr
+                        .lines()
+                        .rev()
+                        .find(|l| !l.trim().is_empty())
+                        .unwrap_or("");
                     self.transcript
                         .push_error(format!("Pi exited (code {}). {detail}", code.unwrap_or(-1)));
-                    self.transcript.apply(&serde_json::json!({"type": "agent_settled"}));
+                    self.transcript
+                        .apply(&serde_json::json!({"type": "agent_settled"}));
                 }
                 self.subagent_requests.clear();
                 self.approvals.clear();
@@ -413,9 +437,10 @@ impl Session {
             }
             "get_session_stats" => {
                 self.context_tokens = data["contextUsage"]["tokens"].as_u64();
-                if let (Some(model), Some(window)) =
-                    (self.model.as_mut(), data["contextUsage"]["contextWindow"].as_u64())
-                {
+                if let (Some(model), Some(window)) = (
+                    self.model.as_mut(),
+                    data["contextUsage"]["contextWindow"].as_u64(),
+                ) {
                     model.context_window = Some(window);
                 }
             }
@@ -443,10 +468,10 @@ impl Session {
                 }
                 Effect::None => {}
             }
-            if event.get("type").and_then(Value::as_str) == Some("message_update") {
-                if let Some(tokens) = event["usage"]["totalTokens"].as_u64().filter(|t| *t > 0) {
-                    self.context_tokens = Some(tokens);
-                }
+            if event.get("type").and_then(Value::as_str) == Some("message_update")
+                && let Some(tokens) = event["usage"]["totalTokens"].as_u64().filter(|t| *t > 0)
+            {
+                self.context_tokens = Some(tokens);
             }
         }
         if self.status() != before {
@@ -503,7 +528,8 @@ impl Session {
             }
             ("input", "treehouse:subagent") => {
                 let tool_call_id = str_field(&payload, "toolCallId");
-                self.subagent_requests.insert(request_id.clone(), tool_call_id.clone());
+                self.subagent_requests
+                    .insert(request_id.clone(), tool_call_id.clone());
                 cx.emit(SessionEvent::SubAgentRequested {
                     request_id,
                     tool_call_id,
@@ -528,10 +554,15 @@ impl Session {
     /// Streams new assistant text into its markdown view.
     fn sync_texts(&mut self, cx: &mut Context<Self>) {
         for item in self.transcript.items() {
-            let Item::Text { id, text, .. } = item else { continue };
+            let Item::Text { id, text, .. } = item else {
+                continue;
+            };
             match self.texts.get_mut(id) {
                 Some((state, synced)) => {
-                    if text.len() > *synced && text.starts_with(&text[..*synced]) && text.is_char_boundary(*synced) {
+                    if text.len() > *synced
+                        && text.starts_with(&text[..*synced])
+                        && text.is_char_boundary(*synced)
+                    {
                         let delta = text[*synced..].to_string();
                         state.update(cx, |state, cx| state.push_str(&delta, cx));
                         *synced = text.len();
@@ -565,7 +596,10 @@ mod tests {
     fn most_urgent_status_wins() {
         use AgentStatus::*;
         assert_eq!(AgentStatus::most_urgent([Idle, Working, Finished]), Working);
-        assert_eq!(AgentStatus::most_urgent([Working, NeedsInput, Failed]), NeedsInput);
+        assert_eq!(
+            AgentStatus::most_urgent([Working, NeedsInput, Failed]),
+            NeedsInput
+        );
         assert_eq!(AgentStatus::most_urgent([Finished, Failed]), Failed);
         assert_eq!(AgentStatus::most_urgent([]), Idle);
     }

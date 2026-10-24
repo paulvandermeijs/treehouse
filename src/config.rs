@@ -132,7 +132,8 @@ mod tests {
 
     #[test]
     fn old_files_fill_in_defaults() {
-        let config: Config = serde_json::from_str(r#"{"theme":"latte","projects":["/code/app"]}"#).unwrap();
+        let config: Config =
+            serde_json::from_str(r#"{"theme":"latte","projects":["/code/app"]}"#).unwrap();
         assert_eq!(config.theme, ThemeChoice::Latte);
         assert_eq!(config.projects, [PathBuf::from("/code/app")]);
         assert_eq!(config.approval, ApprovalMode::AskBeforeBash);

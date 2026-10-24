@@ -55,7 +55,6 @@ pub enum PiMessage {
 
 #[derive(Debug, Clone)]
 pub struct Response {
-    pub id: Option<String>,
     pub command: String,
     pub success: bool,
     pub data: Value,
@@ -71,11 +70,16 @@ pub fn parse_line(line: &str) -> Option<PiMessage> {
     let value: Value = serde_json::from_str(line).ok()?;
     if value.get("type").and_then(Value::as_str) == Some("response") {
         return Some(PiMessage::Response(Response {
-            id: value.get("id").and_then(Value::as_str).map(str::to_owned),
             command: str_field(&value, "command"),
-            success: value.get("success").and_then(Value::as_bool).unwrap_or(false),
+            success: value
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
             data: value.get("data").cloned().unwrap_or(Value::Null),
-            error: value.get("error").and_then(Value::as_str).map(str::to_owned),
+            error: value
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
         }));
     }
     Some(PiMessage::Event(value))
@@ -129,7 +133,9 @@ impl PiClient {
                     tail.push_str(&String::from_utf8_lossy(&buf[..n]));
                     if tail.len() > 8192 {
                         let cut = tail.len() - 8192;
-                        let cut = (cut..tail.len()).find(|i| tail.is_char_boundary(*i)).unwrap_or(0);
+                        let cut = (cut..tail.len())
+                            .find(|i| tail.is_char_boundary(*i))
+                            .unwrap_or(0);
                         tail.drain(..cut);
                     }
                 }
@@ -150,10 +156,10 @@ impl PiClient {
                         Ok(_) => {
                             let text = String::from_utf8_lossy(&line);
                             let text = text.strip_suffix('\n').unwrap_or(&text);
-                            if let Some(message) = parse_line(text) {
-                                if tx.send_blocking(message).is_err() {
-                                    break;
-                                }
+                            if let Some(message) = parse_line(text)
+                                && tx.send_blocking(message).is_err()
+                            {
+                                break;
                             }
                         }
                     }
@@ -187,7 +193,9 @@ impl PiClient {
     /// Answers an `extension_ui_request` dialog.
     pub fn respond_ui(&self, request_id: &str, value: Option<&str>) {
         let line = match value {
-            Some(value) => json!({"type": "extension_ui_response", "id": request_id, "value": value}),
+            Some(value) => {
+                json!({"type": "extension_ui_response", "id": request_id, "value": value})
+            }
             None => json!({"type": "extension_ui_response", "id": request_id, "cancelled": true}),
         };
         self.write(&line);
@@ -198,7 +206,11 @@ impl PiClient {
         if let Some(pipe) = stdin.as_mut() {
             let mut line = value.to_string();
             line.push('\n');
-            if pipe.write_all(line.as_bytes()).and_then(|_| pipe.flush()).is_err() {
+            if pipe
+                .write_all(line.as_bytes())
+                .and_then(|_| pipe.flush())
+                .is_err()
+            {
                 *stdin = None;
             }
         }
@@ -258,9 +270,6 @@ pub mod command {
     pub fn set_thinking_level(level: &str) -> Value {
         json!({"type": "set_thinking_level", "level": level})
     }
-    pub fn get_last_assistant_text() -> Value {
-        json!({"type": "get_last_assistant_text"})
-    }
 }
 
 #[cfg(test)]
@@ -273,7 +282,6 @@ mod tests {
         let Some(PiMessage::Response(response)) = parse_line(line) else {
             panic!("expected a response");
         };
-        assert_eq!(response.id.as_deref(), Some("th-1"));
         assert_eq!(response.command, "set_model");
         assert!(!response.success);
         assert_eq!(response.error.as_deref(), Some("Model not found"));
@@ -300,8 +308,17 @@ mod tests {
         assert_eq!(
             options.args(),
             [
-                "--mode", "rpc", "--model", "anthropic/claude-opus-4-5", "--thinking", "high",
-                "--tools", "read,bash", "-e", "/x/treehouse.ts", "--no-session"
+                "--mode",
+                "rpc",
+                "--model",
+                "anthropic/claude-opus-4-5",
+                "--thinking",
+                "high",
+                "--tools",
+                "read,bash",
+                "-e",
+                "/x/treehouse.ts",
+                "--no-session"
             ]
         );
     }

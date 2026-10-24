@@ -89,7 +89,11 @@ impl Policy<'_> {
         }
 
         if call.tool_name == "bash" {
-            let command = call.input.get("command").and_then(Value::as_str).unwrap_or("");
+            let command = call
+                .input
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             if self.always_ask.deleting && is_deleting(command) {
                 return Decision::Ask;
             }
@@ -136,10 +140,10 @@ pub fn pattern_matches(pattern: &str, command: &str) -> bool {
     let command = command.trim();
     let pattern = pattern.trim();
     // "cargo test *" should also match a bare "cargo test".
-    if let Some(prefix) = pattern.strip_suffix(" *") {
-        if command == prefix {
-            return true;
-        }
+    if let Some(prefix) = pattern.strip_suffix(" *")
+        && command == prefix
+    {
+        return true;
     }
     glob(pattern.as_bytes(), command.as_bytes())
 }
@@ -211,7 +215,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn decide(mode: ApprovalMode, allowed: &[AllowedPattern], tool: &str, input: Value) -> Decision {
+    fn decide(
+        mode: ApprovalMode,
+        allowed: &[AllowedPattern],
+        tool: &str,
+        input: Value,
+    ) -> Decision {
         let always_ask = AlwaysAsk::default();
         let policy = Policy {
             mode,
@@ -229,52 +238,127 @@ mod tests {
     #[test]
     fn asks_before_bash_only() {
         let mode = ApprovalMode::AskBeforeBash;
-        assert_eq!(decide(mode, &[], "bash", json!({"command": "ls"})), Decision::Ask);
-        assert_eq!(decide(mode, &[], "read", json!({"path": "src/main.rs"})), Decision::Allow);
-        assert_eq!(decide(mode, &[], "edit", json!({"path": "src/main.rs"})), Decision::Allow);
+        assert_eq!(
+            decide(mode, &[], "bash", json!({"command": "ls"})),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(mode, &[], "read", json!({"path": "src/main.rs"})),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(mode, &[], "edit", json!({"path": "src/main.rs"})),
+            Decision::Allow
+        );
     }
 
     #[test]
     fn every_tool_and_never() {
         let read = json!({"path": "src/main.rs"});
-        assert_eq!(decide(ApprovalMode::AskEveryTool, &[], "read", read.clone()), Decision::Ask);
-        assert_eq!(decide(ApprovalMode::DontAsk, &[], "read", read), Decision::Allow);
-        assert_eq!(decide(ApprovalMode::DontAsk, &[], "bash", json!({"command": "ls"})), Decision::Allow);
+        assert_eq!(
+            decide(ApprovalMode::AskEveryTool, &[], "read", read.clone()),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(ApprovalMode::DontAsk, &[], "read", read),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(ApprovalMode::DontAsk, &[], "bash", json!({"command": "ls"})),
+            Decision::Allow
+        );
     }
 
     #[test]
     fn allowed_patterns_respect_project() {
         let allowed = [
-            AllowedPattern { pattern: "cargo test *".into(), project: None },
-            AllowedPattern { pattern: "npm run *".into(), project: Some("/code/site".into()) },
+            AllowedPattern {
+                pattern: "cargo test *".into(),
+                project: None,
+            },
+            AllowedPattern {
+                pattern: "npm run *".into(),
+                project: Some("/code/site".into()),
+            },
         ];
         let mode = ApprovalMode::AskBeforeBash;
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "cargo test -p diff"})), Decision::Allow);
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "cargo test"})), Decision::Allow);
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "npm run dev"})), Decision::Ask);
+        assert_eq!(
+            decide(
+                mode,
+                &allowed,
+                "bash",
+                json!({"command": "cargo test -p diff"})
+            ),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(mode, &allowed, "bash", json!({"command": "cargo test"})),
+            Decision::Allow
+        );
+        assert_eq!(
+            decide(mode, &allowed, "bash", json!({"command": "npm run dev"})),
+            Decision::Ask
+        );
     }
 
     #[test]
     fn dangerous_commands_always_ask() {
-        let allowed = [AllowedPattern { pattern: "*".into(), project: None }];
+        let allowed = [AllowedPattern {
+            pattern: "*".into(),
+            project: None,
+        }];
         let mode = ApprovalMode::DontAsk;
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "rm -rf target"})), Decision::Ask);
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "cd x && git clean -fd"})), Decision::Ask);
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "git push origin main"})), Decision::Ask);
-        assert_eq!(decide(mode, &allowed, "bash", json!({"command": "git status"})), Decision::Allow);
+        assert_eq!(
+            decide(mode, &allowed, "bash", json!({"command": "rm -rf target"})),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(
+                mode,
+                &allowed,
+                "bash",
+                json!({"command": "cd x && git clean -fd"})
+            ),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(
+                mode,
+                &allowed,
+                "bash",
+                json!({"command": "git push origin main"})
+            ),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(mode, &allowed, "bash", json!({"command": "git status"})),
+            Decision::Allow
+        );
     }
 
     #[test]
     fn files_outside_the_worktree_always_ask() {
         let mode = ApprovalMode::DontAsk;
-        assert_eq!(decide(mode, &[], "write", json!({"path": "../../other/file"})), Decision::Ask);
-        assert_eq!(decide(mode, &[], "read", json!({"path": "/etc/hosts"})), Decision::Ask);
-        assert_eq!(decide(mode, &[], "read", json!({"path": "./src/../Cargo.toml"})), Decision::Allow);
+        assert_eq!(
+            decide(mode, &[], "write", json!({"path": "../../other/file"})),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(mode, &[], "read", json!({"path": "/etc/hosts"})),
+            Decision::Ask
+        );
+        assert_eq!(
+            decide(mode, &[], "read", json!({"path": "./src/../Cargo.toml"})),
+            Decision::Allow
+        );
     }
 
     #[test]
     fn proposes_patterns_from_two_words() {
-        assert_eq!(propose_pattern("cargo add gpui-kit@0.4 --features editor"), "cargo add *");
+        assert_eq!(
+            propose_pattern("cargo add gpui-kit@0.4 --features editor"),
+            "cargo add *"
+        );
         assert_eq!(propose_pattern("ls"), "ls *");
         assert!(pattern_matches("git status", "git status"));
         assert!(!pattern_matches("git status", "git status --short"));

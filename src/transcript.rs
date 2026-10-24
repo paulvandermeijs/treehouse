@@ -13,15 +13,36 @@ use crate::pi::rpc::str_field;
 pub struct ItemId(pub u64);
 
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum Item {
-    User { id: ItemId, text: String },
-    Text { id: ItemId, text: String, streaming: bool },
-    Thinking { id: ItemId, text: String, streaming: bool, started: Instant, elapsed: Option<Duration> },
+    User {
+        id: ItemId,
+        text: String,
+    },
+    Text {
+        id: ItemId,
+        text: String,
+        streaming: bool,
+    },
+    Thinking {
+        id: ItemId,
+        text: String,
+        streaming: bool,
+        started: Instant,
+        elapsed: Option<Duration>,
+    },
     Tool(ToolCall),
     /// A centred line for events that change the session but aren't messages.
-    Notice { id: ItemId, text: String },
+    Notice {
+        id: ItemId,
+        text: String,
+    },
     /// A model or provider error, shown in a red-tinted box.
-    Error { id: ItemId, text: String, retrying: bool },
+    Error {
+        id: ItemId,
+        text: String,
+        retrying: bool,
+    },
 }
 
 impl Item {
@@ -94,11 +115,19 @@ impl ToolCall {
     /// The unified patch of an edit, or of a write that replaced a file.
     pub fn patch(&self) -> Option<String> {
         match self.name.as_str() {
-            "edit" => self.details.get("patch").and_then(Value::as_str).map(str::to_owned),
+            "edit" => self
+                .details
+                .get("patch")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
             "write" => {
                 let path = self.path()?;
                 let new = self.args.get("content").and_then(Value::as_str)?;
-                Some(crate::git::unified_patch(path, self.previous_content.as_deref(), new))
+                Some(crate::git::unified_patch(
+                    path,
+                    self.previous_content.as_deref(),
+                    new,
+                ))
             }
             _ => None,
         }
@@ -162,12 +191,19 @@ impl Transcript {
 
     pub fn push_notice(&mut self, text: impl Into<String>) {
         let id = self.alloc();
-        self.items.push(Item::Notice { id, text: text.into() });
+        self.items.push(Item::Notice {
+            id,
+            text: text.into(),
+        });
     }
 
     pub fn push_error(&mut self, text: impl Into<String>) {
         let id = self.alloc();
-        self.items.push(Item::Error { id, text: text.into(), retrying: false });
+        self.items.push(Item::Error {
+            id,
+            text: text.into(),
+            retrying: false,
+        });
     }
 
     fn alloc(&mut self) -> ItemId {
@@ -177,7 +213,10 @@ impl Transcript {
     }
 
     fn block(&self, index: u64) -> Option<ItemId> {
-        self.blocks.iter().find(|(i, _)| *i == index).map(|(_, id)| *id)
+        self.blocks
+            .iter()
+            .find(|(i, _)| *i == index)
+            .map(|(_, id)| *id)
     }
 
     fn item_mut(&mut self, id: ItemId) -> Option<&mut Item> {
@@ -204,7 +243,11 @@ impl Transcript {
     }
 
     pub fn apply(&mut self, event: &Value) -> Effect {
-        match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+        match event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "agent_start" => {
                 self.run = RunState::Running;
                 Effect::None
@@ -280,7 +323,10 @@ impl Transcript {
                     .and_then(Value::as_u64)
                     .map(Duration::from_millis)
                     .or_else(|| Some(tool.started.elapsed()));
-                let is_error = event.get("isError").and_then(Value::as_bool).unwrap_or(false);
+                let is_error = event
+                    .get("isError")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
                 tool.status = match (is_error, tool.status) {
                     (true, ToolStatus::Denied) => ToolStatus::Denied,
                     (true, _) if tool.output.contains("Command aborted") => ToolStatus::Stopped,
@@ -297,7 +343,9 @@ impl Transcript {
                 let id = self.alloc();
                 self.items.push(Item::Error {
                     id,
-                    text: format!("Request failed: {error}. Retrying in {delay}s (attempt {attempt})."),
+                    text: format!(
+                        "Request failed: {error}. Retrying in {delay}s (attempt {attempt})."
+                    ),
                     retrying: true,
                 });
                 Effect::None
@@ -320,7 +368,10 @@ impl Transcript {
                             format_tokens(before),
                             format_tokens(after)
                         ),
-                        None => format!("Context compacted · {} tokens before", format_tokens(before)),
+                        None => format!(
+                            "Context compacted · {} tokens before",
+                            format_tokens(before)
+                        ),
                     };
                     self.push_notice(text);
                 } else if let Some(error) = event.get("errorMessage").and_then(Value::as_str) {
@@ -348,14 +399,21 @@ impl Transcript {
     fn settle(&mut self) -> Effect {
         self.finish_streaming_blocks();
         for item in self.items.iter_mut() {
-            if let Item::Tool(tool) = item {
-                if matches!(tool.status, ToolStatus::Running | ToolStatus::Preparing | ToolStatus::AwaitingApproval) {
-                    tool.status = ToolStatus::Stopped;
-                }
+            if let Item::Tool(tool) = item
+                && matches!(
+                    tool.status,
+                    ToolStatus::Running | ToolStatus::Preparing | ToolStatus::AwaitingApproval
+                )
+            {
+                tool.status = ToolStatus::Stopped;
             }
         }
         let failed = matches!(self.items.last(), Some(Item::Error { .. }));
-        self.run = if failed { RunState::Failed } else { RunState::Idle };
+        self.run = if failed {
+            RunState::Failed
+        } else {
+            RunState::Idle
+        };
         Effect::Settled
     }
 
@@ -363,7 +421,12 @@ impl Transcript {
         for item in self.items.iter_mut() {
             match item {
                 Item::Text { streaming, .. } => *streaming = false,
-                Item::Thinking { streaming, started, elapsed, .. } if *streaming => {
+                Item::Thinking {
+                    streaming,
+                    started,
+                    elapsed,
+                    ..
+                } if *streaming => {
                     *streaming = false;
                     *elapsed = Some(started.elapsed());
                 }
@@ -373,11 +436,22 @@ impl Transcript {
     }
 
     fn apply_assistant_event(&mut self, event: &Value) {
-        let index = event.get("contentIndex").and_then(Value::as_u64).unwrap_or(0);
-        match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+        let index = event
+            .get("contentIndex")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        match event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+        {
             "text_start" => {
                 let id = self.alloc();
-                self.items.push(Item::Text { id, text: String::new(), streaming: true });
+                self.items.push(Item::Text {
+                    id,
+                    text: String::new(),
+                    streaming: true,
+                });
                 self.blocks.push((index, id));
             }
             "text_delta" => {
@@ -385,7 +459,9 @@ impl Transcript {
                 let id = match self.block(index) {
                     Some(id) => id,
                     None => {
-                        self.apply_assistant_event(&serde_json::json!({"type": "text_start", "contentIndex": index}));
+                        self.apply_assistant_event(
+                            &serde_json::json!({"type": "text_start", "contentIndex": index}),
+                        );
                         self.block(index).unwrap()
                     }
                 };
@@ -395,8 +471,14 @@ impl Transcript {
             }
             "text_end" => {
                 if let Some(id) = self.block(index) {
-                    let content = event.get("content").and_then(Value::as_str).map(str::to_owned);
-                    if let Some(Item::Text { text, streaming, .. }) = self.item_mut(id) {
+                    let content = event
+                        .get("content")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned);
+                    if let Some(Item::Text {
+                        text, streaming, ..
+                    }) = self.item_mut(id)
+                    {
                         if let Some(content) = content {
                             *text = content;
                         }
@@ -417,18 +499,23 @@ impl Transcript {
             }
             "thinking_delta" => {
                 let delta = str_field(event, "delta");
-                if let Some(id) = self.block(index) {
-                    if let Some(Item::Thinking { text, .. }) = self.item_mut(id) {
-                        text.push_str(&delta);
-                    }
+                if let Some(id) = self.block(index)
+                    && let Some(Item::Thinking { text, .. }) = self.item_mut(id)
+                {
+                    text.push_str(&delta);
                 }
             }
             "thinking_end" => {
-                if let Some(id) = self.block(index) {
-                    if let Some(Item::Thinking { streaming, started, elapsed, .. }) = self.item_mut(id) {
-                        *streaming = false;
-                        *elapsed = Some(started.elapsed());
-                    }
+                if let Some(id) = self.block(index)
+                    && let Some(Item::Thinking {
+                        streaming,
+                        started,
+                        elapsed,
+                        ..
+                    }) = self.item_mut(id)
+                {
+                    *streaming = false;
+                    *elapsed = Some(started.elapsed());
                 }
             }
             "toolcall_start" => {
@@ -454,7 +541,11 @@ impl Transcript {
 
 fn resolve(cwd: &Path, path: &str) -> PathBuf {
     let path = Path::new(path);
-    if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) }
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
 }
 
 /// The text of a user message's content, which is a string or blocks.
@@ -483,7 +574,11 @@ pub fn content_text(content: &Value) -> String {
 pub fn format_tokens(tokens: u64) -> String {
     if tokens >= 1000 {
         let k = tokens as f64 / 1000.0;
-        if k >= 100.0 { format!("{k:.0}k") } else { format!("{k:.1}k") }
+        if k >= 100.0 {
+            format!("{k:.0}k")
+        } else {
+            format!("{k:.1}k")
+        }
     } else {
         tokens.to_string()
     }
@@ -541,9 +636,13 @@ mod tests {
 
         let items = t.items();
         assert!(matches!(&items[0], Item::User { text, .. } if text == "Hi"));
-        assert!(matches!(&items[1], Item::Thinking { text, streaming: false, elapsed: Some(_), .. } if text == "Hmm"));
+        assert!(
+            matches!(&items[1], Item::Thinking { text, streaming: false, elapsed: Some(_), .. } if text == "Hmm")
+        );
         assert!(matches!(&items[2], Item::Text { text, streaming: false, .. } if text == "Hello"));
-        let Item::Tool(tool) = &items[3] else { panic!("expected a tool call") };
+        let Item::Tool(tool) = &items[3] else {
+            panic!("expected a tool call")
+        };
         assert_eq!(tool.status, ToolStatus::Done);
         assert_eq!(tool.path(), Some("src/main.rs"));
         assert_eq!(tool.output, "fn main() {}");
@@ -576,7 +675,9 @@ mod tests {
         t.apply(&json!({"type": "message_end", "message": {"role": "assistant", "stopReason": "error", "errorMessage": "rate limited"}}));
         assert_eq!(t.apply(&json!({"type": "agent_settled"})), Effect::Settled);
         assert!(matches!(&t.items()[0], Item::Notice { text, .. } if text == "Stopped by you"));
-        assert!(matches!(&t.items()[1], Item::Error { text, .. } if text == "Request failed: rate limited"));
+        assert!(
+            matches!(&t.items()[1], Item::Error { text, .. } if text == "Request failed: rate limited")
+        );
         assert_eq!(t.run, RunState::Failed);
     }
 

@@ -18,7 +18,11 @@ struct Entry {
 }
 
 fn entry(label: impl Into<SharedString>, icon_name: impl Into<Icon>, action: impl Action) -> Entry {
-    Entry { label: label.into(), icon: icon(icon_name), action: Box::new(action) }
+    Entry {
+        label: label.into(),
+        icon: icon(icon_name),
+        action: Box::new(action),
+    }
 }
 
 fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
@@ -40,7 +44,11 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
                 entry("Toggle sidebar", IconName::PanelLeft, ToggleSidebar),
                 entry(
                     toggle_label(cx),
-                    if cx.theme().is_dark() { IconName::Sun } else { IconName::Moon },
+                    if cx.theme().is_dark() {
+                        IconName::Sun
+                    } else {
+                        IconName::Moon
+                    },
                     ToggleTheme,
                 ),
             ],
@@ -53,7 +61,10 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
                 entry("Stop agent", Lucide::Square, StopAgent),
             ],
         ),
-        ("App", vec![entry("Settings", IconName::Settings, OpenSettings)]),
+        (
+            "App",
+            vec![entry("Settings", IconName::Settings, OpenSettings)],
+        ),
     ]
 }
 
@@ -80,7 +91,10 @@ fn build(state: &Entity<CommandState>, window: &mut Window, cx: &mut App) -> Com
             .collect(),
     );
     let p = palette(cx);
-    let mut command = Command::new(state).bordered(false).placeholder("Type a command or search…");
+    let mut command = Command::new(state)
+        .bordered(false)
+        .max_h(px(600.))
+        .placeholder("Type a command or search…");
     for (ix, (label, entries)) in groups.into_iter().enumerate() {
         if ix > 0 {
             command = command.separator();
@@ -102,7 +116,9 @@ fn build(state: &Entity<CommandState>, window: &mut Window, cx: &mut App) -> Com
         command = command.group(group);
     }
     command.on_confirm(move |index, window, cx| {
-        let Some(action) = actions.get(index.section).and_then(|g| g.get(index.row)) else { return };
+        let Some(action) = actions.get(index.section).and_then(|g| g.get(index.row)) else {
+            return;
+        };
         let action = action.boxed_clone();
         window.close_dialog(cx);
         window.defer(cx, move |window, cx| window.dispatch_action(action, cx));

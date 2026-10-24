@@ -73,7 +73,10 @@ pub fn credential(provider: &str) -> Credential {
 
 pub fn save_key(provider: &str, key: &str) -> std::io::Result<()> {
     let mut map = read();
-    map.insert(provider.to_string(), json!({"type": "api_key", "key": key.trim()}));
+    map.insert(
+        provider.to_string(),
+        json!({"type": "api_key", "key": key.trim()}),
+    );
     write(map)
 }
 
@@ -85,14 +88,18 @@ pub fn remove(provider: &str) -> std::io::Result<()> {
 
 /// `sk-ant-api03-abc…3f9a` → `sk-ant-api03-••••••••••3f9a`.
 pub fn mask(key: &str) -> String {
-    if key.starts_with('!') {
-        return "Command: ".to_string() + &key[1..];
+    if let Some(command) = key.strip_prefix('!') {
+        return format!("Command: {command}");
     }
     let chars: Vec<char> = key.chars().collect();
     if chars.len() <= 8 {
         return "••••••••".into();
     }
-    let prefix_len = key.rfind('-').map(|i| key[..=i].chars().count()).unwrap_or(3).min(chars.len() - 4);
+    let prefix_len = key
+        .rfind('-')
+        .map(|i| key[..=i].chars().count())
+        .unwrap_or(3)
+        .min(chars.len() - 4);
     let prefix: String = chars[..prefix_len].iter().collect();
     let suffix: String = chars[chars.len() - 4..].iter().collect();
     format!("{prefix}••••••••••{suffix}")
@@ -104,7 +111,10 @@ mod tests {
 
     #[test]
     fn masks_keys() {
-        assert_eq!(mask("sk-ant-api03-abcdefghijklmnop3f9a"), "sk-ant-api03-••••••••••3f9a");
+        assert_eq!(
+            mask("sk-ant-api03-abcdefghijklmnop3f9a"),
+            "sk-ant-api03-••••••••••3f9a"
+        );
         assert_eq!(mask("short"), "••••••••");
         assert_eq!(mask("!pass show anthropic"), "Command: pass show anthropic");
     }

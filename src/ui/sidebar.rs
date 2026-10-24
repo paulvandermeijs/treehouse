@@ -1,21 +1,23 @@
 //! Projects, their worktrees and the sub-agents in each worktree.
 
+use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::PopupMenuItem;
 use gpui_kit::component::sidebar::{
     Sidebar, SidebarFooter, SidebarHeader, SidebarItem, SidebarMenu, SidebarMenuItem,
 };
 use gpui_kit::component::{ActiveTheme as _, Collapsible, IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::rc::Rc;
 
 use super::app::TreehouseApp;
 use super::{BAR_HEIGHT, SIDEBAR_WIDTH, icon, status_dot};
-use crate::actions::{CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleSidebar, ToggleTheme};
-use gpui_kit::assets::IconName as Lucide;
+use crate::actions::{
+    CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleSidebar, ToggleTheme,
+};
 use crate::theme::{palette, toggle_label};
+use gpui_kit::assets::IconName as Lucide;
 
 pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoElement {
     let p = palette(cx);
@@ -44,7 +46,12 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                     .on_click(cx.listener({
                         let child = child.clone();
                         move |app, event: &ClickEvent, window, cx| {
-                            app.open_session(child.clone(), event.modifiers().secondary(), window, cx)
+                            app.open_session(
+                                child.clone(),
+                                event.modifiers().secondary(),
+                                window,
+                                cx,
+                            )
                         }
                     }))
                     .context_menu({
@@ -54,20 +61,28 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                             let (a1, c1) = (app.clone(), child.clone());
                             let (a2, c2) = (app.clone(), child.clone());
                             let c3 = child.clone();
-                            menu.item(PopupMenuItem::new("Open in right dock").on_click(move |_, window, cx| {
-                                let _ = a1.update(cx, |app, cx| app.open_session(c1.clone(), true, window, cx));
-                            }))
+                            menu.item(PopupMenuItem::new("Open in right dock").on_click(
+                                move |_, window, cx| {
+                                    let _ = a1.update(cx, |app, cx| {
+                                        app.open_session(c1.clone(), true, window, cx)
+                                    });
+                                },
+                            ))
                             .item(PopupMenuItem::new("Stop").on_click(move |_, _, cx| {
                                 c3.update(cx, |s, cx| s.stop(cx));
                             }))
-                            .item(PopupMenuItem::new("Copy task").on_click(move |_, _, cx| {
-                                let task = match &c2.read(cx).kind {
-                                    crate::session::SessionKind::SubAgent { task, .. } => task.clone(),
-                                    _ => String::new(),
-                                };
-                                cx.write_to_clipboard(ClipboardItem::new_string(task));
-                                let _ = a2.update(cx, |_, _| {});
-                            }))
+                            .item(
+                                PopupMenuItem::new("Copy task").on_click(move |_, _, cx| {
+                                    let task = match &c2.read(cx).kind {
+                                        crate::session::SessionKind::SubAgent { task, .. } => {
+                                            task.clone()
+                                        }
+                                        _ => String::new(),
+                                    };
+                                    cx.write_to_clipboard(ClipboardItem::new_string(task));
+                                    let _ = a2.update(cx, |_, _| {});
+                                }),
+                            )
                         }
                     })
             });
@@ -94,28 +109,41 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                         let (a3, p3) = (app.clone(), path.clone());
                         let (a4, p4) = (app.clone(), path.clone());
                         let menu = menu
-                            .item(PopupMenuItem::new("Open in right dock").on_click(move |_, window, cx| {
-                                let _ = a1.update(cx, |app, cx| app.open_session(s1.clone(), true, window, cx));
-                            }))
-                            .item(PopupMenuItem::new("Show diff").action(Box::new(ShowDiff)).on_click(
+                            .item(PopupMenuItem::new("Open in right dock").on_click(
                                 move |_, window, cx| {
-                                    let _ = a2.update(cx, |app, cx| {
-                                        app.open_session(s2.clone(), false, window, cx);
-                                        app.show_diff(window, cx);
+                                    let _ = a1.update(cx, |app, cx| {
+                                        app.open_session(s1.clone(), true, window, cx)
                                     });
                                 },
                             ))
-                            .item(PopupMenuItem::new("Rename branch").on_click(move |_, window, cx| {
-                                let _ = a3.update(cx, |app, cx| app.prompt_rename_branch(p3.clone(), window, cx));
-                            }));
+                            .item(
+                                PopupMenuItem::new("Show diff")
+                                    .action(Box::new(ShowDiff))
+                                    .on_click(move |_, window, cx| {
+                                        let _ = a2.update(cx, |app, cx| {
+                                            app.open_session(s2.clone(), false, window, cx);
+                                            app.show_diff(window, cx);
+                                        });
+                                    }),
+                            )
+                            .item(PopupMenuItem::new("Rename branch").on_click(
+                                move |_, window, cx| {
+                                    let _ = a3.update(cx, |app, cx| {
+                                        app.prompt_rename_branch(p3.clone(), window, cx)
+                                    });
+                                },
+                            ));
                         if is_main_worktree {
                             menu
                         } else {
-                            menu.separator().item(PopupMenuItem::new("Delete worktree…").on_click(
-                                move |_, window, cx| {
-                                    let _ = a4.update(cx, |app, cx| app.confirm_delete_worktree(p4.clone(), window, cx));
-                                },
-                            ))
+                            menu.separator()
+                                .item(PopupMenuItem::new("Delete worktree…").on_click(
+                                    move |_, window, cx| {
+                                        let _ = a4.update(cx, |app, cx| {
+                                            app.confirm_delete_worktree(p4.clone(), window, cx)
+                                        });
+                                    },
+                                ))
                         }
                     }
                 })
@@ -124,13 +152,23 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
         let open = !project.worktrees.is_empty();
         menu = menu.child(
             SidebarMenuItem::new(project.name.clone())
-                .icon(icon(if open { IconName::FolderOpen } else { IconName::Folder }).text_color(p.subtext0))
+                .icon(
+                    icon(if open {
+                        IconName::FolderOpen
+                    } else {
+                        IconName::Folder
+                    })
+                    .text_color(p.subtext0),
+                )
                 .default_open(true)
                 .click_to_toggle(true)
                 .children(worktrees.collect::<Vec<_>>())
                 .when_some(project.error.clone(), |item, error| {
                     item.suffix(move |_, cx| {
-                        div().text_xs().text_color(palette(cx).red).child(SharedString::from(error.clone()))
+                        div()
+                            .text_xs()
+                            .text_color(palette(cx).red)
+                            .child(SharedString::from(error.clone()))
                     })
                 })
                 .context_menu({
@@ -140,17 +178,30 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                         let p2 = project_path.clone();
                         let p3 = project_path.clone();
                         let (a4, p4) = (app.clone(), project_path.clone());
-                        menu.item(PopupMenuItem::new("New worktree").on_click(move |_, window, cx| {
-                            let _ = a1.update(cx, |app, cx| app.prompt_new_worktree(Some(p1.clone()), window, cx));
-                        }))
-                        .item(PopupMenuItem::new("Reveal in file manager").on_click(move |_, _, cx| cx.reveal_path(&p2)))
+                        menu.item(PopupMenuItem::new("New worktree").on_click(
+                            move |_, window, cx| {
+                                let _ = a1.update(cx, |app, cx| {
+                                    app.prompt_new_worktree(Some(p1.clone()), window, cx)
+                                });
+                            },
+                        ))
+                        .item(
+                            PopupMenuItem::new("Reveal in file manager")
+                                .on_click(move |_, _, cx| cx.reveal_path(&p2)),
+                        )
                         .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(p3.display().to_string()))
+                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                p3.display().to_string(),
+                            ))
                         }))
                         .separator()
-                        .item(PopupMenuItem::new("Remove project").on_click(move |_, window, cx| {
-                            let _ = a4.update(cx, |app, cx| app.confirm_remove_project(p4.clone(), window, cx));
-                        }))
+                        .item(
+                            PopupMenuItem::new("Remove project").on_click(move |_, window, cx| {
+                                let _ = a4.update(cx, |app, cx| {
+                                    app.confirm_remove_project(p4.clone(), window, cx)
+                                });
+                            }),
+                        )
                     }
                 }),
         );
@@ -174,9 +225,17 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                             .small()
                             .icon(icon(IconName::PanelLeft))
                             .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(ToggleSidebar), cx)
+                            }),
                     )
-                    .child(div().px_1().font_semibold().text_size(px(13.5)).child("Treehouse"))
+                    .child(
+                        div()
+                            .px_1()
+                            .font_semibold()
+                            .text_size(px(13.5))
+                            .child("Treehouse"),
+                    )
                     .child(div().flex_1())
                     .child(
                         Button::new("command-palette")
@@ -184,15 +243,23 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                             .small()
                             .icon(icon(IconName::Search))
                             .tooltip_with_action("Command palette", &CommandPalette, None)
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(CommandPalette), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(CommandPalette), cx)
+                            }),
                     )
                     .child(
                         Button::new("toggle-theme")
                             .ghost()
                             .small()
-                            .icon(icon(if cx.theme().is_dark() { IconName::Sun } else { IconName::Moon }))
+                            .icon(icon(if cx.theme().is_dark() {
+                                IconName::Sun
+                            } else {
+                                IconName::Moon
+                            }))
                             .tooltip(toggle_label(cx))
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleTheme), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(ToggleTheme), cx)
+                            }),
                     ),
             ),
         )
@@ -213,7 +280,9 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                             .small()
                             .icon(icon(IconName::Settings))
                             .tooltip_with_action("Settings", &OpenSettings, None)
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(OpenSettings), cx)
+                            }),
                     )
                     .child(div().flex_1())
                     .when_some(connected, |this, (label, ok)| {
@@ -225,16 +294,28 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                                     h_flex()
                                         .gap(px(6.))
                                         .text_color(p.subtext0)
-                                        .child(div().size(px(7.)).rounded_full().bg(if ok { p.green } else { p.red }))
+                                        .child(div().size(px(7.)).rounded_full().bg(if ok {
+                                            p.green
+                                        } else {
+                                            p.red
+                                        }))
                                         .child(label),
                                 )
-                                .tooltip(if ok { "Provider connected" } else { "Provider needs attention" })
-                                .on_click(|_, window, cx| window.dispatch_action(Box::new(OpenSettings), cx)),
+                                .tooltip(if ok {
+                                    "Provider connected"
+                                } else {
+                                    "Provider needs attention"
+                                })
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(OpenSettings), cx)
+                                }),
                         )
                     }),
             ),
         )
 }
+
+type AddProject = dyn Fn(&mut Window, &mut App);
 
 /// The "Projects" group: its label carries the add-project button, and it
 /// shows the empty state when there are no projects yet.
@@ -243,7 +324,7 @@ struct ProjectsSection {
     menu: SidebarMenu,
     empty: bool,
     collapsed: bool,
-    on_add: Rc<dyn Fn(&mut Window, &mut App)>,
+    on_add: Rc<AddProject>,
 }
 
 impl Collapsible for ProjectsSection {
@@ -258,7 +339,12 @@ impl Collapsible for ProjectsSection {
 }
 
 impl SidebarItem for ProjectsSection {
-    fn render(self, id: impl Into<ElementId>, window: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(
+        self,
+        id: impl Into<ElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> impl IntoElement {
         let p = palette(cx);
         let on_add = self.on_add.clone();
         let label = h_flex()
@@ -285,13 +371,14 @@ impl SidebarItem for ProjectsSection {
                 .px_5()
                 .py_7()
                 .text_center()
-                .child(icon(IconName::FolderOpen).size(px(24.)).text_color(p.subtext0))
                 .child(
-                    div()
-                        .text_size(px(13.))
-                        .text_color(p.subtext0)
-                        .child("Open a folder to add your first project. Treehouse lists its worktrees here."),
+                    icon(IconName::FolderOpen)
+                        .size(px(24.))
+                        .text_color(p.subtext0),
                 )
+                .child(div().text_size(px(13.)).text_color(p.subtext0).child(
+                    "Open a folder to add your first project. Treehouse lists its worktrees here.",
+                ))
                 .child(
                     Button::new("open-folder")
                         .primary()

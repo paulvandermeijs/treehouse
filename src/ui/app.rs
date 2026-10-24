@@ -3,8 +3,9 @@
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, WindowExt as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
+use gpui_kit::component::{
+    ActiveTheme as _, IconName, Sizable as _, WindowExt as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -42,14 +43,18 @@ impl TreehouseApp {
         let workspace = cx.new(Workspace::new);
         let subscriptions = vec![
             cx.observe(&workspace, |_, _, cx| cx.notify()),
-            cx.subscribe_in(&workspace, window, |app, _, event: &WorkspaceEvent, _, cx| {
-                let WorkspaceEvent::DiffChanged(path) = event;
-                if let Some(Dock::Diff(panel)) = &app.dock {
-                    if &panel.read(cx).worktree == path {
+            cx.subscribe_in(
+                &workspace,
+                window,
+                |app, _, event: &WorkspaceEvent, _, cx| {
+                    let WorkspaceEvent::DiffChanged(path) = event;
+                    if let Some(Dock::Diff(panel)) = &app.dock
+                        && &panel.read(cx).worktree == path
+                    {
                         panel.update(cx, |panel, cx| panel.reload(cx));
                     }
-                }
-            }),
+                },
+            ),
             cx.observe_window_appearance(window, |_, window, cx| {
                 if Config::global(cx).theme == ThemeChoice::System {
                     crate::theme::apply(ThemeChoice::System, Some(window), cx);
@@ -79,6 +84,7 @@ impl TreehouseApp {
             this.open_session(session, false, window, cx);
         }
         this.focus_handle.focus(window, cx);
+        register_actions(window.window_handle(), cx.entity().downgrade(), cx);
         if Config::global(cx).theme == ThemeChoice::System {
             crate::theme::apply(ThemeChoice::System, Some(window), cx);
         }
@@ -86,7 +92,9 @@ impl TreehouseApp {
     }
 
     pub fn main_session_id(&self, cx: &App) -> Option<EntityId> {
-        self.main.as_ref().map(|chat| chat.read(cx).session.entity_id())
+        self.main
+            .as_ref()
+            .map(|chat| chat.read(cx).session.entity_id())
     }
 
     pub fn docked_session_id(&self, cx: &App) -> Option<EntityId> {
@@ -101,30 +109,63 @@ impl TreehouseApp {
         let provider = self
             .main
             .as_ref()
-            .and_then(|chat| chat.read(cx).session.read(cx).model.as_ref().map(|m| m.provider.clone()))
-            .or_else(|| Config::global(cx).model.as_ref().and_then(|m| m.split_once('/')).map(|(p, _)| p.to_string()))?;
+            .and_then(|chat| {
+                chat.read(cx)
+                    .session
+                    .read(cx)
+                    .model
+                    .as_ref()
+                    .map(|m| m.provider.clone())
+            })
+            .or_else(|| {
+                Config::global(cx)
+                    .model
+                    .as_ref()
+                    .and_then(|m| m.split_once('/'))
+                    .map(|(p, _)| p.to_string())
+            })?;
         let ok = crate::pi::auth::credential(&provider).is_set();
         Some((provider.into(), ok))
     }
 
-    fn chat_for(&mut self, session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Entity<ChatView> {
+    fn chat_for(
+        &mut self,
+        session: Entity<Session>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<ChatView> {
         if let Some(chat) = self.chats.get(&session.entity_id()) {
             return chat.clone();
         }
         let workspace = self.workspace.clone();
         let chat = cx.new(|cx| ChatView::new(session.clone(), workspace, window, cx));
-        self._subscriptions.push(cx.subscribe_in(&chat, window, Self::on_chat_event));
+        self._subscriptions
+            .push(cx.subscribe_in(&chat, window, Self::on_chat_event));
         self.chats.insert(session.entity_id(), chat.clone());
         chat
     }
 
-    fn on_chat_event(&mut self, chat: &Entity<ChatView>, event: &ChatEvent, window: &mut Window, cx: &mut Context<Self>) {
+    fn on_chat_event(
+        &mut self,
+        chat: &Entity<ChatView>,
+        event: &ChatEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match event {
-            ChatEvent::Open { session, dock } => self.open_session(session.clone(), *dock, window, cx),
-            ChatEvent::ShowDiff { worktree, path } => self.open_diff(worktree.clone(), path.clone(), window, cx),
+            ChatEvent::Open { session, dock } => {
+                self.open_session(session.clone(), *dock, window, cx)
+            }
+            ChatEvent::ShowDiff { worktree, path } => {
+                self.open_diff(worktree.clone(), path.clone(), window, cx)
+            }
             ChatEvent::Back => {
                 let session = chat.read(cx).session.entity_id();
-                let parent = self.workspace.read(cx).worktree_of(session).map(|w| w.session.clone());
+                let parent = self
+                    .workspace
+                    .read(cx)
+                    .worktree_of(session)
+                    .map(|w| w.session.clone());
                 if let Some(parent) = parent {
                     self.open_session(parent, false, window, cx);
                 }
@@ -135,7 +176,13 @@ impl TreehouseApp {
 
     /// Opens a worktree chat or sub-agent in the main screen, or in the
     /// right dock with ⌘-click.
-    pub fn open_session(&mut self, session: Entity<Session>, dock: bool, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_session(
+        &mut self,
+        session: Entity<Session>,
+        dock: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let chat = self.chat_for(session.clone(), window, cx);
         session.update(cx, |s, cx| s.mark_viewed(cx));
         if dock {
@@ -149,7 +196,11 @@ impl TreehouseApp {
                 self.dock_full = false;
             }
             // A diff belongs to the main screen's worktree; follow it.
-            let worktree = self.workspace.read(cx).worktree_of(session.entity_id()).map(|w| w.path.clone());
+            let worktree = self
+                .workspace
+                .read(cx)
+                .worktree_of(session.entity_id())
+                .map(|w| w.path.clone());
             let diff_follows = matches!(&self.dock, Some(Dock::Diff(panel)) if Some(&panel.read(cx).worktree) != worktree.as_ref());
             self.main = Some(chat.clone());
             if diff_follows {
@@ -188,11 +239,24 @@ impl TreehouseApp {
         }
         let Some(chat) = &self.main else { return };
         let session = chat.read(cx).session.entity_id();
-        let Some(path) = self.workspace.read(cx).worktree_of(session).map(|w| w.path.clone()) else { return };
+        let Some(path) = self
+            .workspace
+            .read(cx)
+            .worktree_of(session)
+            .map(|w| w.path.clone())
+        else {
+            return;
+        };
         self.open_diff(path, None, window, cx);
     }
 
-    fn open_diff(&mut self, worktree: PathBuf, file: Option<String>, window: &mut Window, cx: &mut Context<Self>) {
+    fn open_diff(
+        &mut self,
+        worktree: PathBuf,
+        file: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let existing = match &self.dock {
             Some(Dock::Diff(panel)) if panel.read(cx).worktree == worktree => Some(panel.clone()),
             _ => None,
@@ -205,10 +269,14 @@ impl TreehouseApp {
                 .map(|w| (w.branch.clone(), w.base.clone()))
                 .unwrap_or_default();
             let panel = cx.new(|cx| DiffPanel::new(worktree.clone(), branch, base, cx));
-            self._subscriptions.push(cx.subscribe_in(&panel, window, |app, _, event: &DiffPanelEvent, _, cx| {
-                let DiffPanelEvent::Close = event;
-                app.close_dock(cx);
-            }));
+            self._subscriptions.push(cx.subscribe_in(
+                &panel,
+                window,
+                |app, _, event: &DiffPanelEvent, _, cx| {
+                    let DiffPanelEvent::Close = event;
+                    app.close_dock(cx);
+                },
+            ));
             panel
         });
         if let Some(file) = file {
@@ -248,10 +316,16 @@ impl TreehouseApp {
             prompt: Some("Add project".into()),
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else { return };
-            let Some(path) = paths.into_iter().next() else { return };
+            let Ok(Ok(Some(paths))) = paths.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
             let _ = this.update(cx, |app, cx| {
-                let result = app.workspace.update(cx, |w, cx| w.add_project(path.clone(), cx));
+                let result = app
+                    .workspace
+                    .update(cx, |w, cx| w.add_project(path.clone(), cx));
                 if let Err(err) = result {
                     eprintln!("treehouse: couldn't add {}: {err:#}", path.display());
                 }
@@ -271,12 +345,20 @@ impl TreehouseApp {
             .map(|p| p.path.clone())
     }
 
-    pub fn prompt_new_worktree(&mut self, project: Option<PathBuf>, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn prompt_new_worktree(
+        &mut self,
+        project: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(project) = project.or_else(|| self.current_project(cx)) else {
             self.open_project(window, cx);
             return;
         };
-        let name = project.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let name = project
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("feat/my-change"));
         let app = cx.entity().downgrade();
         self.prompt_text(
@@ -289,33 +371,64 @@ impl TreehouseApp {
             move |branch, window, cx| {
                 let project = project.clone();
                 let _ = app.update(cx, |app, cx| {
-                    let created = app.workspace.update(cx, |w, cx| w.new_worktree(&project, &branch, cx));
+                    let created = app
+                        .workspace
+                        .update(cx, |w, cx| w.new_worktree(&project, &branch, cx));
                     match created {
                         Ok(path) => {
-                            let session = app.workspace.read(cx).worktree(&path).map(|w| w.session.clone());
+                            let session = app
+                                .workspace
+                                .read(cx)
+                                .worktree(&path)
+                                .map(|w| w.session.clone());
                             if let Some(session) = session {
                                 app.open_session(session, false, window, cx);
                             }
                         }
-                        Err(err) => window.push_notification(format!("Couldn't create the worktree: {err:#}"), cx),
+                        Err(err) => window.push_notification(
+                            format!("Couldn't create the worktree: {err:#}"),
+                            cx,
+                        ),
                     }
                 });
             },
         );
     }
 
-    pub fn prompt_rename_branch(&mut self, worktree: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let current = self.workspace.read(cx).worktree(&worktree).map(|w| w.branch.to_string()).unwrap_or_default();
+    pub fn prompt_rename_branch(
+        &mut self,
+        worktree: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let current = self
+            .workspace
+            .read(cx)
+            .worktree(&worktree)
+            .map(|w| w.branch.to_string())
+            .unwrap_or_default();
         let input = cx.new(|cx| InputState::new(window, cx).default_value(current));
         let app = cx.entity().downgrade();
-        self.prompt_text("Rename branch", "The worktree keeps its folder.", "Rename", input, window, cx, move |name, window, cx| {
-            let worktree = worktree.clone();
-            let _ = app.update(cx, |app, cx| {
-                if let Err(err) = app.workspace.update(cx, |w, cx| w.rename_branch(&worktree, &name, cx)) {
-                    window.push_notification(format!("Couldn't rename the branch: {err:#}"), cx);
-                }
-            });
-        });
+        self.prompt_text(
+            "Rename branch",
+            "The worktree keeps its folder.",
+            "Rename",
+            input,
+            window,
+            cx,
+            move |name, window, cx| {
+                let worktree = worktree.clone();
+                let _ = app.update(cx, |app, cx| {
+                    if let Err(err) = app
+                        .workspace
+                        .update(cx, |w, cx| w.rename_branch(&worktree, &name, cx))
+                    {
+                        window
+                            .push_notification(format!("Couldn't rename the branch: {err:#}"), cx);
+                    }
+                });
+            },
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -341,7 +454,12 @@ impl TreehouseApp {
                 .child(
                     v_flex()
                         .gap_2()
-                        .child(div().text_size(px(13.)).text_color(p.subtext0).child(description))
+                        .child(
+                            div()
+                                .text_size(px(13.))
+                                .text_color(p.subtext0)
+                                .child(description),
+                        )
                         .child(Input::new(&input)),
                 )
                 .button_props(gpui_kit::component::dialog::DialogButtonProps::default().ok_text(ok))
@@ -356,8 +474,18 @@ impl TreehouseApp {
         });
     }
 
-    pub fn confirm_delete_worktree(&mut self, worktree: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let branch = self.workspace.read(cx).worktree(&worktree).map(|w| w.branch.to_string()).unwrap_or_default();
+    pub fn confirm_delete_worktree(
+        &mut self,
+        worktree: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let branch = self
+            .workspace
+            .read(cx)
+            .worktree(&worktree)
+            .map(|w| w.branch.to_string())
+            .unwrap_or_default();
         let delete = Config::global(cx).delete_on_remove;
         let app = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
@@ -375,8 +503,14 @@ impl TreehouseApp {
                 .on_ok(move |_, window, cx| {
                     let _ = app.update(cx, |app, cx| {
                         app.forget_worktree(&worktree, cx);
-                        if let Err(err) = app.workspace.update(cx, |w, cx| w.delete_worktree(&worktree, cx)) {
-                            window.push_notification(format!("Couldn't delete the worktree: {err:#}"), cx);
+                        if let Err(err) = app
+                            .workspace
+                            .update(cx, |w, cx| w.delete_worktree(&worktree, cx))
+                        {
+                            window.push_notification(
+                                format!("Couldn't delete the worktree: {err:#}"),
+                                cx,
+                            );
                         }
                     });
                     true
@@ -384,8 +518,16 @@ impl TreehouseApp {
         });
     }
 
-    pub fn confirm_remove_project(&mut self, project: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
-        let name = project.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    pub fn confirm_remove_project(
+        &mut self,
+        project: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let name = project
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
         let app = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (app, project) = (app.clone(), project.clone());
@@ -408,7 +550,8 @@ impl TreehouseApp {
                         for worktree in worktrees {
                             app.forget_worktree(&worktree, cx);
                         }
-                        app.workspace.update(cx, |w, cx| w.remove_project(&project, cx));
+                        app.workspace
+                            .update(cx, |w, cx| w.remove_project(&project, cx));
                     });
                     true
                 })
@@ -417,7 +560,8 @@ impl TreehouseApp {
 
     /// Closes any view of a worktree that is going away.
     fn forget_worktree(&mut self, worktree: &PathBuf, cx: &mut Context<Self>) {
-        let belongs = |chat: &Entity<ChatView>, cx: &App| chat.read(cx).session.read(cx).cwd == *worktree;
+        let belongs =
+            |chat: &Entity<ChatView>, cx: &App| chat.read(cx).session.read(cx).cwd == *worktree;
         if self.main.as_ref().is_some_and(|chat| belongs(chat, cx)) {
             self.main = None;
         }
@@ -450,7 +594,11 @@ impl TreehouseApp {
             return;
         }
         let current = self.main_session_id(cx);
-        let ix = sessions.iter().position(|s| Some(s.entity_id()) == current).map(|i| i + 1).unwrap_or(0);
+        let ix = sessions
+            .iter()
+            .position(|s| Some(s.entity_id()) == current)
+            .map(|i| i + 1)
+            .unwrap_or(0);
         self.open_session(sessions[ix % sessions.len()].clone(), false, window, cx);
     }
 
@@ -464,8 +612,17 @@ impl TreehouseApp {
             .bg(p.base)
             .text_color(p.subtext0)
             .child(icon(IconName::FolderOpen).size(px(32.)))
-            .child(div().text_size(px(16.)).text_color(p.text).child("No worktree open"))
-            .child(div().text_size(px(13.)).child("Add a project folder; each of its git worktrees gets its own Pi chat."))
+            .child(
+                div()
+                    .text_size(px(16.))
+                    .text_color(p.text)
+                    .child("No worktree open"),
+            )
+            .child(
+                div()
+                    .text_size(px(13.))
+                    .child("Add a project folder; each of its git worktrees gets its own Pi chat."),
+            )
             .child(
                 Button::new("empty-open")
                     .primary()
@@ -475,8 +632,96 @@ impl TreehouseApp {
     }
 }
 
+/// Handles the app's actions at application level, so they work wherever
+/// focus is, including right after a dialog or the dock closes. The handler
+/// runs deferred, once the dispatching window is free to update.
+fn route<A: Action>(
+    window: AnyWindowHandle,
+    app: WeakEntity<TreehouseApp>,
+    cx: &mut App,
+    handler: impl Fn(&mut TreehouseApp, &mut Window, &mut Context<TreehouseApp>) + Clone + 'static,
+) {
+    cx.on_action(move |_: &A, cx| {
+        let (app, handler) = (app.clone(), handler.clone());
+        cx.defer(move |cx| {
+            let _ = window.update(cx, |_, window, cx| {
+                app.update(cx, |app, cx| handler(app, window, cx))
+            });
+        });
+    });
+}
+
+fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: &mut App) {
+    route::<CommandPalette>(window, app.clone(), cx, |app, window, cx| {
+        command_palette::open(&app.palette_state, window, cx)
+    });
+    route::<OpenSettings>(window, app.clone(), cx, |_, window, cx| {
+        settings::open(Section::Providers, window, cx)
+    });
+    route::<OpenProject>(window, app.clone(), cx, |app, window, cx| {
+        app.open_project(window, cx)
+    });
+    route::<NewWorktree>(window, app.clone(), cx, |app, window, cx| {
+        app.prompt_new_worktree(None, window, cx)
+    });
+    route::<SwitchWorktree>(window, app.clone(), cx, |app, window, cx| {
+        app.switch_worktree(window, cx)
+    });
+    route::<ShowDiff>(window, app.clone(), cx, |app, window, cx| {
+        app.show_diff(window, cx)
+    });
+    route::<ToggleDock>(window, app.clone(), cx, |app, window, cx| {
+        if app.dock.is_some() {
+            app.close_dock(cx)
+        } else {
+            app.show_diff(window, cx)
+        }
+    });
+    route::<FullScreenDock>(window, app.clone(), cx, |app, _, cx| {
+        app.toggle_full_screen(cx)
+    });
+    route::<ToggleSidebar>(window, app.clone(), cx, |app, _, cx| {
+        app.sidebar_open = !app.sidebar_open;
+        cx.notify();
+    });
+    route::<ToggleTheme>(window, app.clone(), cx, |_, window, cx| {
+        let next = if cx.theme().is_dark() {
+            ThemeChoice::Latte
+        } else {
+            ThemeChoice::Mocha
+        };
+        Config::update(cx, |c| c.theme = next);
+        crate::theme::apply(next, Some(window), cx);
+    });
+    route::<StopAgent>(window, app.clone(), cx, |app, _, cx| {
+        if let Some(session) = app.main_session(cx) {
+            session.update(cx, |s, cx| s.stop(cx));
+        }
+    });
+    route::<ChangeModel>(window, app.clone(), cx, |_, window, cx| {
+        window.push_notification(
+            "Pick a model from the model button under the message box.",
+            cx,
+        )
+    });
+    route::<SetThinkingLevel>(window, app, cx, |_, window, cx| {
+        window.push_notification(
+            "Pick a thinking level from the lightbulb button under the message box.",
+            cx,
+        )
+    });
+}
+
 impl Render for TreehouseApp {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // A closed dock or dialog can take focus with it; give it back to the
+        // main message box so typing and shortcuts keep working.
+        if window.focused(cx).is_none() && !window.has_active_dialog(cx) {
+            match &self.main {
+                Some(chat) => chat.update(cx, |chat, cx| chat.focus_composer(window, cx)),
+                None => self.focus_handle.focus(window, cx),
+            }
+        }
         let p = palette(cx);
         let dock: Option<AnyElement> = match &self.dock {
             Some(Dock::Diff(panel)) => Some(panel.clone().into_any_element()),
@@ -493,47 +738,27 @@ impl Render for TreehouseApp {
             .bg(p.base)
             .text_color(p.text)
             .font_family("IBM Plex Sans")
-            .on_action(cx.listener(|app, _: &CommandPalette, window, cx| command_palette::open(&app.palette_state, window, cx)))
-            .on_action(cx.listener(|_, _: &OpenSettings, window, cx| settings::open(Section::Providers, window, cx)))
-            .on_action(cx.listener(|app, _: &OpenProject, window, cx| app.open_project(window, cx)))
-            .on_action(cx.listener(|app, _: &NewWorktree, window, cx| app.prompt_new_worktree(None, window, cx)))
-            .on_action(cx.listener(|app, _: &SwitchWorktree, window, cx| app.switch_worktree(window, cx)))
-            .on_action(cx.listener(|app, _: &ShowDiff, window, cx| app.show_diff(window, cx)))
-            .on_action(cx.listener(|app, _: &ToggleDock, window, cx| {
-                if app.dock.is_some() { app.close_dock(cx) } else { app.show_diff(window, cx) }
-            }))
-            .on_action(cx.listener(|app, _: &FullScreenDock, _, cx| app.toggle_full_screen(cx)))
-            .on_action(cx.listener(|app, _: &ToggleSidebar, _, cx| {
-                app.sidebar_open = !app.sidebar_open;
-                cx.notify();
-            }))
-            .on_action(cx.listener(|_, _: &ToggleTheme, window, cx| {
-                let next = if cx.theme().is_dark() { ThemeChoice::Latte } else { ThemeChoice::Mocha };
-                Config::update(cx, |c| c.theme = next);
-                crate::theme::apply(next, Some(window), cx);
-            }))
-            .on_action(cx.listener(|app, _: &StopAgent, _, cx| {
-                if let Some(session) = app.main_session(cx) {
-                    session.update(cx, |s, cx| s.stop(cx));
-                }
-            }))
-            .on_action(cx.listener(|_, _: &ChangeModel, window, cx| {
-                window.push_notification("Pick a model from the model button under the message box.", cx)
-            }))
-            .on_action(cx.listener(|_, _: &SetThinkingLevel, window, cx| {
-                window.push_notification("Pick a thinking level from the lightbulb button under the message box.", cx)
-            }))
-            .when(self.sidebar_open, |this| this.child(sidebar::render(self, cx)))
+            .when(self.sidebar_open, |this| {
+                this.child(sidebar::render(self, cx))
+            })
             .when(!self.sidebar_open, |this| {
                 this.child(
-                    v_flex().h_full().p_1().border_r_1().border_color(p.surface0).bg(p.mantle).child(
-                        Button::new("show-sidebar")
-                            .ghost()
-                            .small()
-                            .icon(icon(IconName::PanelLeft))
-                            .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
-                    ),
+                    v_flex()
+                        .h_full()
+                        .p_1()
+                        .border_r_1()
+                        .border_color(p.surface0)
+                        .bg(p.mantle)
+                        .child(
+                            Button::new("show-sidebar")
+                                .ghost()
+                                .small()
+                                .icon(icon(IconName::PanelLeft))
+                                .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(ToggleSidebar), cx)
+                                }),
+                        ),
                 )
             })
             .child(
@@ -542,7 +767,9 @@ impl Render for TreehouseApp {
                     .min_w_0()
                     .h_full()
                     .when(!full, |this| match &self.main {
-                        Some(chat) => this.child(div().flex_1().min_w_0().h_full().child(chat.clone())),
+                        Some(chat) => {
+                            this.child(div().flex_1().min_w_0().h_full().child(chat.clone()))
+                        }
                         None => this.child(self.render_empty(cx)),
                     })
                     .when_some(dock, |this, dock| {

@@ -1,10 +1,10 @@
 //! The worktree diff in the right dock, built on gpui-kit's `Diff`.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_kit::component::diff::{Diff, DiffFile, DiffMode, DiffState};
 use gpui_kit::component::{IconName, Selectable as _, Sizable as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -35,7 +35,12 @@ pub struct DiffPanel {
 impl EventEmitter<DiffPanelEvent> for DiffPanel {}
 
 impl DiffPanel {
-    pub fn new(worktree: PathBuf, branch: SharedString, base: String, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        worktree: PathBuf,
+        branch: SharedString,
+        base: String,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let state = cx.new(|cx| DiffState::new(Vec::new(), cx));
         let mut this = Self {
             worktree,
@@ -77,9 +82,11 @@ impl DiffPanel {
                     Ok((stat, files)) => {
                         this.stat = stat;
                         this.error = None;
-                        this.state.update(cx, |state, cx| state.set_files(files, cx));
+                        this.state
+                            .update(cx, |state, cx| state.set_files(files, cx));
                         if let Some(path) = this.pending_scroll.take() {
-                            this.state.update(cx, |state, cx| state.scroll_to_file(&path, cx));
+                            this.state
+                                .update(cx, |state, cx| state.scroll_to_file(&path, cx));
                         }
                     }
                     Err(err) => this.error = Some(format!("{err:#}")),
@@ -94,14 +101,22 @@ impl DiffPanel {
         if self.loading {
             self.pending_scroll = Some(path.to_string());
         } else {
-            self.state.update(cx, |state, cx| state.scroll_to_file(path, cx));
+            self.state
+                .update(cx, |state, cx| state.scroll_to_file(path, cx));
         }
     }
 
     pub fn set_full_screen(&mut self, full_screen: bool, cx: &mut Context<Self>) {
         self.full_screen = full_screen;
         // Full screen has the room for split diffs.
-        self.set_mode(if full_screen { DiffMode::Split } else { DiffMode::Unified }, cx);
+        self.set_mode(
+            if full_screen {
+                DiffMode::Split
+            } else {
+                DiffMode::Unified
+            },
+            cx,
+        );
     }
 
     fn set_mode(&mut self, mode: DiffMode, cx: &mut Context<Self>) {
@@ -134,13 +149,23 @@ impl Render for DiffPanel {
                         Button::new("dock-full")
                             .ghost()
                             .small()
-                            .icon(icon(if self.full_screen { Lucide::Minimize2 } else { Lucide::Maximize2 }))
+                            .icon(icon(if self.full_screen {
+                                Lucide::Minimize2
+                            } else {
+                                Lucide::Maximize2
+                            }))
                             .tooltip_with_action(
-                                if self.full_screen { "Exit full screen" } else { "Full screen" },
+                                if self.full_screen {
+                                    "Exit full screen"
+                                } else {
+                                    "Full screen"
+                                },
                                 &FullScreenDock,
                                 None,
                             )
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(FullScreenDock), cx)),
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(FullScreenDock), cx)
+                            }),
                     )
                     .child(div().font_medium().child("Changes"))
                     .child(
@@ -185,7 +210,11 @@ impl Render for DiffPanel {
                             .child(Button::new("unified").label("Unified").selected(unified))
                             .child(Button::new("split").label("Split").selected(!unified))
                             .on_click(cx.listener(|this, selected: &Vec<usize>, _, cx| {
-                                let mode = if selected.first() == Some(&1) { DiffMode::Split } else { DiffMode::Unified };
+                                let mode = if selected.first() == Some(&1) {
+                                    DiffMode::Split
+                                } else {
+                                    DiffMode::Unified
+                                };
                                 this.set_mode(mode, cx);
                             })),
                     )
@@ -206,7 +235,11 @@ impl Render for DiffPanel {
                             .on_click(cx.listener(|this, selected: &Vec<usize>, _, cx| {
                                 let next = selected.first() == Some(&1);
                                 this.state.update(cx, |state, cx| {
-                                    if next { state.next_change(cx) } else { state.previous_change(cx) }
+                                    if next {
+                                        state.next_change(cx)
+                                    } else {
+                                        state.previous_change(cx)
+                                    }
                                 });
                             })),
                     )
@@ -216,8 +249,16 @@ impl Render for DiffPanel {
                             .gap_1()
                             .font_family(MONO)
                             .text_size(px(12.))
-                            .child(div().text_color(p.add).child(format!("+{}", self.stat.additions)))
-                            .child(div().text_color(p.delete).child(format!("−{}", self.stat.deletions))),
+                            .child(
+                                div()
+                                    .text_color(p.add)
+                                    .child(format!("+{}", self.stat.additions)),
+                            )
+                            .child(
+                                div()
+                                    .text_color(p.delete)
+                                    .child(format!("−{}", self.stat.deletions)),
+                            ),
                     ),
             )
             .child(
@@ -225,7 +266,12 @@ impl Render for DiffPanel {
                     .flex_1()
                     .min_h_0()
                     .when_some(self.error.clone(), |this, error| {
-                        this.child(div().p_4().text_color(p.red).child(SharedString::from(error)))
+                        this.child(
+                            div()
+                                .p_4()
+                                .text_color(p.red)
+                                .child(SharedString::from(error)),
+                        )
                     })
                     .when(empty, |this| {
                         this.child(

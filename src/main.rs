@@ -33,8 +33,10 @@ fn main() {
                 window_min_size: Some(Size::new(px(720.), px(480.))),
                 ..Default::default()
             };
-            gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| ui::TreehouseApp::new(window, cx)))
-                .expect("failed to open the Treehouse window");
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| ui::TreehouseApp::new(window, cx))
+            })
+            .expect("failed to open the Treehouse window");
             cx.activate(true);
         });
 }

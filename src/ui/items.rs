@@ -4,12 +4,12 @@
 //! in a 34px gutter, so text, cards and code blocks start on the same line.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::shimmer::ShimmerText;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
 use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
@@ -24,24 +24,31 @@ pub const GUTTER: f32 = 34.;
 /// Renders the transcript, grouping three or more finished reads in a row.
 pub fn render_items(view: &ChatView, cx: &mut Context<ChatView>) -> Vec<AnyElement> {
     let session = view.session.clone();
-    let items: Vec<Item> = session.read(cx).items().to_vec();
+    let mut items: Vec<Item> = session.read(cx).items().to_vec();
+    // A sub-agent's first message is its task, which the task card shows.
+    if let crate::session::SessionKind::SubAgent { task, .. } = &session.read(cx).kind
+        && matches!(items.first(), Some(Item::User { text, .. }) if text.trim() == task.trim())
+    {
+        items.remove(0);
+    }
     let mut out = Vec::new();
     let mut ix = 0;
     while ix < items.len() {
-        if let Item::Tool(tool) = &items[ix] {
-            if tool.name == "read" && tool.status == ToolStatus::Done {
-                let run: Vec<&ToolCall> = items[ix..]
-                    .iter()
-                    .map_while(|item| match item {
-                        Item::Tool(t) if t.name == "read" && t.status == ToolStatus::Done => Some(t),
-                        _ => None,
-                    })
-                    .collect();
-                if run.len() >= 3 {
-                    out.push(render_read_group(view, &run, cx));
-                    ix += run.len();
-                    continue;
-                }
+        if let Item::Tool(tool) = &items[ix]
+            && tool.name == "read"
+            && tool.status == ToolStatus::Done
+        {
+            let run: Vec<&ToolCall> = items[ix..]
+                .iter()
+                .map_while(|item| match item {
+                    Item::Tool(t) if t.name == "read" && t.status == ToolStatus::Done => Some(t),
+                    _ => None,
+                })
+                .collect();
+            if run.len() >= 3 {
+                out.push(render_read_group(view, &run, cx));
+                ix += run.len();
+                continue;
             }
         }
         out.push(render_item(view, &items[ix], cx));
@@ -59,16 +66,28 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .gap_3()
             .items_start()
             .child(avatar(&view.initials, &p))
-            .child(div().flex_1().min_w_0().child(SharedString::from(text.clone())))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .child(SharedString::from(text.clone())),
+            )
             .into_any_element(),
         Item::Text { id, text, .. } => {
             let body = match view.session.read(cx).text_view(*id) {
                 Some(state) => TextView::new(state).stream_fade(true).into_any_element(),
-                None => TextView::markdown(("text", id.0), SharedString::from(text.clone())).into_any_element(),
+                None => TextView::markdown(("text", id.0), SharedString::from(text.clone()))
+                    .into_any_element(),
             };
             div().pl(px(GUTTER)).child(body).into_any_element()
         }
-        Item::Thinking { id, text, streaming, elapsed, .. } => render_thinking(view, *id, text, *streaming, *elapsed, cx),
+        Item::Thinking {
+            id,
+            text,
+            streaming,
+            elapsed,
+            ..
+        } => render_thinking(view, *id, text, *streaming, *elapsed, cx),
         Item::Tool(tool) if tool.name == "subagent" => render_subagent_card(view, tool, cx),
         Item::Tool(tool) => render_tool(view, tool, cx),
         Item::Notice { id, text } => h_flex()
@@ -94,7 +113,9 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .text_size(px(13.))
             .child(icon(Lucide::CircleAlert).text_color(p.red))
             .child(div().flex_1().child(SharedString::from(text.clone())))
-            .when(*retrying, |this| this.child(Spinner::new().xsmall().color(p.subtext0)))
+            .when(*retrying, |this| {
+                this.child(Spinner::new().xsmall().color(p.subtext0))
+            })
             .into_any_element(),
     }
 }
@@ -115,7 +136,11 @@ pub fn avatar(initials: &SharedString, p: &Palette) -> Div {
 }
 
 fn mono(text: impl Into<SharedString>, color: Hsla) -> Div {
-    div().font_family(MONO).text_size(px(12.)).text_color(color).child(text.into())
+    div()
+        .font_family(MONO)
+        .text_size(px(12.))
+        .text_color(color)
+        .child(text.into())
 }
 
 fn render_thinking(
@@ -177,7 +202,9 @@ fn describe(tool: &ToolCall) -> ToolText {
     match tool.name.as_str() {
         "read" => {
             let range = match (tool.args["offset"].as_u64(), tool.args["limit"].as_u64()) {
-                (Some(offset), Some(limit)) => Some(format!("lines {offset}–{}", offset + limit - 1)),
+                (Some(offset), Some(limit)) => {
+                    Some(format!("lines {offset}–{}", offset + limit - 1))
+                }
                 (Some(offset), None) => Some(format!("from line {offset}")),
                 _ => None,
             };
@@ -203,7 +230,11 @@ fn describe(tool: &ToolCall) -> ToolText {
         "write" => ToolText {
             icon: Lucide::FilePlus,
             running: "Writing",
-            done: if tool.previous_content.is_some() { "Rewrote" } else { "Created" },
+            done: if tool.previous_content.is_some() {
+                "Rewrote"
+            } else {
+                "Created"
+            },
             target: path,
             result: None,
         },
@@ -241,8 +272,12 @@ fn counts(additions: usize, deletions: usize, p: &Palette) -> Div {
         .gap_1()
         .font_family(MONO)
         .text_size(px(12.))
-        .when(additions > 0, |this| this.child(div().text_color(p.add).child(format!("+{additions}"))))
-        .when(deletions > 0, |this| this.child(div().text_color(p.delete).child(format!("−{deletions}"))))
+        .when(additions > 0, |this| {
+            this.child(div().text_color(p.add).child(format!("+{additions}")))
+        })
+        .when(deletions > 0, |this| {
+            this.child(div().text_color(p.delete).child(format!("−{deletions}")))
+        })
 }
 
 fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> AnyElement {
@@ -266,14 +301,20 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
     let expanded = view.is_expanded(id, default_open);
 
     let verb: AnyElement = match tool.status {
-        ToolStatus::Running | ToolStatus::Preparing => ShimmerText::new(text.running).into_any_element(),
+        ToolStatus::Running | ToolStatus::Preparing => {
+            ShimmerText::new(text.running).into_any_element()
+        }
         ToolStatus::Denied => "Didn't run".into_any_element(),
         ToolStatus::Failed if tool.name == "edit" => "Edit failed".into_any_element(),
         ToolStatus::AwaitingApproval => "Wants to run".into_any_element(),
         _ => text.done.into_any_element(),
     };
     let lead: AnyElement = if running {
-        div().ml(px(4.)).mr(px(8.)).child(Spinner::new().with_size(px(14.)).color(p.subtext1)).into_any_element()
+        div()
+            .ml(px(4.))
+            .mr(px(8.))
+            .child(Spinner::new().with_size(px(14.)).color(p.subtext1))
+            .into_any_element()
     } else {
         div()
             .ml(px(3.))
@@ -306,21 +347,34 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
                             .font_family(MONO)
                             .bg(mix(if ok { p.green } else { p.red }, p.base, 0.16))
                             .text_color(if ok { p.add } else { p.delete })
-                            .child(if timed_out { "timed out".to_string() } else { format!("exit {code}") }),
+                            .child(if timed_out {
+                                "timed out".to_string()
+                            } else {
+                                format!("exit {code}")
+                            }),
                     )
                     .when_some(tool.duration, |this, d| this.child(format_duration(d)))
                     .into_any_element(),
             )
         }
-        ("bash", ToolStatus::Running) => Some(div().child(format_duration(tool.started.elapsed())).into_any_element()),
+        ("bash", ToolStatus::Running) => Some(
+            div()
+                .child(format_duration(tool.started.elapsed()))
+                .into_any_element(),
+        ),
         (_, ToolStatus::Failed) => Some(
             div()
                 .text_color(p.red)
                 .child(SharedString::from(first_line(&tool.output).to_string()))
                 .into_any_element(),
         ),
-        ("edit" | "write", ToolStatus::Done) => stat.map(|s| counts(s.additions, s.deletions, &p).into_any_element()),
-        _ => text.result.clone().map(|r| div().child(r).into_any_element()),
+        ("edit" | "write", ToolStatus::Done) => {
+            stat.map(|s| counts(s.additions, s.deletions, &p).into_any_element())
+        }
+        _ => text
+            .result
+            .clone()
+            .map(|r| div().child(r).into_any_element()),
     };
 
     let header = h_flex()
@@ -340,7 +394,9 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
                 .text_ellipsis()
                 .whitespace_nowrap(),
         )
-        .when_some(result, |this, result| this.child(div().flex_none().text_size(px(12.5)).child(result)))
+        .when_some(result, |this, result| {
+            this.child(div().flex_none().text_size(px(12.5)).child(result))
+        })
         .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, cx)));
 
     let approval = view
@@ -372,7 +428,10 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
 }
 
 fn first_line(text: &str) -> &str {
-    text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim()
+    text.lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim()
 }
 
 fn error_card(text: &str, p: &Palette) -> Div {
@@ -408,7 +467,13 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
         .lines()
         .filter(|l| !l.starts_with("Command exited with code "))
         .collect();
-    let keep = if running { 5 } else if failed { 12 } else { 40 };
+    let keep = if running {
+        5
+    } else if failed {
+        12
+    } else {
+        40
+    };
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
     let command = tool.command().unwrap_or("");
@@ -422,9 +487,17 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
                 .font_family(MONO)
                 .text_size(px(12.))
                 .line_height(px(19.))
-                .child(div().text_color(p.subtext0).child(SharedString::from(format!("$ {command}"))))
+                .child(
+                    div()
+                        .text_color(p.subtext0)
+                        .child(SharedString::from(format!("$ {command}"))),
+                )
                 .when(hidden > 0, |this| {
-                    this.child(div().text_color(p.subtext0).child(format!("{hidden} earlier lines")))
+                    this.child(
+                        div()
+                            .text_color(p.subtext0)
+                            .child(format!("{hidden} earlier lines")),
+                    )
                 })
                 .child(div().whitespace_normal().child(SharedString::from(shown))),
         )
@@ -442,12 +515,23 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
         })
 }
 
-fn render_mini_diff(view: &ChatView, tool: &ToolCall, patch: &str, cx: &mut Context<ChatView>) -> AnyElement {
+fn render_mini_diff(
+    view: &ChatView,
+    tool: &ToolCall,
+    patch: &str,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
     let p = palette(cx);
     let hunks = parse_hunks(patch);
     let created = tool.name == "write" && tool.previous_content.is_none();
     let total_changed: usize = hunks.iter().map(|h| h.changed()).sum();
-    let limit = if created { 6 } else if total_changed <= 10 { usize::MAX } else { 12 };
+    let limit = if created {
+        6
+    } else if total_changed <= 10 {
+        usize::MAX
+    } else {
+        12
+    };
     let path = tool.path().unwrap_or("").to_string();
 
     let mut rows = Vec::new();
@@ -482,16 +566,29 @@ fn render_mini_diff(view: &ChatView, tool: &ToolCall, patch: &str, cx: &mut Cont
                     .line_height(px(22.))
                     .whitespace_nowrap()
                     .when_some(bg, |this, bg| this.bg(bg))
-                    .child(div().w(px(40.)).pr_2().text_right().text_color(fg).child(line.number.map(|n| n.to_string()).unwrap_or_default()))
+                    .child(
+                        div()
+                            .w(px(40.))
+                            .pr_2()
+                            .text_right()
+                            .text_color(fg)
+                            .child(line.number.map(|n| n.to_string()).unwrap_or_default()),
+                    )
                     .child(div().w(px(18.)).text_center().text_color(fg).child(sign))
-                    .child(div().flex_1().min_w_0().overflow_hidden().child(SharedString::from(line.text.clone())))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .child(SharedString::from(line.text.clone())),
+                    )
                     .into_any_element(),
             );
         }
     }
     let total_lines: usize = hunks.iter().map(|h| h.lines.len()).sum();
     let more = if created {
-        total_lines.saturating_sub(shown).max(0)
+        total_lines.saturating_sub(shown)
     } else if show_all {
         0
     } else {
@@ -521,7 +618,9 @@ fn render_mini_diff(view: &ChatView, tool: &ToolCall, patch: &str, cx: &mut Cont
                             .on_click(cx.listener({
                                 let path = path.clone();
                                 let worktree = worktree.clone();
-                                move |view, _, window, cx| view.open_diff_at(worktree.clone(), path.clone(), window, cx)
+                                move |view, _, window, cx| {
+                                    view.open_diff_at(worktree.clone(), path.clone(), window, cx)
+                                }
                             })),
                     )
                 })
@@ -540,7 +639,11 @@ fn render_mini_diff(view: &ChatView, tool: &ToolCall, patch: &str, cx: &mut Cont
         .into_any_element()
 }
 
-fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context<ChatView>) -> AnyElement {
+fn render_approval(
+    view: &ChatView,
+    approval: &PendingApproval,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
     let p = palette(cx);
     let session = view.session.clone();
     let branch = view.branch.clone();
@@ -552,7 +655,11 @@ fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context
             .map(|p| format!("{} {p}", approval.tool_name))
             .unwrap_or_else(|| approval.tool_name.clone()),
     };
-    let what = if approval.tool_name == "bash" { "a command" } else { "a tool" };
+    let what = if approval.tool_name == "bash" {
+        "a command"
+    } else {
+        "a tool"
+    };
 
     v_flex()
         .mt_1()
@@ -600,7 +707,11 @@ fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context
                         .label("Run ⏎")
                         .on_click({
                             let (session, id) = (session.clone(), request_id.clone());
-                            move |_, _, cx| session.update(cx, |s, cx| s.resolve_approval(&id, ApprovalChoice::Run, cx))
+                            move |_, _, cx| {
+                                session.update(cx, |s, cx| {
+                                    s.resolve_approval(&id, ApprovalChoice::Run, cx)
+                                })
+                            }
                         }),
                 )
                 .when_some(approval.pattern.clone(), |this, pattern| {
@@ -611,7 +722,13 @@ fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context
                             .label(format!("Always allow {pattern}"))
                             .on_click(move |_, _, cx| {
                                 let pattern = pattern.clone();
-                                session.update(cx, |s, cx| s.resolve_approval(&id, ApprovalChoice::AlwaysAllow(pattern), cx))
+                                session.update(cx, |s, cx| {
+                                    s.resolve_approval(
+                                        &id,
+                                        ApprovalChoice::AlwaysAllow(pattern),
+                                        cx,
+                                    )
+                                })
                             }),
                     )
                 })
@@ -624,7 +741,11 @@ fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context
                             let (session, id) = (session.clone(), request_id.clone());
                             move |_, _, cx| {
                                 session.update(cx, |s, cx| {
-                                    s.resolve_approval(&id, ApprovalChoice::Deny("Denied by the user".into()), cx)
+                                    s.resolve_approval(
+                                        &id,
+                                        ApprovalChoice::Deny("Denied by the user".into()),
+                                        cx,
+                                    )
                                 })
                             }
                         }),
@@ -633,7 +754,11 @@ fn render_approval(view: &ChatView, approval: &PendingApproval, cx: &mut Context
         .into_any_element()
 }
 
-fn render_read_group(view: &ChatView, reads: &[&ToolCall], cx: &mut Context<ChatView>) -> AnyElement {
+fn render_read_group(
+    view: &ChatView,
+    reads: &[&ToolCall],
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
     let p = palette(cx);
     let id = reads[0].id;
     let expanded = view.is_expanded(id, false);
@@ -650,7 +775,14 @@ fn render_read_group(view: &ChatView, reads: &[&ToolCall], cx: &mut Context<Chat
                 .hover(|s| s.text_color(p.text))
                 .child(div().ml(px(3.)).mr(px(7.)).child(icon(Lucide::Files)))
                 .child(format!("Read {} files", reads.len()))
-                .child(icon(if expanded { IconName::ChevronDown } else { IconName::ChevronRight }).size(px(14.)))
+                .child(
+                    icon(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .size(px(14.)),
+                )
                 .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, cx))),
         )
         .when(expanded, |this| {
@@ -669,11 +801,20 @@ fn render_read_group(view: &ChatView, reads: &[&ToolCall], cx: &mut Context<Chat
         .into_any_element()
 }
 
-fn render_subagent_card(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> AnyElement {
+fn render_subagent_card(
+    view: &ChatView,
+    tool: &ToolCall,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
     let p = palette(cx);
     let workspace = view.workspace.read(cx);
-    let child = workspace.subagent_for_call(&tool.call_id).map(|s| s.session.clone());
-    let title = tool.args["title"].as_str().unwrap_or("Sub-agent").to_string();
+    let child = workspace
+        .subagent_for_call(&tool.call_id)
+        .map(|s| s.session.clone());
+    let title = tool.args["title"]
+        .as_str()
+        .unwrap_or("Sub-agent")
+        .to_string();
     let Some(child) = child else {
         // The tool call is still being written, or Pi was started elsewhere.
         return h_flex()
@@ -702,20 +843,44 @@ pub fn render_agent_card(
     let status = session.status();
     let title = session.title();
     let calls = session.tool_call_count();
-    let elapsed = tool.and_then(|t| t.duration).unwrap_or_else(|| session.started.elapsed());
+    let elapsed = tool
+        .and_then(|t| t.duration)
+        .unwrap_or_else(|| session.started.elapsed());
     let selected = view.docked_session == Some(child.entity_id());
 
     let (state, lead) = match status {
-        AgentStatus::Working => ("Working", Spinner::new().with_size(px(16.)).color(p.blue).into_any_element()),
-        AgentStatus::NeedsInput => ("Needs input", icon(Lucide::Shield).text_color(p.blue).into_any_element()),
-        AgentStatus::Finished | AgentStatus::Idle => ("Finished", icon(IconName::Check).text_color(p.green).into_any_element()),
-        AgentStatus::Failed => ("Failed", icon(Lucide::CircleAlert).text_color(p.red).into_any_element()),
+        AgentStatus::Working => (
+            "Working",
+            Spinner::new()
+                .with_size(px(16.))
+                .color(p.blue)
+                .into_any_element(),
+        ),
+        AgentStatus::NeedsInput => (
+            "Needs input",
+            icon(Lucide::Shield).text_color(p.blue).into_any_element(),
+        ),
+        AgentStatus::Finished | AgentStatus::Idle => (
+            "Finished",
+            icon(IconName::Check).text_color(p.green).into_any_element(),
+        ),
+        AgentStatus::Failed => (
+            "Failed",
+            icon(Lucide::CircleAlert)
+                .text_color(p.red)
+                .into_any_element(),
+        ),
     };
     let detail = match status {
         AgentStatus::NeedsInput => session
             .approvals
             .first()
-            .map(|a| format!("Needs input · wants to run {}", a.input["command"].as_str().unwrap_or(&a.tool_name)))
+            .map(|a| {
+                format!(
+                    "Needs input · wants to run {}",
+                    a.input["command"].as_str().unwrap_or(&a.tool_name)
+                )
+            })
             .unwrap_or_else(|| "Needs input".into()),
         AgentStatus::Failed => format!(
             "Failed · {}",
@@ -729,7 +894,10 @@ pub fn render_agent_card(
                 })
                 .unwrap_or_else(|| "stopped on an error".into())
         ),
-        _ => format!("{state} · {calls} tool calls · {}", format_duration(elapsed)),
+        _ => format!(
+            "{state} · {calls} tool calls · {}",
+            format_duration(elapsed)
+        ),
     };
     let needs_input = status == AgentStatus::NeedsInput;
     let child_entity = child.clone();
@@ -742,8 +910,16 @@ pub fn render_agent_card(
         .py(px(10.))
         .rounded(px(8.))
         .border_1()
-        .border_color(if needs_input || selected { p.blue } else { p.surface0 })
-        .bg(if selected { mix(p.blue, p.base, 0.08) } else { p.mantle })
+        .border_color(if needs_input || selected {
+            p.blue
+        } else {
+            p.surface0
+        })
+        .bg(if selected {
+            mix(p.blue, p.base, 0.08)
+        } else {
+            p.mantle
+        })
         .cursor_pointer()
         .hover(|s| s.border_color(p.surface1))
         .child(
@@ -778,7 +954,9 @@ pub fn render_agent_card(
                 Button::new(("review", child.entity_id().as_u64()))
                     .small()
                     .label("Review")
-                    .on_click(cx.listener(move |view, _, window, cx| view.open_session(child.clone(), false, window, cx))),
+                    .on_click(cx.listener(move |view, _, window, cx| {
+                        view.open_session(child.clone(), false, window, cx)
+                    })),
             )
         })
         .when(!needs_input && status == AgentStatus::Working, |this| {
@@ -787,13 +965,20 @@ pub fn render_agent_card(
                     .gap_1()
                     .text_size(px(12.))
                     .text_color(p.subtext0)
-                    .child(gpui_kit::component::kbd::Kbd::new(Keystroke::parse("secondary").unwrap_or_default()))
+                    .child(gpui_kit::component::kbd::Kbd::new(
+                        Keystroke::parse("secondary").unwrap_or_default(),
+                    ))
                     .child("click to split"),
             )
         })
         .child(icon(IconName::ChevronRight).text_color(p.subtext0))
         .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
-            view.open_session(child_entity.clone(), event.modifiers().secondary(), window, cx)
+            view.open_session(
+                child_entity.clone(),
+                event.modifiers().secondary(),
+                window,
+                cx,
+            )
         }))
         .into_any_element()
 }
@@ -819,7 +1004,10 @@ struct Hunk {
 
 impl Hunk {
     fn changed(&self) -> usize {
-        self.lines.iter().filter(|l| l.kind != LineKind::Context).count()
+        self.lines
+            .iter()
+            .filter(|l| l.kind != LineKind::Context)
+            .count()
     }
 }
 
@@ -830,14 +1018,21 @@ fn parse_hunks(patch: &str) -> Vec<Hunk> {
         if let Some(rest) = line.strip_prefix("@@") {
             let mut parts = rest.split_whitespace();
             let parse = |s: Option<&str>| {
-                s.and_then(|s| s[1..].split(',').next()).and_then(|n| n.parse::<usize>().ok()).unwrap_or(1)
+                s.and_then(|s| s[1..].split(',').next())
+                    .and_then(|n| n.parse::<usize>().ok())
+                    .unwrap_or(1)
             };
             old = parse(parts.next());
             new = parse(parts.next());
-            hunks.push(Hunk { header: line.to_string(), lines: Vec::new() });
+            hunks.push(Hunk {
+                header: line.to_string(),
+                lines: Vec::new(),
+            });
             continue;
         }
-        let Some(hunk) = hunks.last_mut() else { continue };
+        let Some(hunk) = hunks.last_mut() else {
+            continue;
+        };
         if line.starts_with("+++") || line.starts_with("---") || line.starts_with('\\') {
             continue;
         }
@@ -862,7 +1057,11 @@ fn parse_hunks(patch: &str) -> Vec<Hunk> {
                 Some(new - 1)
             }
         };
-        hunk.lines.push(Line { kind, number, text: text.to_string() });
+        hunk.lines.push(Line {
+            kind,
+            number,
+            text: text.to_string(),
+        });
     }
     hunks
 }

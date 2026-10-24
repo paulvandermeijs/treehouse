@@ -37,7 +37,10 @@ pub fn init_repository(path: &Path) -> Result<()> {
 
 /// The project's worktrees, the main one first.
 pub fn list_worktrees(project: &Path) -> Result<Vec<WorktreeInfo>> {
-    Ok(parse_worktree_list(&git(project, &["worktree", "list", "--porcelain"])?))
+    Ok(parse_worktree_list(&git(
+        project,
+        &["worktree", "list", "--porcelain"],
+    )?))
 }
 
 pub fn parse_worktree_list(porcelain: &str) -> Vec<WorktreeInfo> {
@@ -79,11 +82,24 @@ pub fn worktree_location(template: &str, project: &Path, branch: &str) -> PathBu
 /// Creates a worktree with a new branch off the current HEAD.
 pub fn add_worktree(project: &Path, branch: &str, location: &Path) -> Result<()> {
     exclude_from_project(project, location);
-    git(project, &["worktree", "add", "-b", branch, &location.display().to_string()]).map(|_| ())
+    git(
+        project,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            branch,
+            &location.display().to_string(),
+        ],
+    )
+    .map(|_| ())
 }
 
 pub fn remove_worktree(project: &Path, path: &Path, delete_branch: Option<&str>) -> Result<()> {
-    git(project, &["worktree", "remove", "--force", &path.display().to_string()])?;
+    git(
+        project,
+        &["worktree", "remove", "--force", &path.display().to_string()],
+    )?;
     if let Some(branch) = delete_branch {
         git(project, &["branch", "-D", branch])?;
     }
@@ -107,11 +123,22 @@ pub fn diff_since(worktree: &Path, base: &str) -> Result<String> {
     let merge_base = git(worktree, &["merge-base", base, "HEAD"])
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "HEAD".to_string());
-    let mut patch = git(worktree, &["diff", "--no-color", "--no-ext-diff", &merge_base])?;
-    let untracked = git(worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    let mut patch = git(
+        worktree,
+        &["diff", "--no-color", "--no-ext-diff", &merge_base],
+    )?;
+    let untracked = git(
+        worktree,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+    )?;
     // A trailing slash marks a nested repository, such as another worktree.
-    for path in untracked.split('\0').filter(|p| !p.is_empty() && !p.ends_with('/')) {
-        let Ok(content) = std::fs::read(worktree.join(path)) else { continue };
+    for path in untracked
+        .split('\0')
+        .filter(|p| !p.is_empty() && !p.ends_with('/'))
+    {
+        let Ok(content) = std::fs::read(worktree.join(path)) else {
+            continue;
+        };
         if content.contains(&0) {
             continue;
         }
@@ -123,16 +150,26 @@ pub fn diff_since(worktree: &Path, base: &str) -> Result<String> {
 
 /// Keeps worktrees created inside the project out of its `git status`.
 fn exclude_from_project(project: &Path, location: &Path) {
-    let Ok(relative) = location.strip_prefix(project) else { return };
-    let Some(first) = relative.components().next() else { return };
+    let Ok(relative) = location.strip_prefix(project) else {
+        return;
+    };
+    let Some(first) = relative.components().next() else {
+        return;
+    };
     let entry = format!("/{}/", first.as_os_str().to_string_lossy());
-    let Ok(git_dir) = git(project, &["rev-parse", "--git-common-dir"]) else { return };
+    let Ok(git_dir) = git(project, &["rev-parse", "--git-common-dir"]) else {
+        return;
+    };
     let git_dir = project.join(git_dir.trim());
     let exclude = git_dir.join("info").join("exclude");
     let current = std::fs::read_to_string(&exclude).unwrap_or_default();
     if !current.lines().any(|line| line.trim() == entry) {
         let _ = std::fs::create_dir_all(git_dir.join("info"));
-        let separator = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
+        let separator = if current.is_empty() || current.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
         let _ = std::fs::write(&exclude, format!("{current}{separator}{entry}\n"));
     }
 }
@@ -160,7 +197,10 @@ pub fn diff_stat(patch: &str) -> DiffStat {
 }
 
 pub fn user_name(cwd: &Path) -> Option<String> {
-    git(cwd, &["config", "user.name"]).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+    git(cwd, &["config", "user.name"])
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 /// A unified patch between two versions of one file, for showing a `write`
@@ -171,7 +211,11 @@ pub fn unified_patch(path: &str, old: Option<&str>, new: &str) -> String {
         Some(_) => (format!("a/{path}"), format!("b/{path}")),
         None => ("/dev/null".to_string(), format!("b/{path}")),
     };
-    let body = diff.unified_diff().context_radius(3).header(&from, &to).to_string();
+    let body = diff
+        .unified_diff()
+        .context_radius(3)
+        .header(&from, &to)
+        .to_string();
     format!("diff --git a/{path} b/{path}\n{body}")
 }
 
@@ -188,20 +232,34 @@ mod tests {
         assert_eq!(list.len(), 3);
         assert_eq!(list[0].branch, "main");
         assert_eq!(list[1].branch, "feat/diff-view");
-        assert_eq!(list[1].path, PathBuf::from("/code/app/.worktrees/feat-diff"));
+        assert_eq!(
+            list[1].path,
+            PathBuf::from("/code/app/.worktrees/feat-diff")
+        );
         assert_eq!(list[2].branch, "0011223");
     }
 
     #[test]
     fn fills_the_location_template() {
-        let path = worktree_location("{project}/.worktrees/{branch}", Path::new("/code/app"), "feat/diff");
+        let path = worktree_location(
+            "{project}/.worktrees/{branch}",
+            Path::new("/code/app"),
+            "feat/diff",
+        );
         assert_eq!(path, PathBuf::from("/code/app/.worktrees/feat-diff"));
     }
 
     #[test]
     fn counts_a_patch() {
         let patch = unified_patch("src/a.rs", Some("one\ntwo\n"), "one\nthree\nfour\n");
-        assert_eq!(diff_stat(&patch), DiffStat { files: 1, additions: 2, deletions: 1 });
+        assert_eq!(
+            diff_stat(&patch),
+            DiffStat {
+                files: 1,
+                additions: 2,
+                deletions: 1
+            }
+        );
         let created = unified_patch("src/b.rs", None, "x\ny\n");
         assert!(created.contains("--- /dev/null"));
         assert_eq!(diff_stat(&created).additions, 2);
@@ -229,9 +287,19 @@ mod tests {
         std::fs::write(location.join("a.txt"), "one\ntwo\n").unwrap();
         std::fs::write(location.join("new.txt"), "fresh\n").unwrap();
         let stat = diff_stat(&diff_since(&location, "main").unwrap());
-        assert_eq!(stat, DiffStat { files: 2, additions: 2, deletions: 0 });
+        assert_eq!(
+            stat,
+            DiffStat {
+                files: 2,
+                additions: 2,
+                deletions: 0
+            }
+        );
         // The main worktree is clean: the new worktree inside it is excluded.
-        assert_eq!(diff_stat(&diff_since(repo, "main").unwrap()), DiffStat::default());
+        assert_eq!(
+            diff_stat(&diff_since(repo, "main").unwrap()),
+            DiffStat::default()
+        );
         let status = git(repo, &["status", "--porcelain"]).unwrap();
         assert!(status.is_empty(), "unexpected status: {status}");
         assert_eq!(default_base(repo), "main");

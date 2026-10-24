@@ -4,11 +4,11 @@
 //! screen or in the right dock.
 
 use gpui_kit::assets::IconName as Lucide;
+use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::{IconName, Selectable as _, Sizable as _, h_flex, v_flex};
-use gpui_kit::component::StyledExt as _;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashSet;
@@ -25,9 +25,15 @@ use crate::workspace::Workspace;
 
 pub enum ChatEvent {
     /// Open a session, in the right dock when `dock` is set.
-    Open { session: Entity<Session>, dock: bool },
+    Open {
+        session: Entity<Session>,
+        dock: bool,
+    },
     /// Show the worktree diff, scrolled to a file when given.
-    ShowDiff { worktree: PathBuf, path: Option<String> },
+    ShowDiff {
+        worktree: PathBuf,
+        path: Option<String>,
+    },
     /// Back from a sub-agent to its worktree chat.
     Back,
     Close,
@@ -53,8 +59,17 @@ pub struct ChatView {
 impl EventEmitter<ChatEvent> for ChatView {}
 
 impl ChatView {
-    pub fn new(session: Entity<Session>, workspace: Entity<Workspace>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let placeholder = if session.read(cx).is_subagent() { "Steer this sub-agent…" } else { "Message Pi…" };
+    pub fn new(
+        session: Entity<Session>,
+        workspace: Entity<Workspace>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let placeholder = if session.read(cx).is_subagent() {
+            "Steer this sub-agent…"
+        } else {
+            "Message Pi…"
+        };
         let composer = cx.new(|cx| {
             TextareaState::new(window, cx)
                 .auto_grow(2, 10)
@@ -66,11 +81,15 @@ impl ChatView {
             .map(|name| initials(&name))
             .unwrap_or_else(|| "You".chars().take(2).collect());
         let subscriptions = vec![
-            cx.subscribe_in(&composer, window, |view, _, event: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { shift: false, .. } = event {
-                    view.send(window, cx);
-                }
-            }),
+            cx.subscribe_in(
+                &composer,
+                window,
+                |view, _, event: &InputEvent, window, cx| {
+                    if let InputEvent::PressEnter { shift: false, .. } = event {
+                        view.send(window, cx);
+                    }
+                },
+            ),
             cx.observe(&session, |view, _, cx| {
                 if view.follow_tail {
                     view.scroll.scroll_to_bottom();
@@ -102,7 +121,8 @@ impl ChatView {
     }
 
     pub fn focus_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
-        self.composer.update(cx, |state, cx| state.focus(window, cx));
+        self.composer
+            .update(cx, |state, cx| state.focus(window, cx));
     }
 
     pub fn is_expanded(&self, id: ItemId, default: bool) -> bool {
@@ -117,22 +137,51 @@ impl ChatView {
         cx.notify();
     }
 
-    pub fn open_session(&mut self, session: Entity<Session>, dock: bool, _: &mut Window, cx: &mut Context<Self>) {
+    pub fn open_session(
+        &mut self,
+        session: Entity<Session>,
+        dock: bool,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         cx.emit(ChatEvent::Open { session, dock });
     }
 
-    pub fn open_diff_at(&mut self, worktree: PathBuf, path: String, _: &mut Window, cx: &mut Context<Self>) {
-        cx.emit(ChatEvent::ShowDiff { worktree, path: Some(path) });
+    pub fn open_diff_at(
+        &mut self,
+        worktree: PathBuf,
+        path: String,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.emit(ChatEvent::ShowDiff {
+            worktree,
+            path: Some(path),
+        });
     }
 
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let message = self.composer.read(cx).value().to_string();
         if message.trim().is_empty() {
+            // Enter on an empty message box runs the waiting command.
+            let waiting = self
+                .session
+                .read(cx)
+                .approvals
+                .first()
+                .map(|a| a.request_id.clone());
+            if let Some(request_id) = waiting {
+                self.session.update(cx, |s, cx| {
+                    s.resolve_approval(&request_id, crate::session::ApprovalChoice::Run, cx)
+                });
+            }
             return;
         }
-        self.composer.update(cx, |state, cx| state.set_value("", window, cx));
+        self.composer
+            .update(cx, |state, cx| state.set_value("", window, cx));
         self.follow_tail = true;
-        self.session.update(cx, |session, cx| session.send(&message, cx));
+        self.session
+            .update(cx, |session, cx| session.send(&message, cx));
     }
 
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -172,7 +221,9 @@ impl ChatView {
                         .small()
                         .icon(icon(Lucide::Maximize2))
                         .tooltip_with_action("Full screen", &FullScreenDock, None)
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(FullScreenDock), cx)),
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(FullScreenDock), cx)
+                        }),
                 )
             })
             .when(!self.in_dock && is_subagent, |this| {
@@ -185,7 +236,14 @@ impl ChatView {
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::Back))),
                 )
             })
-            .child(div().font_medium().whitespace_nowrap().overflow_hidden().text_ellipsis().child(title))
+            .child(
+                div()
+                    .font_medium()
+                    .whitespace_nowrap()
+                    .overflow_hidden()
+                    .text_ellipsis()
+                    .child(title),
+            )
             .when(is_subagent, |this| this.child(status_pill(status, cx)))
             .child(
                 h_flex()
@@ -196,11 +254,22 @@ impl ChatView {
                     .whitespace_nowrap()
                     .overflow_hidden()
                     .child(SharedString::from(description))
-                    .when(!is_subagent && (stat.additions > 0 || stat.deletions > 0), |this| {
-                        this.child("·")
-                            .child(div().text_color(p.add).child(format!("+{}", stat.additions)))
-                            .child(div().text_color(p.delete).child(format!("−{}", stat.deletions)))
-                    }),
+                    .when(
+                        !is_subagent && (stat.additions > 0 || stat.deletions > 0),
+                        |this| {
+                            this.child("·")
+                                .child(
+                                    div()
+                                        .text_color(p.add)
+                                        .child(format!("+{}", stat.additions)),
+                                )
+                                .child(
+                                    div()
+                                        .text_color(p.delete)
+                                        .child(format!("−{}", stat.deletions)),
+                                )
+                        },
+                    ),
             )
             .map(|this| {
                 if self.in_dock {
@@ -219,8 +288,18 @@ impl ChatView {
                             .small()
                             .selected(self.diff_open)
                             .icon(icon(Lucide::PanelRight))
-                            .tooltip_with_action(if self.diff_open { "Hide diff" } else { "Show diff" }, &ShowDiff, None)
-                            .on_click(|_, window, cx| window.dispatch_action(Box::new(ShowDiff), cx)),
+                            .tooltip_with_action(
+                                if self.diff_open {
+                                    "Hide diff"
+                                } else {
+                                    "Show diff"
+                                },
+                                &ShowDiff,
+                                None,
+                            )
+                            .on_click(|_, window, cx| {
+                                window.dispatch_action(Box::new(ShowDiff), cx)
+                            }),
                     )
                 }
             })
@@ -229,7 +308,9 @@ impl ChatView {
     fn render_task(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let p = palette(cx);
         let session = self.session.read(cx);
-        let SessionKind::SubAgent { task, .. } = &session.kind else { return None };
+        let SessionKind::SubAgent { task, .. } = &session.kind else {
+            return None;
+        };
         let elapsed = crate::transcript::format_duration(session.started.elapsed());
         Some(
             v_flex()
@@ -240,7 +321,13 @@ impl ChatView {
                 .bg(p.mantle)
                 .border_1()
                 .border_color(p.surface0)
-                .child(div().text_size(px(12.)).text_color(p.subtext0).mb_1().child(format!("Task from Pi · {elapsed} ago")))
+                .child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(p.subtext0)
+                        .mb_1()
+                        .child(format!("Task from Pi · {elapsed} ago")),
+                )
                 .child(SharedString::from(task.clone()))
                 .into_any_element(),
         )
@@ -258,10 +345,11 @@ impl ChatView {
             .border_color(p.surface0)
             .child(avatar(&self.initials, &p).mt(px(2.)))
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(Textarea::new(&self.composer).appearance(false).aria_label("Message Pi")),
+                div().flex_1().min_w_0().child(
+                    Textarea::new(&self.composer)
+                        .appearance(false)
+                        .aria_label("Message Pi"),
+                ),
             )
     }
 
@@ -311,7 +399,12 @@ impl ChatView {
                             .gap(px(6.))
                             .child(SharedString::from(model_label))
                             .when_some(provider.filter(|_| !narrow), |this, provider| {
-                                this.child(div().text_size(px(12.)).text_color(p.subtext0).child(provider))
+                                this.child(
+                                    div()
+                                        .text_size(px(12.))
+                                        .text_color(p.subtext0)
+                                        .child(provider),
+                                )
                             }),
                     )
                     .on_click({
@@ -331,7 +424,9 @@ impl ChatView {
                                 menu = menu.item(
                                     PopupMenuItem::new(model.full_name())
                                         .checked(checked)
-                                        .on_click(move |_, _, cx| session.update(cx, |s, cx| s.set_model(&model, cx))),
+                                        .on_click(move |_, _, cx| {
+                                            session.update(cx, |s, cx| s.set_model(&model, cx))
+                                        }),
                                 );
                             }
                             menu
@@ -352,7 +447,9 @@ impl ChatView {
                                 menu = menu.item(
                                     PopupMenuItem::new(capitalize(level))
                                         .checked(current_thinking == level)
-                                        .on_click(move |_, _, cx| session.update(cx, |s, cx| s.set_thinking(level, cx))),
+                                        .on_click(move |_, _, cx| {
+                                            session.update(cx, |s, cx| s.set_thinking(level, cx))
+                                        }),
                                 );
                             }
                             menu
@@ -366,7 +463,9 @@ impl ChatView {
                     .icon(icon(Lucide::Wrench))
                     .label(tools)
                     .tooltip("Tools Pi may use · Settings › Agent defaults")
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::actions::OpenSettings), cx)),
+                    .on_click(|_, window, cx| {
+                        super::settings::open(super::settings::Section::Defaults, window, cx)
+                    }),
             )
             .when(!narrow && !is_subagent, |this| {
                 this.child(
@@ -375,13 +474,19 @@ impl ChatView {
                         .small()
                         .icon(icon(Lucide::Shield))
                         .label(config.approval.label())
-                        .on_click(|_, window, cx| window.dispatch_action(Box::new(crate::actions::OpenSettings), cx)),
+                        .on_click(|_, window, cx| {
+                            super::settings::open(super::settings::Section::Approvals, window, cx)
+                        }),
                 )
             })
             .child(div().flex_1())
             .when_some(context, |this, tokens| {
                 let label = match window_size {
-                    Some(w) => format!("Context used: {} of {} tokens", format_tokens(tokens), format_tokens(w)),
+                    Some(w) => format!(
+                        "Context used: {} of {} tokens",
+                        format_tokens(tokens),
+                        format_tokens(w)
+                    ),
                     None => format!("Context used: {} tokens", format_tokens(tokens)),
                 };
                 this.child(
@@ -400,8 +505,18 @@ impl ChatView {
                         .ghost()
                         .small()
                         .icon(icon(Lucide::Square))
-                        .tooltip_with_action(if is_subagent { "Stop sub-agent" } else { "Stop agent" }, &StopAgent, None)
-                        .on_click(cx.listener(|view, _, _, cx| view.session.update(cx, |s, cx| s.stop(cx)))),
+                        .tooltip_with_action(
+                            if is_subagent {
+                                "Stop sub-agent"
+                            } else {
+                                "Stop agent"
+                            },
+                            &StopAgent,
+                            None,
+                        )
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.session.update(cx, |s, cx| s.stop(cx))
+                        })),
                 )
             })
             .child(
@@ -409,7 +524,11 @@ impl ChatView {
                     .ghost()
                     .small()
                     .icon(icon(Lucide::Send))
-                    .tooltip(if running { "Steer · Enter" } else { "Send · Enter" })
+                    .tooltip(if running {
+                        "Steer · Enter"
+                    } else {
+                        "Send · Enter"
+                    })
                     .on_click(cx.listener(|view, _, window, cx| view.send(window, cx))),
             )
     }
@@ -433,7 +552,11 @@ fn status_pill(status: AgentStatus, cx: &App) -> impl IntoElement {
         .text_color(color)
         .text_size(px(11.5))
         .when(status == AgentStatus::Working, |this| {
-            this.child(gpui_kit::component::spinner::Spinner::new().with_size(px(11.)).color(color))
+            this.child(
+                gpui_kit::component::spinner::Spinner::new()
+                    .with_size(px(11.))
+                    .color(color),
+            )
         })
         .child(label)
 }
@@ -529,7 +652,12 @@ fn initials(name: &str) -> String {
     match words.as_slice() {
         [] => "?".into(),
         [one] => one.chars().take(2).collect::<String>().to_uppercase(),
-        [first, .., last] => format!("{}{}", first.chars().next().unwrap(), last.chars().next().unwrap()).to_uppercase(),
+        [first, .., last] => format!(
+            "{}{}",
+            first.chars().next().unwrap(),
+            last.chars().next().unwrap()
+        )
+        .to_uppercase(),
     }
 }
 

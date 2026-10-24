@@ -35,7 +35,10 @@ pub fn status_dot(status: AgentStatus, cx: &App) -> gpui_kit::AnyElement {
         AgentStatus::NeedsInput => dot.bg(p.blue).into_any_element(),
         AgentStatus::Finished => dot.bg(p.green).into_any_element(),
         AgentStatus::Failed => dot.bg(p.red).into_any_element(),
-        AgentStatus::Idle => dot.border(px(1.5)).border_color(p.subtext0).into_any_element(),
+        AgentStatus::Idle => dot
+            .border(px(1.5))
+            .border_color(p.subtext0)
+            .into_any_element(),
     }
 }
 
