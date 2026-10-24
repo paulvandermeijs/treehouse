@@ -13,7 +13,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
 
-use super::app::TreehouseApp;
+use super::app::{Fold, TreehouseApp};
 use super::{BAR_HEIGHT, SIDEBAR_WIDTH, icon, status_dot};
 use crate::actions::{
     CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleSidebar, ToggleTheme,
@@ -85,7 +85,7 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
     let workspace = app.workspace.read(cx);
     for project in workspace.projects.iter() {
         let project_path = project.path.clone();
-        let project_open = !app.is_collapsed(&project.path);
+        let project_open = !app.is_collapsed(Fold::Project, &project.path);
         rows.push(
             row(
                 SharedString::from(format!("project:{}", project.path.display())),
@@ -109,7 +109,7 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
             })
             .on_click(cx.listener({
                 let path = project_path.clone();
-                move |app, _, _, cx| app.toggle_collapsed(path.clone(), cx)
+                move |app, _, _, cx| app.toggle_collapsed(Fold::Project, path.clone(), cx)
             }))
             .context_menu(project_menu(weak.clone(), project_path.clone()))
             .into_any_element(),
@@ -121,7 +121,7 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
         for worktree in project.worktrees.iter() {
             let session = worktree.session.clone();
             let has_kids = !worktree.subagents.is_empty();
-            let expanded = has_kids && !app.is_collapsed(&worktree.path);
+            let expanded = has_kids && !app.is_collapsed(Fold::Worktree, &worktree.path);
             let path = worktree.path.clone();
             rows.push(
                 row(
@@ -151,7 +151,7 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                             .on_click(cx.listener(
                                 move |app, _, _, cx| {
                                     cx.stop_propagation();
-                                    app.toggle_collapsed(path.clone(), cx);
+                                    app.toggle_collapsed(Fold::Worktree, path.clone(), cx);
                                 },
                             ))
                         }),

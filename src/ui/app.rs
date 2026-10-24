@@ -26,6 +26,15 @@ enum Dock {
     Session(Entity<ChatView>),
 }
 
+/// What a sidebar disclosure folds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Fold {
+    /// A project's worktrees.
+    Project,
+    /// A worktree's sub-agents.
+    Worktree,
+}
+
 pub struct TreehouseApp {
     pub workspace: Entity<Workspace>,
     focus_handle: FocusHandle,
@@ -33,8 +42,9 @@ pub struct TreehouseApp {
     dock: Option<Dock>,
     dock_full: bool,
     sidebar_open: bool,
-    /// Projects and worktrees the user collapsed in the sidebar.
-    collapsed: std::collections::HashSet<PathBuf>,
+    /// Projects and worktrees the user collapsed in the sidebar. A main
+    /// worktree shares its project's folder, so the kind is part of the key.
+    collapsed: std::collections::HashSet<(Fold, PathBuf)>,
     chats: HashMap<EntityId, Entity<ChatView>>,
     palette_state: Entity<CommandState>,
     _subscriptions: Vec<Subscription>,
@@ -86,7 +96,11 @@ impl TreehouseApp {
         if let Some(session) = first {
             this.open_session(session, false, window, cx);
         }
-        this.focus_handle.focus(window, cx);
+        // Start typing straight into the open chat's message box.
+        match &this.main {
+            Some(chat) => chat.update(cx, |chat, cx| chat.focus_composer(window, cx)),
+            None => this.focus_handle.focus(window, cx),
+        }
         register_actions(window.window_handle(), cx.entity().downgrade(), cx);
         if Config::global(cx).theme == ThemeChoice::System {
             crate::theme::apply(ThemeChoice::System, Some(window), cx);
@@ -94,13 +108,14 @@ impl TreehouseApp {
         this
     }
 
-    pub fn is_collapsed(&self, path: &std::path::Path) -> bool {
-        self.collapsed.contains(path)
+    pub fn is_collapsed(&self, fold: Fold, path: &std::path::Path) -> bool {
+        self.collapsed.contains(&(fold, path.to_path_buf()))
     }
 
-    pub fn toggle_collapsed(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        if !self.collapsed.remove(&path) {
-            self.collapsed.insert(path);
+    pub fn toggle_collapsed(&mut self, fold: Fold, path: PathBuf, cx: &mut Context<Self>) {
+        let key = (fold, path);
+        if !self.collapsed.remove(&key) {
+            self.collapsed.insert(key);
         }
         cx.notify();
     }
@@ -757,21 +772,31 @@ impl Render for TreehouseApp {
             })
             .when(!self.sidebar_open, |this| {
                 this.child(
+                    // The rail keeps the toggle exactly where the sidebar's
+                    // top bar has it, so it doesn't move under the pointer.
                     v_flex()
                         .h_full()
-                        .p_1()
+                        .flex_none()
                         .border_r_1()
                         .border_color(p.surface0)
                         .bg(p.mantle)
                         .child(
-                            Button::new("show-sidebar")
-                                .ghost()
-                                .small()
-                                .icon(icon(IconName::PanelLeft))
-                                .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(Box::new(ToggleSidebar), cx)
-                                }),
+                            h_flex()
+                                .h(px(super::BAR_HEIGHT))
+                                .flex_none()
+                                .px_2()
+                                .border_b_1()
+                                .border_color(p.surface0)
+                                .child(
+                                    Button::new("show-sidebar")
+                                        .ghost()
+                                        .small()
+                                        .icon(icon(IconName::PanelLeft))
+                                        .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(ToggleSidebar), cx)
+                                        }),
+                                ),
                         ),
                 )
             })

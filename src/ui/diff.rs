@@ -286,7 +286,14 @@ impl Render for DiffPanel {
                     })
                     .when(!empty && self.error.is_none(), |this| {
                         // The dock draws its own edges; drop the viewer's outer border.
-                        this.child(Diff::new(&self.state).size_full().border_0())
+                        // Split columns are as wide as the longest line, so one long
+                        // line pushes the right side out of view; wrap instead.
+                        this.child(
+                            Diff::new(&self.state)
+                                .size_full()
+                                .border_0()
+                                .soft_wrap(self.mode == DiffMode::Split),
+                        )
                     }),
             )
     }
