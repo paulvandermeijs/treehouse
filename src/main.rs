@@ -7,6 +7,7 @@ mod config;
 mod git;
 mod pi;
 mod session;
+mod slash;
 mod theme;
 mod transcript;
 mod ui;

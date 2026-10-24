@@ -16,9 +16,12 @@ use std::path::PathBuf;
 
 use super::items::{GUTTER, avatar, render_items};
 use super::{BAR_HEIGHT, icon};
-use crate::actions::{FullScreenDock, ShowDiff, StopAgent};
+use crate::actions::{
+    FullScreenDock, ShowDiff, SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
+};
 use crate::config::{Config, THINKING_LEVELS};
 use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
+use crate::slash::{self, CommandKind, SlashCommand};
 use crate::theme::{mix, palette};
 use crate::transcript::{ItemId, format_tokens};
 use crate::workspace::Workspace;
@@ -53,6 +56,11 @@ pub struct ChatView {
     pub diff_open: bool,
     pub initials: SharedString,
     pub branch: SharedString,
+    /// The highlighted slash command.
+    slash_selected: usize,
+    /// Escape closed the slash menu; it stays closed until the text changes.
+    slash_dismissed: bool,
+    slash_scroll: ScrollHandle,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -84,10 +92,19 @@ impl ChatView {
             cx.subscribe_in(
                 &composer,
                 window,
-                |view, _, event: &InputEvent, window, cx| {
-                    if let InputEvent::PressEnter { shift: false, .. } = event {
-                        view.send(window, cx);
+                |view, state, event: &InputEvent, window, cx| match event {
+                    InputEvent::PressEnter { shift: false, .. } => view.send(window, cx),
+                    InputEvent::Change => {
+                        view.slash_selected = 0;
+                        view.slash_dismissed = false;
+                        // Pi lists its skills and templates once it runs.
+                        let typing_command = slash::typed_name(&state.read(cx).value()).is_some();
+                        if typing_command && view.session.read(cx).commands.is_empty() {
+                            view.session.update(cx, |s, cx| s.load_commands(cx));
+                        }
+                        cx.notify();
                     }
+                    _ => {}
                 },
             ),
             cx.observe(&session, |view, _, cx| {
@@ -116,6 +133,9 @@ impl ChatView {
             diff_open: false,
             initials: initials.into(),
             branch,
+            slash_selected: 0,
+            slash_dismissed: false,
+            slash_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -158,6 +178,158 @@ impl ChatView {
             worktree,
             path: Some(path),
         });
+    }
+
+    /// The slash commands matching what's typed; empty when the menu is shut.
+    fn slash_matches(&self, cx: &App) -> Vec<SlashCommand> {
+        if self.slash_dismissed {
+            return Vec::new();
+        }
+        let value = self.composer.read(cx).value();
+        let Some(query) = slash::typed_name(&value) else {
+            return Vec::new();
+        };
+        let session = self.session.read(cx);
+        // A sub-agent reports back from its session, so it can't start a new one.
+        let mut commands: Vec<SlashCommand> = slash::builtins()
+            .into_iter()
+            .filter(|c| !(session.is_subagent() && c.name == "new"))
+            .collect();
+        commands.extend(session.commands.iter().cloned());
+        slash::matches(&commands, query)
+            .into_iter()
+            .cloned()
+            .collect()
+    }
+
+    fn move_slash_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
+        let count = self.slash_matches(cx).len();
+        if count == 0 {
+            return;
+        }
+        self.slash_selected =
+            (self.slash_selected as isize + delta).rem_euclid(count as isize) as usize;
+        self.slash_scroll.scroll_to_item(self.slash_selected);
+        cx.notify();
+    }
+
+    /// Puts the command in the message box, ready for its arguments.
+    fn accept_slash(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(command) = self.slash_matches(cx).into_iter().nth(ix) else {
+            return;
+        };
+        let text = format!("/{} ", command.name);
+        self.composer.update(cx, |state, cx| {
+            state.set_value("", window, cx);
+            state.insert(text, window, cx);
+            state.focus(window, cx);
+        });
+        cx.notify();
+    }
+
+    fn render_slash_menu(
+        &self,
+        commands: &[SlashCommand],
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = palette(cx);
+        let selected = self.slash_selected.min(commands.len().saturating_sub(1));
+        let loading = self.session.read(cx).commands.is_empty()
+            && self.session.read(cx).start_error.is_none();
+        v_flex()
+            .absolute()
+            .bottom_full()
+            .left(px(16.))
+            .right(px(16.))
+            .mb_1()
+            .max_w(px(560.))
+            .rounded(px(10.))
+            .border_1()
+            .border_color(p.surface1)
+            .bg(p.base)
+            .shadow_lg()
+            .overflow_hidden()
+            .child(
+                v_flex()
+                    .id("slash-commands")
+                    .track_scroll(&self.slash_scroll)
+                    .overflow_y_scroll()
+                    .max_h(px(320.))
+                    .p(px(4.))
+                    .children(commands.iter().enumerate().map(|(ix, command)| {
+                        let (kind_icon, kind_label) = match command.kind {
+                            CommandKind::Builtin => (icon(Lucide::Terminal), "Command"),
+                            CommandKind::Skill => (icon(Lucide::Sparkles), "Skill"),
+                            CommandKind::Template => (icon(IconName::File), "Template"),
+                        };
+                        h_flex()
+                            .id(("slash", ix))
+                            .h(px(34.))
+                            .flex_none()
+                            .gap(px(10.))
+                            .px(px(10.))
+                            .rounded(px(6.))
+                            .cursor_pointer()
+                            .text_size(px(13.5))
+                            .when(ix == selected, |this| this.bg(p.surface0))
+                            .when(ix != selected, |this| {
+                                this.hover(|s| s.bg(mix(p.surface0, p.base, 0.55)))
+                            })
+                            .child(kind_icon.text_color(p.subtext0))
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .font_family(crate::theme::MONO)
+                                    .text_size(px(12.5))
+                                    .child(format!("/{}", command.name)),
+                            )
+                            .when_some(command.argument_hint.clone(), |this, hint| {
+                                this.child(
+                                    div()
+                                        .flex_none()
+                                        .font_family(crate::theme::MONO)
+                                        .text_size(px(12.5))
+                                        .text_color(p.subtext0)
+                                        .child(hint),
+                                )
+                            })
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .text_ellipsis()
+                                    .whitespace_nowrap()
+                                    .text_size(px(12.5))
+                                    .text_color(p.subtext0)
+                                    .child(command.description.clone()),
+                            )
+                            .child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(11.5))
+                                    .text_color(p.subtext0)
+                                    .child(kind_label),
+                            )
+                            .on_click(cx.listener(move |view, _, window, cx| {
+                                view.accept_slash(ix, window, cx)
+                            }))
+                    })),
+            )
+            .child(
+                h_flex()
+                    .px_3()
+                    .py_1()
+                    .gap_3()
+                    .border_t_1()
+                    .border_color(p.surface0)
+                    .text_size(px(11.5))
+                    .text_color(p.subtext0)
+                    .child("↑↓ choose · Tab or Enter to pick · Esc to close")
+                    .when(loading, |this| {
+                        this.child(div().flex_1()).child("Loading Pi's skills…")
+                    }),
+            )
     }
 
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -335,7 +507,28 @@ impl ChatView {
 
     fn render_composer(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
+        let commands = self.slash_matches(cx);
+        let menu_open = !commands.is_empty();
         h_flex()
+            .relative()
+            .when(menu_open, |this| {
+                this.key_context("SlashMenu")
+                    .on_action(
+                        cx.listener(|view, _: &SlashUp, _, cx| view.move_slash_selection(-1, cx)),
+                    )
+                    .on_action(
+                        cx.listener(|view, _: &SlashDown, _, cx| view.move_slash_selection(1, cx)),
+                    )
+                    .on_action(cx.listener(|view, _: &SlashAccept, window, cx| {
+                        let ix = view.slash_selected;
+                        view.accept_slash(ix, window, cx)
+                    }))
+                    .on_action(cx.listener(|view, _: &SlashDismiss, _, cx| {
+                        view.slash_dismissed = true;
+                        cx.notify();
+                    }))
+                    .child(self.render_slash_menu(&commands, cx))
+            })
             .flex_none()
             .items_start()
             .gap_3()
@@ -575,6 +768,7 @@ impl Render for ChatView {
         let items = render_items(self, cx);
         let task = self.render_task(cx);
         let running = self.session.read(cx).is_running();
+        let compacting = self.session.read(cx).is_compacting();
         let empty = items.is_empty() && task.is_none();
 
         v_flex()
@@ -608,7 +802,7 @@ impl Render for ChatView {
                             .gap(px(14.))
                             .children(task)
                             .children(items)
-                            .when(running, |this| {
+                            .when(running || compacting, |this| {
                                 this.child(
                                     h_flex()
                                         .gap_2()
@@ -620,7 +814,7 @@ impl Render for ChatView {
                                                 .mr(px(8.))
                                                 .child(gpui_kit::component::spinner::Spinner::new().with_size(px(14.)).color(p.subtext1)),
                                         )
-                                        .child(gpui_kit::component::shimmer::ShimmerText::new("Working…")),
+                                        .child(gpui_kit::component::shimmer::ShimmerText::new(if compacting { "Compacting context…" } else { "Working…" })),
                                 )
                             })
                             .when(empty, |this| {

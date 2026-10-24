@@ -25,6 +25,12 @@ Pi starts the first time you send a message in a worktree. It uses Pi's own conf
 
 Settings are saved in the platform config folder (`~/.config/treehouse/settings.json` on Linux). Pi sessions are saved under the platform data folder (`~/.local/share/treehouse/sessions`).
 
+### Slash commands
+
+Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]` and `/new`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands.
+
+Pi only loads a project's own skills, templates and extensions (`.pi/` and `.agents/skills`) once the project is trusted, and in RPC mode it can't ask. Until Treehouse handles project trust, record the decision by running `pi` once in the project and answering its trust prompt, or use `/trust` there.
+
 ### Without a model
 
 `tools/fake-pi` speaks the same RPC protocol and plays back a scripted turn with tool calls, an approval and a sub-agent. Set it as the Pi command in Settings › Agent defaults to work on the UI without a model or an API key.
@@ -38,6 +44,7 @@ Settings are saved in the platform config folder (`~/.config/treehouse/settings.
 | `assets/pi/treehouse.ts` | The Pi extension Treehouse loads into every session (see below) |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
+| `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact` and `/new` |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
 | `src/workspace.rs` | Projects, worktrees and sub-agents; reports sub-agent results to their parent |
 | `src/git.rs` | Worktree list/add/remove and the diff since the base branch |

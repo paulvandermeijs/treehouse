@@ -19,6 +19,10 @@ actions!(
         ChangeModel,
         SetThinkingLevel,
         StopAgent,
+        SlashUp,
+        SlashDown,
+        SlashAccept,
+        SlashDismiss,
     ]
 );
 
@@ -49,6 +53,13 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-b", ToggleSidebar, None),
         KeyBinding::new("secondary-m", ChangeModel, None),
         KeyBinding::new("secondary-.", StopAgent, None),
+        // While the slash menu is open these beat the message box's own
+        // bindings: they are more specific and added after the kit's.
+        KeyBinding::new("up", SlashUp, Some("SlashMenu > Input")),
+        KeyBinding::new("down", SlashDown, Some("SlashMenu > Input")),
+        KeyBinding::new("tab", SlashAccept, Some("SlashMenu > Input")),
+        KeyBinding::new("enter", SlashAccept, Some("SlashMenu > Input")),
+        KeyBinding::new("escape", SlashDismiss, Some("SlashMenu > Input")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
 }

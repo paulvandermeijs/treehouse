@@ -101,6 +101,8 @@ pub struct Session {
     pub models: Vec<ModelInfo>,
     pub thinking: String,
     pub context_tokens: Option<u64>,
+    /// Pi's skills and prompt templates for the slash menu.
+    pub commands: Vec<crate::slash::SlashCommand>,
     pub started: Instant,
     pub start_error: Option<String>,
     _reader: Option<Task<()>>,
@@ -136,6 +138,7 @@ impl Session {
             models: Vec::new(),
             thinking: config.thinking.clone(),
             context_tokens: None,
+            commands: Vec::new(),
             started: Instant::now(),
             start_error: None,
             _reader: None,
@@ -244,6 +247,7 @@ impl Session {
             Ok((client, messages)) => {
                 client.send(command::get_state());
                 client.send(command::get_available_models());
+                client.send(command::get_commands());
                 self.client = Some(client);
                 self.start_error = None;
                 self._reader = Some(cx.spawn(async move |this, cx| {
@@ -272,17 +276,55 @@ impl Session {
     }
 
     /// Sends a message; while Pi is working it steers the current run.
+    /// `/compact` and `/new` run as commands instead.
     pub fn send(&mut self, message: &str, cx: &mut Context<Self>) {
         let message = message.trim();
         if message.is_empty() || !self.ensure_started(cx) {
             return;
         }
+        match crate::slash::parse_builtin(message) {
+            Some(crate::slash::Builtin::Compact(instructions)) => {
+                return self.compact(instructions.as_deref(), cx);
+            }
+            Some(crate::slash::Builtin::New) => return self.new_session(cx),
+            None => {}
+        }
         let streaming = self.is_running();
         if let Some(client) = &self.client {
+            self.transcript.expect_user_text(message);
             client.send(command::prompt(message, streaming));
         }
         self.viewed = true;
         cx.notify();
+    }
+
+    fn compact(&mut self, instructions: Option<&str>, cx: &mut Context<Self>) {
+        if let Some(client) = &self.client {
+            client.send(command::compact(instructions));
+            self.transcript.compacting = true;
+        }
+        cx.notify();
+    }
+
+    /// Starts a new Pi session; the chat clears once Pi confirms.
+    fn new_session(&mut self, cx: &mut Context<Self>) {
+        if let Some(client) = &self.client {
+            client.send(command::new_session());
+        }
+        cx.notify();
+    }
+
+    /// Fetches the slash menu's commands, starting Pi if it isn't running.
+    pub fn load_commands(&mut self, cx: &mut Context<Self>) {
+        if self.ensure_started(cx)
+            && let Some(client) = &self.client
+        {
+            client.send(command::get_commands());
+        }
+    }
+
+    pub fn is_compacting(&self) -> bool {
+        self.transcript.compacting
     }
 
     pub fn stop(&mut self, cx: &mut Context<Self>) {
@@ -416,6 +458,9 @@ impl Session {
 
     fn handle_response(&mut self, response: crate::pi::rpc::Response) {
         if !response.success {
+            if response.command == "compact" {
+                self.transcript.compacting = false;
+            }
             if let Some(error) = response.error {
                 self.transcript.push_error(error);
             }
@@ -442,6 +487,16 @@ impl Session {
                     self.model = Some(model);
                 }
             }
+            "get_commands" => self.commands = crate::slash::parse_commands(data),
+            "new_session" if !data["cancelled"].as_bool().unwrap_or(false) => {
+                self.transcript.clear();
+                self.texts.clear();
+                self.approvals.clear();
+                self.context_tokens = None;
+                self.started = Instant::now();
+                self.transcript.push_notice("New session");
+            }
+            "compact" => self.transcript.compacting = false,
             "get_session_stats" => {
                 self.context_tokens = data["contextUsage"]["tokens"].as_u64();
                 if let (Some(model), Some(window)) = (

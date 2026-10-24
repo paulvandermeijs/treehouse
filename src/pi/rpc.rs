@@ -258,6 +258,18 @@ pub mod command {
     pub fn get_state() -> Value {
         json!({"type": "get_state"})
     }
+    pub fn get_commands() -> Value {
+        json!({"type": "get_commands"})
+    }
+    pub fn compact(instructions: Option<&str>) -> Value {
+        match instructions {
+            Some(text) => json!({"type": "compact", "customInstructions": text}),
+            None => json!({"type": "compact"}),
+        }
+    }
+    pub fn new_session() -> Value {
+        json!({"type": "new_session"})
+    }
     pub fn get_session_stats() -> Value {
         json!({"type": "get_session_stats"})
     }

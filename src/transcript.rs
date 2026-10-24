@@ -4,6 +4,7 @@
 //! feeds it events and renders its items.
 
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -157,6 +158,11 @@ pub struct Transcript {
     /// Maps the streaming assistant message's content indexes to items.
     blocks: Vec<(u64, ItemId)>,
     pub run: RunState,
+    /// Set while Pi compacts the context.
+    pub compacting: bool,
+    /// What the user typed for messages Pi hasn't echoed yet. Pi echoes a
+    /// skill or template command expanded, so the chat shows this instead.
+    typed: VecDeque<String>,
     cwd: PathBuf,
 }
 
@@ -167,6 +173,8 @@ impl Transcript {
             next_id: 1,
             blocks: Vec::new(),
             run: RunState::Idle,
+            compacting: false,
+            typed: VecDeque::new(),
             cwd: cwd.into(),
         }
     }
@@ -187,6 +195,21 @@ impl Transcript {
             Item::Tool(tool) if tool.call_id == call_id => Some(tool),
             _ => None,
         })
+    }
+
+    /// Records a message as the user typed it, for when Pi echoes it.
+    pub fn expect_user_text(&mut self, text: impl Into<String>) {
+        self.typed.push_back(text.into());
+    }
+
+    /// Empties the chat for a new session. Item ids keep counting, so views
+    /// keyed by them never mix up old and new items.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.blocks.clear();
+        self.typed.clear();
+        self.run = RunState::Idle;
+        self.compacting = false;
     }
 
     pub fn push_notice(&mut self, text: impl Into<String>) {
@@ -256,7 +279,10 @@ impl Transcript {
                 let message = &event["message"];
                 match message.get("role").and_then(Value::as_str) {
                     Some("user") => {
-                        let text = user_text(&message["content"]);
+                        let text = self
+                            .typed
+                            .pop_front()
+                            .unwrap_or_else(|| user_text(&message["content"]));
                         let id = self.alloc();
                         self.items.push(Item::User { id, text });
                     }
@@ -358,7 +384,12 @@ impl Transcript {
                 }
                 Effect::None
             }
+            "compaction_start" => {
+                self.compacting = true;
+                Effect::None
+            }
             "compaction_end" => {
+                self.compacting = false;
                 let result = &event["result"];
                 if let Some(before) = result.get("tokensBefore").and_then(Value::as_u64) {
                     let after = result.get("estimatedTokensAfter").and_then(Value::as_u64);
@@ -679,6 +710,28 @@ mod tests {
             matches!(&t.items()[1], Item::Error { text, .. } if text == "Request failed: rate limited")
         );
         assert_eq!(t.run, RunState::Failed);
+    }
+
+    #[test]
+    fn shows_commands_as_typed() {
+        let mut t = Transcript::new("/tmp");
+        t.expect_user_text("/skill:pdf-tools extract report.pdf");
+        t.apply(&json!({"type": "message_start", "message": {"role": "user",
+            "content": "<skill name=\"pdf-tools\">…</skill>\n\nextract report.pdf"}}));
+        assert!(
+            matches!(&t.items()[0], Item::User { text, .. } if text == "/skill:pdf-tools extract report.pdf")
+        );
+
+        t.apply(&json!({"type": "compaction_start", "reason": "manual"}));
+        assert!(t.compacting);
+        t.apply(&json!({"type": "compaction_end", "result": {"tokensBefore": 182000, "estimatedTokensAfter": 41000}}));
+        assert!(!t.compacting);
+        assert!(
+            matches!(&t.items()[1], Item::Notice { text, .. } if text == "Context compacted · 182k → 41.0k tokens")
+        );
+
+        t.clear();
+        assert!(t.items().is_empty());
     }
 
     #[test]
