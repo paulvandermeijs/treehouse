@@ -1,0 +1,591 @@
+//! The chat history of one Pi session, built from RPC events.
+//!
+//! This is plain data so it can be tested without a window. The session entity
+//! feeds it events and renders its items.
+
+use serde_json::Value;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use crate::pi::rpc::str_field;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ItemId(pub u64);
+
+#[derive(Clone, Debug)]
+pub enum Item {
+    User { id: ItemId, text: String },
+    Text { id: ItemId, text: String, streaming: bool },
+    Thinking { id: ItemId, text: String, streaming: bool, started: Instant, elapsed: Option<Duration> },
+    Tool(ToolCall),
+    /// A centred line for events that change the session but aren't messages.
+    Notice { id: ItemId, text: String },
+    /// A model or provider error, shown in a red-tinted box.
+    Error { id: ItemId, text: String, retrying: bool },
+}
+
+impl Item {
+    pub fn id(&self) -> ItemId {
+        match self {
+            Item::User { id, .. }
+            | Item::Text { id, .. }
+            | Item::Thinking { id, .. }
+            | Item::Notice { id, .. }
+            | Item::Error { id, .. } => *id,
+            Item::Tool(tool) => tool.id,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ToolStatus {
+    /// The model is still writing the call's arguments.
+    Preparing,
+    AwaitingApproval,
+    Running,
+    Done,
+    Failed,
+    Denied,
+    Stopped,
+}
+
+#[derive(Clone, Debug)]
+pub struct ToolCall {
+    pub id: ItemId,
+    pub call_id: String,
+    pub name: String,
+    pub args: Value,
+    pub status: ToolStatus,
+    /// Text content of the (partial) result.
+    pub output: String,
+    pub details: Value,
+    pub started: Instant,
+    pub duration: Option<Duration>,
+    /// For `write`: what the file held before Pi wrote it, if it existed.
+    pub previous_content: Option<String>,
+}
+
+impl ToolCall {
+    pub fn path(&self) -> Option<&str> {
+        self.args.get("path").and_then(Value::as_str)
+    }
+
+    pub fn command(&self) -> Option<&str> {
+        self.args.get("command").and_then(Value::as_str)
+    }
+
+    /// The exit code of a bash call, parsed from Pi's result text.
+    pub fn exit_code(&self) -> Option<i32> {
+        if self.name != "bash" {
+            return None;
+        }
+        match self.status {
+            ToolStatus::Done => Some(0),
+            ToolStatus::Failed => self
+                .output
+                .lines()
+                .rev()
+                .find_map(|line| line.trim().strip_prefix("Command exited with code "))
+                .and_then(|code| code.trim().parse().ok()),
+            _ => None,
+        }
+    }
+
+    /// The unified patch of an edit, or of a write that replaced a file.
+    pub fn patch(&self) -> Option<String> {
+        match self.name.as_str() {
+            "edit" => self.details.get("patch").and_then(Value::as_str).map(str::to_owned),
+            "write" => {
+                let path = self.path()?;
+                let new = self.args.get("content").and_then(Value::as_str)?;
+                Some(crate::git::unified_patch(path, self.previous_content.as_deref(), new))
+            }
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunState {
+    Idle,
+    Running,
+    Failed,
+}
+
+/// What the session should do after an event, beyond updating items.
+#[derive(Debug, PartialEq)]
+pub enum Effect {
+    None,
+    /// A turn ended: refresh token counts and the diff.
+    TurnEnded,
+    /// Nothing more will happen until the user acts.
+    Settled,
+}
+
+pub struct Transcript {
+    items: Vec<Item>,
+    next_id: u64,
+    /// Maps the streaming assistant message's content indexes to items.
+    blocks: Vec<(u64, ItemId)>,
+    pub run: RunState,
+    cwd: PathBuf,
+}
+
+impl Transcript {
+    pub fn new(cwd: impl Into<PathBuf>) -> Self {
+        Self {
+            items: Vec::new(),
+            next_id: 1,
+            blocks: Vec::new(),
+            run: RunState::Idle,
+            cwd: cwd.into(),
+        }
+    }
+
+    pub fn items(&self) -> &[Item] {
+        &self.items
+    }
+
+    pub fn tool(&self, call_id: &str) -> Option<&ToolCall> {
+        self.items.iter().find_map(|item| match item {
+            Item::Tool(tool) if tool.call_id == call_id => Some(tool),
+            _ => None,
+        })
+    }
+
+    pub fn tool_mut(&mut self, call_id: &str) -> Option<&mut ToolCall> {
+        self.items.iter_mut().find_map(|item| match item {
+            Item::Tool(tool) if tool.call_id == call_id => Some(tool),
+            _ => None,
+        })
+    }
+
+    pub fn push_notice(&mut self, text: impl Into<String>) {
+        let id = self.alloc();
+        self.items.push(Item::Notice { id, text: text.into() });
+    }
+
+    pub fn push_error(&mut self, text: impl Into<String>) {
+        let id = self.alloc();
+        self.items.push(Item::Error { id, text: text.into(), retrying: false });
+    }
+
+    fn alloc(&mut self) -> ItemId {
+        let id = ItemId(self.next_id);
+        self.next_id += 1;
+        id
+    }
+
+    fn block(&self, index: u64) -> Option<ItemId> {
+        self.blocks.iter().find(|(i, _)| *i == index).map(|(_, id)| *id)
+    }
+
+    fn item_mut(&mut self, id: ItemId) -> Option<&mut Item> {
+        self.items.iter_mut().rev().find(|item| item.id() == id)
+    }
+
+    fn ensure_tool(&mut self, call_id: &str, name: &str) -> &mut ToolCall {
+        if self.tool(call_id).is_none() {
+            let id = self.alloc();
+            self.items.push(Item::Tool(ToolCall {
+                id,
+                call_id: call_id.to_string(),
+                name: name.to_string(),
+                args: Value::Null,
+                status: ToolStatus::Preparing,
+                output: String::new(),
+                details: Value::Null,
+                started: Instant::now(),
+                duration: None,
+                previous_content: None,
+            }));
+        }
+        self.tool_mut(call_id).unwrap()
+    }
+
+    pub fn apply(&mut self, event: &Value) -> Effect {
+        match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+            "agent_start" => {
+                self.run = RunState::Running;
+                Effect::None
+            }
+            "message_start" => {
+                let message = &event["message"];
+                match message.get("role").and_then(Value::as_str) {
+                    Some("user") => {
+                        let text = user_text(&message["content"]);
+                        let id = self.alloc();
+                        self.items.push(Item::User { id, text });
+                    }
+                    Some("assistant") => self.blocks.clear(),
+                    _ => {}
+                }
+                Effect::None
+            }
+            "message_update" => {
+                self.apply_assistant_event(&event["assistantMessageEvent"]);
+                Effect::None
+            }
+            "message_end" => {
+                let message = &event["message"];
+                if message.get("role").and_then(Value::as_str) == Some("assistant") {
+                    self.finish_streaming_blocks();
+                    match message.get("stopReason").and_then(Value::as_str) {
+                        Some("error") => {
+                            let text = message
+                                .get("errorMessage")
+                                .and_then(Value::as_str)
+                                .unwrap_or("The request failed.");
+                            self.push_error(format!("Request failed: {text}"));
+                        }
+                        Some("aborted") => self.push_notice("Stopped by you"),
+                        _ => {}
+                    }
+                }
+                Effect::None
+            }
+            "tool_execution_start" => {
+                let call_id = str_field(event, "toolCallId");
+                let name = str_field(event, "toolName");
+                let cwd = self.cwd.clone();
+                let tool = self.ensure_tool(&call_id, &name);
+                tool.args = event["args"].clone();
+                if tool.status != ToolStatus::AwaitingApproval {
+                    tool.status = ToolStatus::Running;
+                }
+                tool.started = Instant::now();
+                if tool.name == "write" {
+                    tool.previous_content = tool
+                        .path()
+                        .and_then(|path| std::fs::read_to_string(resolve(&cwd, path)).ok());
+                }
+                Effect::None
+            }
+            "tool_execution_update" => {
+                let call_id = str_field(event, "toolCallId");
+                if let Some(tool) = self.tool_mut(&call_id) {
+                    tool.output = content_text(&event["partialResult"]["content"]);
+                }
+                Effect::None
+            }
+            "tool_execution_end" => {
+                let call_id = str_field(event, "toolCallId");
+                let name = str_field(event, "toolName");
+                let tool = self.ensure_tool(&call_id, &name);
+                let result = &event["result"];
+                tool.output = content_text(&result["content"]);
+                tool.details = result.get("details").cloned().unwrap_or(Value::Null);
+                tool.duration = event
+                    .get("durationMs")
+                    .and_then(Value::as_u64)
+                    .map(Duration::from_millis)
+                    .or_else(|| Some(tool.started.elapsed()));
+                let is_error = event.get("isError").and_then(Value::as_bool).unwrap_or(false);
+                tool.status = match (is_error, tool.status) {
+                    (true, ToolStatus::Denied) => ToolStatus::Denied,
+                    (true, _) if tool.output.contains("Command aborted") => ToolStatus::Stopped,
+                    (true, _) => ToolStatus::Failed,
+                    (false, _) => ToolStatus::Done,
+                };
+                Effect::None
+            }
+            "turn_end" => Effect::TurnEnded,
+            "auto_retry_start" => {
+                let attempt = event.get("attempt").and_then(Value::as_u64).unwrap_or(1);
+                let delay = event.get("delayMs").and_then(Value::as_u64).unwrap_or(0) / 1000;
+                let error = str_field(event, "errorMessage");
+                let id = self.alloc();
+                self.items.push(Item::Error {
+                    id,
+                    text: format!("Request failed: {error}. Retrying in {delay}s (attempt {attempt})."),
+                    retrying: true,
+                });
+                Effect::None
+            }
+            "auto_retry_end" => {
+                for item in self.items.iter_mut() {
+                    if let Item::Error { retrying, .. } = item {
+                        *retrying = false;
+                    }
+                }
+                Effect::None
+            }
+            "compaction_end" => {
+                let result = &event["result"];
+                if let Some(before) = result.get("tokensBefore").and_then(Value::as_u64) {
+                    let after = result.get("estimatedTokensAfter").and_then(Value::as_u64);
+                    let text = match after {
+                        Some(after) => format!(
+                            "Context compacted · {} → {} tokens",
+                            format_tokens(before),
+                            format_tokens(after)
+                        ),
+                        None => format!("Context compacted · {} tokens before", format_tokens(before)),
+                    };
+                    self.push_notice(text);
+                } else if let Some(error) = event.get("errorMessage").and_then(Value::as_str) {
+                    self.push_error(format!("Compaction failed: {error}"));
+                }
+                Effect::None
+            }
+            "thinking_level_changed" => {
+                let level = str_field(event, "level");
+                self.push_notice(format!("Thinking level changed to {level}"));
+                Effect::None
+            }
+            "agent_end" => {
+                // Pi 1.x follows with `agent_settled`; older versions end here.
+                if event.get("willRetry").is_none() {
+                    return self.settle();
+                }
+                Effect::None
+            }
+            "agent_settled" => self.settle(),
+            _ => Effect::None,
+        }
+    }
+
+    fn settle(&mut self) -> Effect {
+        self.finish_streaming_blocks();
+        for item in self.items.iter_mut() {
+            if let Item::Tool(tool) = item {
+                if matches!(tool.status, ToolStatus::Running | ToolStatus::Preparing | ToolStatus::AwaitingApproval) {
+                    tool.status = ToolStatus::Stopped;
+                }
+            }
+        }
+        let failed = matches!(self.items.last(), Some(Item::Error { .. }));
+        self.run = if failed { RunState::Failed } else { RunState::Idle };
+        Effect::Settled
+    }
+
+    fn finish_streaming_blocks(&mut self) {
+        for item in self.items.iter_mut() {
+            match item {
+                Item::Text { streaming, .. } => *streaming = false,
+                Item::Thinking { streaming, started, elapsed, .. } if *streaming => {
+                    *streaming = false;
+                    *elapsed = Some(started.elapsed());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn apply_assistant_event(&mut self, event: &Value) {
+        let index = event.get("contentIndex").and_then(Value::as_u64).unwrap_or(0);
+        match event.get("type").and_then(Value::as_str).unwrap_or_default() {
+            "text_start" => {
+                let id = self.alloc();
+                self.items.push(Item::Text { id, text: String::new(), streaming: true });
+                self.blocks.push((index, id));
+            }
+            "text_delta" => {
+                let delta = str_field(event, "delta");
+                let id = match self.block(index) {
+                    Some(id) => id,
+                    None => {
+                        self.apply_assistant_event(&serde_json::json!({"type": "text_start", "contentIndex": index}));
+                        self.block(index).unwrap()
+                    }
+                };
+                if let Some(Item::Text { text, .. }) = self.item_mut(id) {
+                    text.push_str(&delta);
+                }
+            }
+            "text_end" => {
+                if let Some(id) = self.block(index) {
+                    let content = event.get("content").and_then(Value::as_str).map(str::to_owned);
+                    if let Some(Item::Text { text, streaming, .. }) = self.item_mut(id) {
+                        if let Some(content) = content {
+                            *text = content;
+                        }
+                        *streaming = false;
+                    }
+                }
+            }
+            "thinking_start" => {
+                let id = self.alloc();
+                self.items.push(Item::Thinking {
+                    id,
+                    text: String::new(),
+                    streaming: true,
+                    started: Instant::now(),
+                    elapsed: None,
+                });
+                self.blocks.push((index, id));
+            }
+            "thinking_delta" => {
+                let delta = str_field(event, "delta");
+                if let Some(id) = self.block(index) {
+                    if let Some(Item::Thinking { text, .. }) = self.item_mut(id) {
+                        text.push_str(&delta);
+                    }
+                }
+            }
+            "thinking_end" => {
+                if let Some(id) = self.block(index) {
+                    if let Some(Item::Thinking { streaming, started, elapsed, .. }) = self.item_mut(id) {
+                        *streaming = false;
+                        *elapsed = Some(started.elapsed());
+                    }
+                }
+            }
+            "toolcall_start" => {
+                let call_id = str_field(event, "id");
+                let name = str_field(event, "toolName");
+                if !call_id.is_empty() {
+                    self.ensure_tool(&call_id, &name);
+                }
+            }
+            "toolcall_end" => {
+                let call = &event["toolCall"];
+                let call_id = str_field(call, "id");
+                let name = str_field(call, "name");
+                if !call_id.is_empty() {
+                    let tool = self.ensure_tool(&call_id, &name);
+                    tool.args = call["arguments"].clone();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn resolve(cwd: &Path, path: &str) -> PathBuf {
+    let path = Path::new(path);
+    if path.is_absolute() { path.to_path_buf() } else { cwd.join(path) }
+}
+
+/// The text of a user message's content, which is a string or blocks.
+fn user_text(content: &Value) -> String {
+    match content {
+        Value::String(text) => text.clone(),
+        _ => content_text(content),
+    }
+}
+
+/// Joins the text blocks of a content array.
+pub fn content_text(content: &Value) -> String {
+    content
+        .as_array()
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter_map(|block| block.get("text").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
+}
+
+/// `48200` → `48.2k`.
+pub fn format_tokens(tokens: u64) -> String {
+    if tokens >= 1000 {
+        let k = tokens as f64 / 1000.0;
+        if k >= 100.0 { format!("{k:.0}k") } else { format!("{k:.1}k") }
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// `102 s` → `1m 42s`.
+pub fn format_duration(duration: Duration) -> String {
+    let secs = duration.as_secs();
+    if secs >= 60 {
+        format!("{}m {:02}s", secs / 60, secs % 60)
+    } else if duration.as_millis() < 10_000 {
+        format!("{:.1}s", duration.as_secs_f64())
+    } else {
+        format!("{secs}s")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
+        events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn builds_a_turn_from_events() {
+        let mut t = Transcript::new("/tmp");
+        let effects = feed(
+            &mut t,
+            &[
+                json!({"type": "agent_start"}),
+                json!({"type": "message_start", "message": {"role": "user", "content": "Hi"}}),
+                json!({"type": "message_start", "message": {"role": "assistant", "content": []}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "thinking_start", "contentIndex": 0}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "thinking_delta", "contentIndex": 0, "delta": "Hmm"}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "thinking_end", "contentIndex": 0}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "text_start", "contentIndex": 1}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "contentIndex": 1, "delta": "Hel"}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "text_delta", "contentIndex": 1, "delta": "lo"}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "toolcall_start", "contentIndex": 2, "id": "c1", "toolName": "read"}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "toolcall_end", "contentIndex": 2, "toolCall": {"id": "c1", "name": "read", "arguments": {"path": "src/main.rs"}}}}),
+                json!({"type": "message_end", "message": {"role": "assistant", "stopReason": "toolUse"}}),
+                json!({"type": "tool_execution_start", "toolCallId": "c1", "toolName": "read", "args": {"path": "src/main.rs"}}),
+                json!({"type": "tool_execution_end", "toolCallId": "c1", "toolName": "read", "result": {"content": [{"type": "text", "text": "fn main() {}"}]}, "isError": false, "durationMs": 12}),
+                json!({"type": "turn_end"}),
+                json!({"type": "agent_end", "willRetry": false}),
+                json!({"type": "agent_settled", "aborted": false}),
+            ],
+        );
+        assert_eq!(effects.iter().filter(|e| **e == Effect::Settled).count(), 1);
+        assert!(effects.contains(&Effect::TurnEnded));
+        assert_eq!(t.run, RunState::Idle);
+
+        let items = t.items();
+        assert!(matches!(&items[0], Item::User { text, .. } if text == "Hi"));
+        assert!(matches!(&items[1], Item::Thinking { text, streaming: false, elapsed: Some(_), .. } if text == "Hmm"));
+        assert!(matches!(&items[2], Item::Text { text, streaming: false, .. } if text == "Hello"));
+        let Item::Tool(tool) = &items[3] else { panic!("expected a tool call") };
+        assert_eq!(tool.status, ToolStatus::Done);
+        assert_eq!(tool.path(), Some("src/main.rs"));
+        assert_eq!(tool.output, "fn main() {}");
+        assert_eq!(tool.duration, Some(Duration::from_millis(12)));
+    }
+
+    #[test]
+    fn bash_failures_report_the_exit_code() {
+        let mut t = Transcript::new("/tmp");
+        feed(
+            &mut t,
+            &[
+                json!({"type": "tool_execution_start", "toolCallId": "b", "toolName": "bash", "args": {"command": "cargo build"}}),
+                json!({"type": "tool_execution_update", "toolCallId": "b", "toolName": "bash", "partialResult": {"content": [{"type": "text", "text": "Compiling"}]}}),
+            ],
+        );
+        assert_eq!(t.tool("b").unwrap().output, "Compiling");
+        assert_eq!(t.tool("b").unwrap().status, ToolStatus::Running);
+        t.apply(&json!({"type": "tool_execution_end", "toolCallId": "b", "toolName": "bash", "isError": true,
+            "result": {"content": [{"type": "text", "text": "error[E0599]\n\nCommand exited with code 101"}]}}));
+        let tool = t.tool("b").unwrap();
+        assert_eq!(tool.status, ToolStatus::Failed);
+        assert_eq!(tool.exit_code(), Some(101));
+    }
+
+    #[test]
+    fn errors_and_aborts_become_notes() {
+        let mut t = Transcript::new("/tmp");
+        t.apply(&json!({"type": "message_end", "message": {"role": "assistant", "stopReason": "aborted"}}));
+        t.apply(&json!({"type": "message_end", "message": {"role": "assistant", "stopReason": "error", "errorMessage": "rate limited"}}));
+        assert_eq!(t.apply(&json!({"type": "agent_settled"})), Effect::Settled);
+        assert!(matches!(&t.items()[0], Item::Notice { text, .. } if text == "Stopped by you"));
+        assert!(matches!(&t.items()[1], Item::Error { text, .. } if text == "Request failed: rate limited"));
+        assert_eq!(t.run, RunState::Failed);
+    }
+
+    #[test]
+    fn formats_numbers() {
+        assert_eq!(format_tokens(48_200), "48.2k");
+        assert_eq!(format_tokens(182_000), "182k");
+        assert_eq!(format_tokens(950), "950");
+        assert_eq!(format_duration(Duration::from_secs(102)), "1m 42s");
+        assert_eq!(format_duration(Duration::from_millis(6400)), "6.4s");
+    }
+}
