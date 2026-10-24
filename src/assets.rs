@@ -6,7 +6,7 @@ use std::borrow::Cow;
 gpui_kit::assets::icon_assets!(ExtraIcons, [
     Bot, CircleAlert, CircleStop, Columns2, ExternalLink, FilePlus, FolderPlus, GitBranch,
     Lightbulb, LoaderCircle, Maximize2, Minimize2, PanelRight, Pencil, Send, Shield, Sparkles,
-    SquareTerminal, Terminal, Wrench, X, ArrowUp, Copy,
+    SquareTerminal, Terminal, Wrench, X, ArrowUp, Copy, Files, Square, CircleDashed, KeyRound, Keyboard, PanelRightClose,
 ]);
 
 pub struct Assets;

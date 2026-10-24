@@ -78,8 +78,8 @@ pub fn worktree_location(template: &str, project: &Path, branch: &str) -> PathBu
 
 /// Creates a worktree with a new branch off the current HEAD.
 pub fn add_worktree(project: &Path, branch: &str, location: &Path) -> Result<()> {
-    let location = location.display().to_string();
-    git(project, &["worktree", "add", "-b", branch, &location]).map(|_| ())
+    exclude_from_project(project, location);
+    git(project, &["worktree", "add", "-b", branch, &location.display().to_string()]).map(|_| ())
 }
 
 pub fn remove_worktree(project: &Path, path: &Path, delete_branch: Option<&str>) -> Result<()> {
@@ -101,15 +101,40 @@ pub fn default_base(project: &Path) -> String {
         .unwrap_or_else(|_| "main".to_string())
 }
 
-/// The unified diff of the worktree, including uncommitted changes, against
-/// its merge base with `base`.
+/// The unified diff of the worktree, including uncommitted changes and new
+/// files, against its merge base with `base`. The index is left alone.
 pub fn diff_since(worktree: &Path, base: &str) -> Result<String> {
     let merge_base = git(worktree, &["merge-base", base, "HEAD"])
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "HEAD".to_string());
-    // Untracked files show up in the diff once they're marked intent-to-add.
-    let _ = git(worktree, &["add", "--intent-to-add", "--all"]);
-    git(worktree, &["diff", "--no-color", "--no-ext-diff", &merge_base])
+    let mut patch = git(worktree, &["diff", "--no-color", "--no-ext-diff", &merge_base])?;
+    let untracked = git(worktree, &["ls-files", "--others", "--exclude-standard", "-z"])?;
+    // A trailing slash marks a nested repository, such as another worktree.
+    for path in untracked.split('\0').filter(|p| !p.is_empty() && !p.ends_with('/')) {
+        let Ok(content) = std::fs::read(worktree.join(path)) else { continue };
+        if content.contains(&0) {
+            continue;
+        }
+        let content = String::from_utf8_lossy(&content);
+        patch.push_str(&unified_patch(path, None, &content));
+    }
+    Ok(patch)
+}
+
+/// Keeps worktrees created inside the project out of its `git status`.
+fn exclude_from_project(project: &Path, location: &Path) {
+    let Ok(relative) = location.strip_prefix(project) else { return };
+    let Some(first) = relative.components().next() else { return };
+    let entry = format!("/{}/", first.as_os_str().to_string_lossy());
+    let Ok(git_dir) = git(project, &["rev-parse", "--git-common-dir"]) else { return };
+    let git_dir = project.join(git_dir.trim());
+    let exclude = git_dir.join("info").join("exclude");
+    let current = std::fs::read_to_string(&exclude).unwrap_or_default();
+    if !current.lines().any(|line| line.trim() == entry) {
+        let _ = std::fs::create_dir_all(git_dir.join("info"));
+        let separator = if current.is_empty() || current.ends_with('\n') { "" } else { "\n" };
+        let _ = std::fs::write(&exclude, format!("{current}{separator}{entry}\n"));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -205,6 +230,10 @@ mod tests {
         std::fs::write(location.join("new.txt"), "fresh\n").unwrap();
         let stat = diff_stat(&diff_since(&location, "main").unwrap());
         assert_eq!(stat, DiffStat { files: 2, additions: 2, deletions: 0 });
+        // The main worktree is clean: the new worktree inside it is excluded.
+        assert_eq!(diff_stat(&diff_since(repo, "main").unwrap()), DiffStat::default());
+        let status = git(repo, &["status", "--porcelain"]).unwrap();
+        assert!(status.is_empty(), "unexpected status: {status}");
         assert_eq!(default_base(repo), "main");
     }
 }

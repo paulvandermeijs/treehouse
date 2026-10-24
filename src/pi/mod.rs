@@ -1,3 +1,4 @@
+pub mod auth;
 pub mod rpc;
 
 /// The bridge extension Treehouse loads into every Pi session.
