@@ -333,7 +333,7 @@ impl ChatView {
         )
     }
 
-    fn render_composer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_composer(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         h_flex()
             .flex_none()
@@ -343,13 +343,21 @@ impl ChatView {
             .py_3()
             .border_t_1()
             .border_color(p.surface0)
-            .child(avatar(&self.initials, &p).mt(px(2.)))
+            .child(avatar(&self.initials, &p))
             .child(
-                div().flex_1().min_w_0().child(
-                    Textarea::new(&self.composer)
-                        .appearance(false)
-                        .aria_label("Message Pi"),
-                ),
+                // A multi-line input pads its text by 10px across and 8px down
+                // (medium size). Pull it back so the text starts at the gap
+                // and its first line is centred on the 22px avatar.
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .ml(px(-10.))
+                    .mt(px(-8.) + (px(22.) - window.rem_size() * 1.25) / 2.)
+                    .child(
+                        Textarea::new(&self.composer)
+                            .appearance(false)
+                            .aria_label("Message Pi"),
+                    ),
             )
     }
 
@@ -562,7 +570,7 @@ fn status_pill(status: AgentStatus, cx: &App) -> impl IntoElement {
 }
 
 impl Render for ChatView {
-    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let items = render_items(self, cx);
         let task = self.render_task(cx);
@@ -633,7 +641,7 @@ impl Render for ChatView {
                             }),
                     ),
             )
-            .child(self.render_composer(cx))
+            .child(self.render_composer(window, cx))
             .child(self.render_bar(cx))
     }
 }

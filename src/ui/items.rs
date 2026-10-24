@@ -100,24 +100,74 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .child(SharedString::from(text.clone()))
             .child(div().flex_1().h(px(1.)).bg(p.surface0))
             .into_any_element(),
-        Item::Error { id, text, retrying } => h_flex()
-            .id(("error", id.0))
-            .ml(px(GUTTER))
-            .gap_2()
-            .px_3()
-            .py_2()
-            .rounded(px(8.))
-            .border_1()
-            .border_color(mix(p.red, p.base, 0.4))
-            .bg(mix(p.red, p.base, 0.1))
-            .text_size(px(13.))
-            .child(icon(Lucide::CircleAlert).text_color(p.red))
-            .child(div().flex_1().child(SharedString::from(text.clone())))
-            .when(*retrying, |this| {
-                this.child(Spinner::new().xsmall().color(p.subtext0))
-            })
-            .into_any_element(),
+        Item::Error { id, text, retrying } => render_error(view, *id, text, *retrying, cx),
     }
+}
+
+/// A model or provider error. The first line says what went wrong; details
+/// such as a stack trace stay folded so the box keeps to the chat column.
+fn render_error(
+    view: &ChatView,
+    id: ItemId,
+    text: &str,
+    retrying: bool,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let summary = lines.next().unwrap_or("").trim().to_string();
+    let details: Vec<&str> = lines.collect();
+    let expanded = view.is_expanded(id, false);
+    v_flex()
+        .id(("error", id.0))
+        .ml(px(GUTTER))
+        .min_w_0()
+        .overflow_hidden()
+        .gap_2()
+        .px_3()
+        .py_2()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(mix(p.red, p.base, 0.4))
+        .bg(mix(p.red, p.base, 0.1))
+        .text_size(px(13.))
+        .child(
+            h_flex()
+                .items_start()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .mt(px(2.))
+                        .child(icon(Lucide::CircleAlert).text_color(p.red)),
+                )
+                .child(div().flex_1().min_w_0().child(SharedString::from(summary)))
+                .when(retrying, |this| {
+                    this.child(Spinner::new().xsmall().color(p.subtext0))
+                })
+                .when(!details.is_empty(), |this| {
+                    this.child(
+                        Button::new(("error-details", id.0))
+                            .ghost()
+                            .xsmall()
+                            .label(if expanded { "Hide details" } else { "Details" })
+                            .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, cx))),
+                    )
+                }),
+        )
+        .when(expanded && !details.is_empty(), |this| {
+            this.child(
+                div()
+                    .ml(px(24.))
+                    .min_w_0()
+                    .overflow_hidden()
+                    .font_family(MONO)
+                    .text_size(px(11.5))
+                    .text_color(p.subtext0)
+                    .child(SharedString::from(details.join("\n"))),
+            )
+        })
+        .into_any_element()
 }
 
 pub fn avatar(initials: &SharedString, p: &Palette) -> Div {
@@ -386,9 +436,10 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .cursor_pointer()
         .hover(|s| s.text_color(p.text))
         .child(lead)
-        .child(verb)
+        .child(div().flex_none().whitespace_nowrap().child(verb))
         .child(
             mono(text.target.clone(), if failed { p.red } else { p.subtext1 })
+                .flex_1()
                 .min_w_0()
                 .overflow_hidden()
                 .text_ellipsis()
@@ -445,6 +496,8 @@ fn error_card(text: &str, p: &Palette) -> Div {
         .border_color(mix(p.red, p.base, 0.4))
         .bg(mix(p.red, p.base, 0.08))
         .text_size(px(13.))
+        .min_w_0()
+        .overflow_hidden()
         .child(SharedString::from(text.to_string()))
 }
 

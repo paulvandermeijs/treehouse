@@ -6,8 +6,10 @@ on the chat UI without a model or an API key:
 
     Settings › Agent defaults › Pi command: /path/to/treehouse/tools/fake-pi
 
-A message that starts with "Find" plays the sub-agent script; anything else
-plays the worktree chat script, which starts a sub-agent. Set FAKE_PI_HOLD to
+A message that starts with "Find" plays the sub-agent script, "Fail" a
+provider error with a stack trace, and "Long" a long-running command with a
+long command line; anything else plays the worktree chat script, which starts
+a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
 """
 
@@ -163,6 +165,26 @@ def subagent_turn():
     emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
 
 
+def error_turn():
+    stack = "\n".join(
+        f"    at async step{i} (file:///Users/someone/.vite-plus/js_runtime/node/24.22.1/lib/node_modules/"
+        f"@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-N43LRJ4N.js:3:{38000 + i})"
+        for i in range(8))
+    emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+    emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "error",
+          "errorMessage": "OAuth refresh failed for anthropic: Anthropic token refresh request failed. "
+                          "url=https://platform.claude.com/v1/oauth/token; details=Error: HTTP request failed. status=400\n" + stack}})
+
+
+def long_command_turn():
+    emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+    command = 'for i in {1..500}; do echo "Processing log line $i: Running a verbose operation."; sleep 0.01; done'
+    output = "\n".join(f"Processing log line {i}: Running a verbose operation." for i in range(1, 139))
+    tool(0, "l-bash", "bash", {"command": command}, output, partial=output,
+         hold=float(os.environ.get("FAKE_PI_HOLD", "4")))
+    emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+
+
 def run(message):
     emit({"type": "agent_start"})
     emit({"type": "turn_start"})
@@ -170,6 +192,10 @@ def run(message):
     emit({"type": "message_end", "message": {"role": "user", "content": message}})
     if message.startswith("Find"):
         subagent_turn()
+    elif message.startswith("Fail"):
+        error_turn()
+    elif message.startswith("Long"):
+        long_command_turn()
     else:
         worktree_turn()
     emit({"type": "turn_end"})
