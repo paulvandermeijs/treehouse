@@ -105,20 +105,22 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                 project.error.is_none() && !project.trust.is_trusted(),
                 |this| {
                     this.child(
+                        // Centred on the status dots below it.
                         icon(Lucide::TriangleAlert)
                             .size(px(14.))
+                            .mr(px(-3.5))
                             .text_color(p.yellow),
                     )
                     .tooltip(|window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(
-                            "Not trusted · Pi can only read it",
+                            "Read only until you trust this folder",
                         )
                         .build(window, cx)
                     })
                 },
             )
             .when_some(project.error.clone(), |this, error| {
-                this.child(icon(Lucide::CircleAlert).text_color(p.red))
+                this.child(icon(Lucide::CircleAlert).mr(px(-4.5)).text_color(p.red))
                     .tooltip(move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(error.clone()).build(window, cx)
                     })

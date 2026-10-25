@@ -41,7 +41,7 @@ Pi only loads a project's own skills, templates and extensions (`.pi/` and `.age
 
 ### Project trust
 
-The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings, skills and MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Not trusted** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
+The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings, skills and MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Read only** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
 
 Decisions are saved to Pi's own `~/.pi/agent/trust.json`, so `pi` in a terminal sees them too, and Treehouse passes them to Pi as `--approve` or `--no-approve`. Changing a decision restarts the worktree's Pi with the new tools, resuming the same Pi session.
 

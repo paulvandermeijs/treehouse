@@ -116,7 +116,7 @@ pub struct Session {
 impl EventEmitter<SessionEvent> for Session {}
 
 /// Tells Pi why it can only read while the folder isn't trusted.
-const READ_ONLY_NOTE: &str = "This folder isn't trusted yet, so you only have the read tool: you can't create, edit or delete files or run commands. If the user asks for a change, don't attempt it or claim to have made it. Explain that they need to trust the folder first (the \"Not trusted\" button at the top of the chat), and say what you would change.";
+const READ_ONLY_NOTE: &str = "This folder isn't trusted yet, so you only have the read tool: you can't create, edit or delete files or run commands. If the user asks for a change, don't attempt it or claim to have made it. Explain that they need to trust the folder first (the \"Read only\" button at the top of the chat), and say what you would change.";
 
 impl Session {
     pub fn new(kind: SessionKind, cwd: PathBuf, project: PathBuf, cx: &App) -> Self {

@@ -405,11 +405,6 @@ impl ChatView {
         };
         let stat = worktree.map(|w| w.stat).unwrap_or_default();
         let untrusted = self.untrusted_project(cx).is_some();
-        let description = if untrusted {
-            format!("{description} · read-only")
-        } else {
-            description
-        };
 
         h_flex()
             .h(px(BAR_HEIGHT))
@@ -461,8 +456,8 @@ impl ChatView {
                         .font_medium()
                         .whitespace_nowrap()
                         .cursor_pointer()
-                        .child(icon(Lucide::TriangleAlert).size(px(14.)))
-                        .child("Not trusted")
+                        .child(icon(Lucide::Lock).size(px(14.)))
+                        .child("Read only")
                         .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
                 )
             })
@@ -721,10 +716,9 @@ impl ChatView {
                     Button::new("read-only")
                         .ghost()
                         .small()
-                        .icon(icon(Lucide::Lock))
-                        .text_color(p.yellow_text)
-                        .label("read only")
-                        .tooltip("Only read is available until the folder is trusted")
+                        .icon(icon(Lucide::Wrench))
+                        .label("read")
+                        .tooltip("Only read until the folder is trusted")
                         .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
                 )
             })

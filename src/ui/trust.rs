@@ -1,8 +1,8 @@
 //! The trust dialog: whether Pi may change a project folder.
 //!
 //! Untrusted projects run Pi read-only. The dialog opens the first time a
-//! project's worktree is opened, and again from the chat's "Not trusted"
-//! button, the read-only empty state and the toolbar's lock.
+//! project's worktree is opened, and again from the chat's "Read only"
+//! button, the read-only empty state and the toolbar's tools button.
 
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
