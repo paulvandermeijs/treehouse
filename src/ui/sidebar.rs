@@ -463,20 +463,25 @@ pub fn render_rail(
             let kids = worktree.subagents.iter().map(|subagent| {
                 let child = subagent.session.clone();
                 let status = child.read(cx).status();
-                let trigger = row(
-                    ("rail-subagent", child.entity_id().as_u64()),
-                    open_state(&child, main, docked),
-                    &p,
-                )
-                .justify_center()
-                .child(status_dot(status, cx))
-                .on_click(cx.listener({
-                    let child = child.clone();
-                    move |app, event: &ClickEvent, window, cx| {
-                        app.open_session(child.clone(), event.modifiers().secondary(), window, cx)
-                    }
-                }))
-                .context_menu(subagent_menu(weak.clone(), child.clone()));
+                let open = open_state(&child, main, docked);
+                let trigger = row(("rail-subagent", child.entity_id().as_u64()), open, &p)
+                    .justify_center()
+                    // The guide line runs behind the rows; the dock's ring
+                    // has no fill of its own, so it would show inside it.
+                    .when(open == Open::Dock, |this| this.bg(p.mantle))
+                    .child(status_dot(status, cx))
+                    .on_click(cx.listener({
+                        let child = child.clone();
+                        move |app, event: &ClickEvent, window, cx| {
+                            app.open_session(
+                                child.clone(),
+                                event.modifiers().secondary(),
+                                window,
+                                cx,
+                            )
+                        }
+                    }))
+                    .context_menu(subagent_menu(weak.clone(), child.clone()));
                 super::status_card::wrap(
                     ("rail-card", child.entity_id().as_u64()),
                     trigger,
