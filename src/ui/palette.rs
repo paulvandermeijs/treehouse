@@ -42,6 +42,7 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
                 entry("Open right dock", Lucide::Columns2, ToggleDock),
                 entry("Full-screen right dock", Lucide::Maximize2, FullScreenDock),
                 entry("Toggle sidebar", IconName::PanelLeft, ToggleSidebar),
+                entry("Toggle full screen", Lucide::Expand, ToggleFullScreen),
                 entry(
                     toggle_label(cx),
                     if cx.theme().is_dark() {

@@ -806,6 +806,9 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
         app.sidebar_open = !app.sidebar_open;
         cx.notify();
     });
+    route::<ToggleFullScreen>(window, app.clone(), cx, |_, window, _| {
+        window.toggle_fullscreen()
+    });
     route::<ToggleTheme>(window, app.clone(), cx, |_, window, cx| {
         let next = if cx.theme().is_dark() {
             ThemeChoice::Latte

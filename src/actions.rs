@@ -19,6 +19,7 @@ actions!(
         ToggleDock,
         FullScreenDock,
         ToggleSidebar,
+        ToggleFullScreen,
         ToggleTheme,
         ChangeModel,
         SetThinkingLevel,
@@ -57,6 +58,17 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("secondary-\\", ToggleDock, None),
         KeyBinding::new("secondary-shift-f", FullScreenDock, None),
         KeyBinding::new("secondary-b", ToggleSidebar, None),
+        // GPUI builds the menu bar itself, so macOS doesn't add its own
+        // Enter Full Screen item or shortcut.
+        KeyBinding::new(
+            if cfg!(target_os = "macos") {
+                "ctrl-cmd-f"
+            } else {
+                "f11"
+            },
+            ToggleFullScreen,
+            None,
+        ),
         KeyBinding::new("secondary-m", ChangeModel, None),
         KeyBinding::new("secondary-.", StopAgent, None),
         // While the slash menu is open these beat the message box's own
@@ -113,6 +125,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Show Diff", ShowDiff),
             MenuItem::action("Full-Screen Right Dock", FullScreenDock),
             MenuItem::action("Toggle Sidebar", ToggleSidebar),
+            MenuItem::separator(),
+            MenuItem::action("Toggle Full Screen", ToggleFullScreen),
             MenuItem::separator(),
             MenuItem::action("Toggle Theme", ToggleTheme),
         ]),
