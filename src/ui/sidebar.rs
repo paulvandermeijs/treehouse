@@ -480,7 +480,9 @@ pub fn render_rail(
         }
     }
 
-    let provider = app.provider_label(cx);
+    let missing_key = app
+        .provider_label(cx)
+        .and_then(|(name, ok)| (!ok).then_some(name));
 
     v_flex()
         .w(px(RAIL_WIDTH))
@@ -531,44 +533,48 @@ pub fn render_rail(
                         .children(rows),
                 )
                 .child(
-                    v_flex()
+                    // One button: the footer keeps the expanded one's 40px, so
+                    // its border lines up with the composer's toolbar. The
+                    // provider only shows when it needs attention.
+                    h_flex()
+                        .h(px(BAR_HEIGHT))
                         .flex_none()
-                        .items_center()
-                        .gap(px(6.))
-                        .py(px(6.))
+                        .justify_center()
                         .border_t_1()
                         .border_color(p.surface0)
                         .child(
-                            icon_button("rail-settings", IconName::Settings)
-                                .tooltip_with_action("Settings", &OpenSettings, None)
-                                .on_click(|_, window, cx| {
-                                    window.dispatch_action(Box::new(OpenSettings), cx)
+                            div()
+                                .relative()
+                                .child(
+                                    icon_button("rail-settings", IconName::Settings)
+                                        .tooltip_with_action(
+                                            match &missing_key {
+                                                Some(name) => {
+                                                    format!("Settings — {name} has no key")
+                                                }
+                                                None => "Settings".to_string(),
+                                            },
+                                            &OpenSettings,
+                                            None,
+                                        )
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(OpenSettings), cx)
+                                        }),
+                                )
+                                .when(missing_key.is_some(), |this| {
+                                    this.child(
+                                        div()
+                                            .absolute()
+                                            .top(px(3.))
+                                            .right(px(3.))
+                                            .size(px(7.))
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(p.mantle)
+                                            .bg(p.red),
+                                    )
                                 }),
-                        )
-                        .when_some(provider, |this, (name, ok)| {
-                            this.child(
-                                div()
-                                    .id("rail-provider")
-                                    .p(px(4.))
-                                    .cursor_pointer()
-                                    .child(div().size(px(7.)).rounded_full().bg(if ok {
-                                        p.green
-                                    } else {
-                                        p.red
-                                    }))
-                                    .tooltip(tooltip(
-                                        if ok {
-                                            format!("{name}: connected")
-                                        } else {
-                                            format!("{name}: no key — open Settings › Providers")
-                                        }
-                                        .into(),
-                                    ))
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(OpenSettings), cx)
-                                    }),
-                            )
-                        }),
+                        ),
                 ),
         )
 }

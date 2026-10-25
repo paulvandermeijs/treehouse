@@ -313,7 +313,11 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                             .px_3()
                             .py_2()
                             .rounded(px(6.))
-                            .bg(mix(p.shell, p.base, 0.08))
+                            // The well of Pi's own bash card, so output reads
+                            // the same; the faint maroon ties it to the badge.
+                            .bg(p.mantle)
+                            .border_1()
+                            .border_color(mix(p.shell, p.surface0, 0.28))
                             .font_family(MONO)
                             .text_size(px(12.))
                             .line_height(px(19.))

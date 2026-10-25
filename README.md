@@ -35,7 +35,7 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ### Collapsed sidebar
 
-⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name. Clicks and right-click menus work as in the full sidebar. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
+⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name. Clicks and right-click menus work as in the full sidebar. The footer keeps only Settings; a red dot on it means the provider has no key. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
 
 ### Slash commands
 
