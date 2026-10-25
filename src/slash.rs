@@ -1,5 +1,6 @@
 //! Slash commands in the message box: Pi's skills and prompt templates, plus
-//! `/compact` and `/new`, which Treehouse runs through RPC commands.
+//! `/compact` and `/new`, which Treehouse runs through RPC commands, and
+//! `/reload`, which restarts Pi because RPC mode has no reload.
 
 use serde_json::Value;
 
@@ -32,6 +33,12 @@ pub fn builtins() -> Vec<SlashCommand> {
         SlashCommand {
             name: "new".into(),
             description: "Start a new session in this worktree".into(),
+            kind: CommandKind::Builtin,
+            argument_hint: None,
+        },
+        SlashCommand {
+            name: "reload".into(),
+            description: "Restart Pi to pick up changed settings and MCP servers".into(),
             kind: CommandKind::Builtin,
             argument_hint: None,
         },
@@ -117,6 +124,7 @@ pub fn matches<'a>(commands: &'a [SlashCommand], query: &str) -> Vec<&'a SlashCo
 pub enum Builtin {
     Compact(Option<String>),
     New,
+    Reload,
 }
 
 pub fn parse_builtin(message: &str) -> Option<Builtin> {
@@ -130,6 +138,7 @@ pub fn parse_builtin(message: &str) -> Option<Builtin> {
             (!args.is_empty()).then(|| args.to_string()),
         )),
         "/new" if args.is_empty() => Some(Builtin::New),
+        "/reload" if args.is_empty() => Some(Builtin::Reload),
         _ => None,
     }
 }

@@ -316,6 +316,12 @@ impl Session {
                 return self.compact(instructions.as_deref(), cx);
             }
             Some(crate::slash::Builtin::New) => return self.new_session(cx),
+            Some(crate::slash::Builtin::Reload) => {
+                return self.restart(
+                    "Pi restarted · settings, skills and MCP servers reloaded",
+                    cx,
+                );
+            }
             None => {}
         }
         let streaming = self.is_running();
@@ -365,16 +371,25 @@ impl Session {
         if self.client.is_none() {
             return cx.notify();
         }
+        self.restart(
+            if trusted {
+                "Folder trusted · Pi restarted with full access"
+            } else {
+                "Read-only · Pi restarted with the read tool only"
+            },
+            cx,
+        );
+    }
+
+    /// Stops Pi and starts it again on the same session file, so it reads
+    /// its settings, skills, extensions and MCP servers afresh.
+    fn restart(&mut self, notice: &str, cx: &mut Context<Self>) {
         self._reader = None;
         self.client = None;
         self.approvals.clear();
         self.transcript
             .apply(&serde_json::json!({"type": "agent_settled"}));
-        self.transcript.push_notice(if trusted {
-            "Folder trusted · Pi restarted with full access"
-        } else {
-            "Read-only · Pi restarted with the read tool only"
-        });
+        self.transcript.push_notice(notice);
         self.ensure_started(cx);
         cx.emit(SessionEvent::StatusChanged);
         cx.notify();

@@ -13,6 +13,7 @@ use gpui_kit::component::text::TextView;
 use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use serde_json::Value;
 
 use super::chat::ChatView;
 use super::icon;
@@ -558,6 +559,22 @@ fn describe(tool: &ToolCall) -> ToolText {
             target: tool.args["query"].as_str().unwrap_or("").to_string(),
             result: None,
         },
+        name if name.starts_with("mcp__") => {
+            // `mcp__<server>__<tool>`
+            let rest = &name[5..];
+            let (server, tool_name) = rest.split_once("__").unwrap_or(("", rest));
+            ToolText {
+                icon: Lucide::Plug,
+                running: "Using",
+                done: "Used",
+                target: if server.is_empty() {
+                    tool_name.to_string()
+                } else {
+                    format!("{server} · {tool_name}")
+                },
+                result: None,
+            }
+        }
         _ if tool.is_unknown_tool() => ToolText {
             icon: Lucide::CircleAlert,
             running: "Running",
@@ -749,7 +766,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
                 &p,
             )),
             _ if !tool.output.is_empty() && failed => this.child(error_card(&tool.output, &p)),
-            _ => this,
+            _ => this.child(render_tool_output(tool, &p)),
         })
         .into_any_element()
 }
@@ -786,6 +803,72 @@ fn card(p: &Palette) -> Div {
         .border_color(p.surface0)
         .bg(p.mantle)
         .overflow_hidden()
+}
+
+/// What a tool was given and what it returned, for tools without their own
+/// view: MCP tools, scripts, searches and reads.
+fn render_tool_output(tool: &ToolCall, p: &Palette) -> Div {
+    let (input_label, input) = match tool.name.as_str() {
+        "codemode" => (
+            "Script",
+            tool.args["code"].as_str().unwrap_or("").trim().to_string(),
+        ),
+        _ => (
+            "Input",
+            match &tool.args {
+                Value::Object(map) if map.is_empty() => String::new(),
+                Value::Null => String::new(),
+                args => serde_json::to_string_pretty(args).unwrap_or_default(),
+            },
+        ),
+    };
+    // MCP tools often return JSON on one line.
+    let output = serde_json::from_str::<Value>(tool.output.trim())
+        .ok()
+        .filter(|v| v.is_object() || v.is_array())
+        .and_then(|v| serde_json::to_string_pretty(&v).ok())
+        .unwrap_or_else(|| tool.output.trim_end().to_string());
+    let section = |label: &'static str, text: &str, keep: usize, first: bool| {
+        let lines: Vec<&str> = text.lines().collect();
+        let more = lines.len().saturating_sub(keep);
+        v_flex()
+            .px_3()
+            .py_2()
+            .gap_1()
+            .when(!first, |this| this.border_t_1().border_color(p.surface0))
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(p.subtext0)
+                    .child(label),
+            )
+            .child(
+                div()
+                    .font_family(MONO)
+                    .text_size(px(12.))
+                    .line_height(px(19.))
+                    .whitespace_normal()
+                    .child(SharedString::from(lines[..lines.len() - more].join("\n"))),
+            )
+            .when(more > 0, |this| {
+                this.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(p.subtext0)
+                        .child(format!("{more} more lines")),
+                )
+            })
+    };
+    let has_input = !input.is_empty();
+    card(p)
+        .when(has_input, |this| {
+            this.child(section(input_label, &input, 20, true))
+        })
+        .child(if output.is_empty() {
+            section("Output", "(no output)", 1, !has_input)
+        } else {
+            section("Output", &output, 40, !has_input)
+        })
 }
 
 fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {

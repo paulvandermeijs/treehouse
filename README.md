@@ -35,7 +35,7 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ### Slash commands
 
-Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]` and `/new`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands.
+Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]`, `/new` and `/reload`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands. RPC mode has no reload, so `/reload` restarts the worktree's Pi on the same session; use it after changing Pi's settings, skills, extensions or `mcp.json`.
 
 Pi only loads a project's own skills, templates and extensions (`.pi/` and `.agents/skills`) once the project is trusted.
 
