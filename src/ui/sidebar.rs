@@ -115,10 +115,10 @@ pub fn render(
                 project.error.is_none() && !project.trust.is_trusted(),
                 |this| {
                     this.child(
-                        // Centred on the status dots below it.
+                        // On the right-hand line, with the pins and dots.
                         icon(Lucide::TriangleAlert)
                             .size(px(14.))
-                            .mr(px(-3.5))
+                            .mr(px(-2.))
                             .text_color(p.yellow),
                     )
                     .tooltip(|window, cx| {
@@ -130,7 +130,7 @@ pub fn render(
                 },
             )
             .when_some(project.error.clone(), |this, error| {
-                this.child(icon(Lucide::CircleAlert).mr(px(-4.5)).text_color(p.red))
+                this.child(icon(Lucide::CircleAlert).mr(px(-3.)).text_color(p.red))
                     .tooltip(move |window, cx| {
                         gpui_kit::component::tooltip::Tooltip::new(error.clone()).build(window, cx)
                     })
@@ -182,7 +182,7 @@ pub fn render(
                     }),
             )
             .child(label(worktree.branch.clone()))
-            .child(status_dot(worktree.status(cx), cx))
+            .child(right_dot(status_dot(worktree.status(cx), cx)))
             .on_click(cx.listener({
                 let session = session.clone();
                 move |app, event: &ClickEvent, window, cx| {
@@ -623,6 +623,17 @@ pub fn render_rail(
                         ),
                 ),
         )
+}
+
+/// A worktree's status dot on the right-hand line that the Projects
+/// header's add button, the pins and the warnings share.
+fn right_dot(dot: AnyElement) -> impl IntoElement {
+    div()
+        .flex_none()
+        .w(px(10.))
+        .flex()
+        .justify_center()
+        .child(dot)
 }
 
 /// A project's pin: a button shown on hover, and a quiet icon in its place
