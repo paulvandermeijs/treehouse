@@ -53,6 +53,10 @@ Pi reaches MCP tools through its `codemode` and `tool_search` tools, so Treehous
 
 Some servers only accept sign-ins from apps they have approved and refuse Pi with "dynamic client registration failed with status 403". Figma's remote server is one. For Figma, its desktop app's local MCP server (`http://127.0.0.1:3845/mcp`) needs no sign-in.
 
+### Syntax highlighting
+
+Code blocks in the chat and the diff dock are highlighted with tree-sitter for Astro, Bash, CSS, HTML, JavaScript, JSON, Markdown, Python, Rust, TOML, TSX, TypeScript and YAML, in the theme's Catppuccin colours. Other languages show as plain text. Each grammar is a gpui-kit feature in `Cargo.toml`; the first build with them takes a few minutes, after which cargo reuses them.
+
 ### Shell commands
 
 A message that starts with `!` runs as a shell command in the worktree instead of going to the model. The message box turns maroon while you type one. Treehouse runs it through Pi's `bash` RPC command, so Pi adds the command and its output to the conversation for the model to see. Start with `!!` to keep the output out of the model's context. The chat shows the output as it arrives, with the exit code and time. Stop ends a command that's still running.

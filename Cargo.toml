@@ -7,7 +7,23 @@ edition = "2024"
 anyhow = "1.0.104"
 dirs = "6"
 futures = "0.3.34"
-gpui-kit = "0.8.0"
+# Syntax highlighting for code blocks and the diff. Each grammar is its own
+# crate, compiled once and then cached.
+gpui-kit = { version = "0.8.0", features = [
+    "tree-sitter-astro",
+    "tree-sitter-bash",
+    "tree-sitter-css",
+    "tree-sitter-html",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-markdown-inline",
+    "tree-sitter-python",
+    "tree-sitter-rust",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

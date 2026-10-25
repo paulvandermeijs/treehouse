@@ -8,7 +8,7 @@ on the chat UI without a model or an API key:
 
 A message that starts with "Find" plays the sub-agent script, "Fail" a
 provider error with a stack trace, and "Approve" a command with a long approval
-pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Long" a long-running command with a
+pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -240,6 +240,14 @@ def run(message):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
         sub = "run-" + "-".join(["a-very-long-script-name"] * 6)
         tool(0, "a-bash", "bash", {"command": f"npm {sub} --workspace /Users/someone/Workspace/project/packages/app"}, "ok")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+    elif message.startswith("Code"):
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        say(0, "Every write triggers `Worktree::refresh`, which reloads the whole diff. Debounce it:\n\n"
+               "```rust\nlet events = watcher.debounce(Duration::from_millis(150));\n"
+               "cx.spawn(async move |this, cx| {\n    // one refresh per burst\n"
+               "    while let Some(_) = events.next().await { this.update(cx, |w, cx| w.refresh(cx)); }\n});\n```\n\n"
+               "And in the config:\n\n```toml\n[watch]\ndebounce_ms = 150\nenabled = true\n```\n\nWant me to make that change?", pause=0)
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("MCP"):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})

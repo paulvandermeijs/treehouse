@@ -22,7 +22,7 @@ Linux needs `libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-driver
 
 ### Running without a model
 
-`tools/fake-pi` is a Python stand-in for `pi --mode rpc` that plays scripted turns. Set it as the Pi command in Settings › Agent defaults (the `pi_command` key in `settings.json`). The first word of a message picks the script: `Find` (sub-agent), `Fail` (provider error), `Approve` (long approval pattern), `Long` (long-running command), `Mangle` (garbled tool name), `MCP` (MCP tool calls); anything else plays a worktree turn with tools, an approval and a sub-agent. It also handles `/mcp login`, `!` shell commands (Pi's `bash` RPC, run for real), and `FAKE_PI_MCP=1` (an MCP server needing sign-in). Extend it when a feature needs a new Pi behaviour to test against.
+`tools/fake-pi` is a Python stand-in for `pi --mode rpc` that plays scripted turns. Set it as the Pi command in Settings › Agent defaults (the `pi_command` key in `settings.json`). The first word of a message picks the script: `Find` (sub-agent), `Fail` (provider error), `Approve` (long approval pattern), `Long` (long-running command), `Mangle` (garbled tool name), `MCP` (MCP tool calls), `Code` (code blocks); anything else plays a worktree turn with tools, an approval and a sub-agent. It also handles `/mcp login`, `!` shell commands (Pi's `bash` RPC, run for real), and `FAKE_PI_MCP=1` (an MCP server needing sign-in). Extend it when a feature needs a new Pi behaviour to test against.
 
 For screenshots without a display, run the app under Xvfb and drive it with `xdotool`. Point `XDG_CONFIG_HOME`/`XDG_DATA_HOME` at a scratch folder for Treehouse's settings, and `PI_CODING_AGENT_DIR` at one for Pi's (`trust.json`, `auth.json`), so real settings aren't touched.
 

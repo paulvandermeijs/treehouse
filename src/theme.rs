@@ -26,6 +26,7 @@ const FONTS: [&[u8]; 8] = [
 ];
 
 pub const MONO: &str = "IBM Plex Mono";
+pub const SANS: &str = "IBM Plex Sans";
 
 pub fn init(cx: &mut App) {
     let fonts = FONTS.iter().map(|bytes| Cow::Borrowed(*bytes)).collect();
