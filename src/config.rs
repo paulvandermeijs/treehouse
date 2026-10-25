@@ -31,6 +31,8 @@ pub const TOOLS: [&str; 4] = ["read", "bash", "edit", "write"];
 #[serde(default)]
 pub struct Config {
     pub projects: Vec<PathBuf>,
+    /// Projects shown first in the sidebar, in the order they were pinned.
+    pub pinned: Vec<PathBuf>,
 
     pub theme: ThemeChoice,
     pub text_size: f32,
@@ -61,6 +63,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             projects: Vec::new(),
+            pinned: Vec::new(),
             theme: ThemeChoice::Mocha,
             text_size: 14.0,
             keep_diffs_expanded: false,

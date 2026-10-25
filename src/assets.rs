@@ -40,6 +40,8 @@ gpui_kit::assets::icon_assets!(
         ShieldAlert,
         TriangleAlert,
         Expand,
+        Pin,
+        PinOff,
     ]
 );
 

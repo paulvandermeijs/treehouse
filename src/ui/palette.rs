@@ -149,7 +149,7 @@ struct Target {
 /// Every worktree and sub-agent, for the switcher.
 fn targets(workspace: &Entity<Workspace>, cx: &App) -> Vec<Target> {
     let mut targets = Vec::new();
-    for project in &workspace.read(cx).projects {
+    for project in workspace.read(cx).ordered(cx) {
         for worktree in &project.worktrees {
             targets.push(Target {
                 session: worktree.session.clone(),

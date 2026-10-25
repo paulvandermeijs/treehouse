@@ -91,7 +91,31 @@ impl Workspace {
 
     pub fn remove_project(&mut self, path: &Path, cx: &mut Context<Self>) {
         self.projects.retain(|p| p.path != path);
-        Config::update(cx, |config| config.projects.retain(|p| p != path));
+        Config::update(cx, |config| {
+            config.projects.retain(|p| p != path);
+            config.pinned.retain(|p| p != path);
+        });
+        cx.notify();
+    }
+
+    /// Projects as the sidebar lists them: pinned ones first, in the order
+    /// they were pinned, then the rest in the order they were added.
+    pub fn ordered(&self, cx: &gpui_kit::App) -> Vec<&Project> {
+        let pinned = &Config::global(cx).pinned;
+        let mut projects: Vec<&Project> = self.projects.iter().collect();
+        projects.sort_by_key(|p| pin_rank(pinned, &p.path));
+        projects
+    }
+
+    /// Pins a project to the top, after those already pinned, or unpins it.
+    pub fn toggle_pin(&mut self, path: &Path, cx: &mut Context<Self>) {
+        Config::update(cx, |config| {
+            if config.pinned.iter().any(|p| p == path) {
+                config.pinned.retain(|p| p != path);
+            } else {
+                config.pinned.push(path.to_path_buf());
+            }
+        });
         cx.notify();
     }
 
@@ -488,5 +512,27 @@ impl Workspace {
             });
         })
         .detach();
+    }
+}
+
+/// Where a project goes among the pinned ones; unpinned ones come after, in
+/// their own order (the sort is stable).
+fn pin_rank(pinned: &[PathBuf], path: &Path) -> usize {
+    pinned.iter().position(|p| p == path).unwrap_or(usize::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pin_rank;
+    use std::path::PathBuf;
+
+    #[test]
+    fn pinned_first_in_pin_order() {
+        let added: Vec<PathBuf> = ["a", "b", "c", "d"].iter().map(PathBuf::from).collect();
+        let pinned: Vec<PathBuf> = ["c", "a"].iter().map(PathBuf::from).collect();
+        let mut order = added.clone();
+        order.sort_by_key(|p| pin_rank(&pinned, p));
+        let names: Vec<_> = order.iter().map(|p| p.to_str().unwrap()).collect();
+        assert_eq!(names, ["c", "a", "b", "d"]);
     }
 }

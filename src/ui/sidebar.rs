@@ -84,8 +84,9 @@ pub fn render(
     let weak = cx.entity().downgrade();
 
     let mut rows: Vec<AnyElement> = Vec::new();
+    let pinned_set = crate::config::Config::global(cx).pinned.clone();
     let workspace = app.workspace.read(cx);
-    for project in workspace.projects.iter() {
+    for project in workspace.ordered(cx) {
         let project_path = project.path.clone();
         let project_open = !app.is_collapsed(Fold::Project, &project.path);
         rows.push(
@@ -103,6 +104,13 @@ pub fn render(
                 .text_color(p.subtext0),
             )
             .child(label(project.name.clone()))
+            .group("project")
+            .child(pin_button(
+                &project_path,
+                pinned_set.contains(&project_path),
+                &p,
+                cx,
+            ))
             .when(
                 project.error.is_none() && !project.trust.is_trusted(),
                 |this| {
@@ -386,10 +394,16 @@ pub fn render_rail(
     let weak = cx.entity().downgrade();
 
     let mut rows: Vec<AnyElement> = Vec::new();
+    let pinned_set = crate::config::Config::global(cx).pinned.clone();
     let workspace = app.workspace.read(cx);
-    for project in workspace.projects.iter() {
+    for project in workspace.ordered(cx) {
         let project_path = project.path.clone();
         let project_open = !app.is_collapsed(Fold::Project, &project.path);
+        let pin = if pinned_set.contains(&project.path) {
+            " · pinned"
+        } else {
+            ""
+        };
         let (colour, name) = if let Some(error) = &project.error {
             (p.red, format!("{} — {error}", project.name))
         } else if !project.trust.is_trusted() {
@@ -397,6 +411,7 @@ pub fn render_rail(
         } else {
             (p.subtext0, project.name.to_string())
         };
+        let name = format!("{name}{pin}");
         rows.push(
             row(
                 SharedString::from(format!("rail-project:{}", project.path.display())),
@@ -610,6 +625,58 @@ pub fn render_rail(
         )
 }
 
+/// A project's pin: a button shown on hover, and a quiet icon in its place
+/// once pinned. Centred on the Projects header's add button above.
+fn pin_button(
+    path: &std::path::Path,
+    pinned: bool,
+    p: &Palette,
+    cx: &Context<TreehouseApp>,
+) -> impl IntoElement {
+    let path = path.to_path_buf();
+    let glyph = |name: Lucide| icon(name).size(px(14.));
+    div()
+        .id(SharedString::from(format!("pin:{}", path.display())))
+        .flex_none()
+        .relative()
+        .size(px(22.))
+        // Measured against the header button, a 24px button 2px inside.
+        .mr(px(-6.))
+        .rounded(px(5.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(p.subtext0)
+        .hover(|s| s.bg(p.surface0).text_color(p.text))
+        .when(!pinned, |this| {
+            this.invisible()
+                .group_hover("project", |s| s.visible())
+                .child(glyph(Lucide::Pin))
+        })
+        .when(pinned, |this| {
+            this.child(
+                div()
+                    .absolute()
+                    .text_color(mix(p.subtext0, p.mantle, 0.75))
+                    .group_hover("project", |s| s.invisible())
+                    .child(glyph(Lucide::Pin)),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .invisible()
+                    .group_hover("project", |s| s.visible())
+                    .child(glyph(Lucide::PinOff)),
+            )
+        })
+        .tooltip(tooltip(if pinned { "Unpin" } else { "Pin to top" }.into()))
+        .on_click(cx.listener(move |app, _, _, cx| {
+            // Pinning doesn't fold or unfold the project.
+            cx.stop_propagation();
+            app.workspace.update(cx, |w, cx| w.toggle_pin(&path, cx));
+        }))
+}
+
 /// The design's 28px icon-only button.
 fn icon_button(id: impl Into<ElementId>, name: impl Into<gpui_kit::component::Icon>) -> Button {
     Button::new(id).ghost().small().icon(icon(name))
@@ -647,7 +714,9 @@ fn project_menu(
     app: WeakEntity<TreehouseApp>,
     path: PathBuf,
 ) -> impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static {
-    move |menu, _, _| {
+    move |menu, _, cx| {
+        let pinned = crate::config::Config::global(cx).pinned.contains(&path);
+        let (a5, p5) = (app.clone(), path.clone());
         let (a1, p1) = (app.clone(), path.clone());
         let p2 = path.clone();
         let p3 = path.clone();
@@ -666,6 +735,15 @@ fn project_menu(
         .item(PopupMenuItem::new("Copy path").on_click(move |_, _, cx| {
             cx.write_to_clipboard(ClipboardItem::new_string(p3.display().to_string()))
         }))
+        .item(
+            PopupMenuItem::new(if pinned { "Unpin" } else { "Pin to top" })
+                .icon(icon(if pinned { Lucide::PinOff } else { Lucide::Pin }))
+                .on_click(move |_, _, cx| {
+                    let _ = a5.update(cx, |app, cx| {
+                        app.workspace.update(cx, |w, cx| w.toggle_pin(&p5, cx))
+                    });
+                }),
+        )
         .separator()
         .item(
             PopupMenuItem::new("Remove project").on_click(move |_, window, cx| {

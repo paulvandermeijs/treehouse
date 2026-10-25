@@ -47,6 +47,10 @@ While you're scrolled up, a small box above the message box says how much is bel
 
 Hovering a worktree or sub-agent, in the sidebar or the collapsed rail, opens a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or when it was last active, plus the worktree's diff stat or the sub-agent's tool calls.
 
+### Pinned projects
+
+Projects are listed in the order you added them. Hover a project and click the pin at the right of its row, or use Pin to top in its context menu, to move it to the top; pinned projects keep their pin icon and stay in the order you pinned them. To reorder, unpin and pin again.
+
 ### Collapsed sidebar
 
 ⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name, or for a worktree or sub-agent its status card. Clicks and right-click menus work as in the full sidebar. The footer keeps only Settings; a red dot on it means the provider has no key. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
