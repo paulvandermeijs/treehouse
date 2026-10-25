@@ -2,6 +2,7 @@
 
 mod app;
 mod chat;
+mod code_block;
 mod diff;
 mod items;
 mod palette;

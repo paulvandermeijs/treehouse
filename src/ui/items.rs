@@ -18,7 +18,7 @@ use serde_json::Value;
 use super::chat::ChatView;
 use super::icon;
 use crate::session::{AgentStatus, ApprovalChoice, PendingApproval, Session};
-use crate::theme::{MONO, Palette, SANS, mix, palette};
+use crate::theme::{MONO, Palette, mix, palette};
 use crate::transcript::{
     Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
 };
@@ -79,11 +79,11 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .into_any_element(),
         Item::Text { id, text, .. } => {
             let body = match view.session.read(cx).text_view(*id) {
-                Some(state) => markdown_style(TextView::new(state).stream_fade(true), &p),
-                None => markdown_style(
-                    TextView::markdown(("text", id.0), SharedString::from(text.clone())),
-                    &p,
-                ),
+                Some(state) => markdown_style(TextView::new(state).stream_fade(true)),
+                None => markdown_style(TextView::markdown(
+                    ("text", id.0),
+                    SharedString::from(text.clone()),
+                )),
             };
             div().pl(px(GUTTER)).child(body).into_any_element()
         }
@@ -113,53 +113,15 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
     }
 }
 
-/// Pi's Markdown as the design has it: code blocks on mantle with their
-/// language and a copy button in the corner, inline code without a tint.
-fn markdown_style(text: TextView, p: &Palette) -> AnyElement {
-    let mut code_block = StyleRefinement::default()
-        .bg(p.mantle)
-        .border_1()
-        .border_color(p.surface0)
-        .rounded(px(6.))
-        .px_3()
-        .pb(px(10.))
-        .text_size(px(12.5));
-    // Room for the corner's language and copy button above the first line.
-    code_block.padding.top = Some(px(34.).into());
-    let style = TextViewStyle::default()
-        .code_block(code_block)
-        .inline_code(HighlightStyle {
-            background_color: Some(gpui_kit::transparent_black()),
-            ..Default::default()
-        });
-    let (muted, mantle) = (p.subtext0, p.mantle);
-    text.style(style)
-        .code_block_actions(move |block, _, _| {
-            let code = block.code();
-            // Covers the kit's own chip behind the corner, which has the theme's
-            // code colour rather than the block's.
-            h_flex()
-                .gap_1()
-                .pl_1()
-                .items_center()
-                .rounded(px(4.))
-                .bg(mantle)
-                .font_family(SANS)
-                .when_some(block.lang().filter(|l| !l.is_empty()), |this, lang| {
-                    this.child(div().text_size(px(12.)).text_color(muted).child(lang))
-                })
-                .child(
-                    Button::new("copy")
-                        .ghost()
-                        .xsmall()
-                        .icon(icon(Lucide::Copy).size(px(14.)))
-                        .tooltip("Copy")
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(code.to_string()))
-                        }),
-                )
-        })
-        .into_any_element()
+/// Pi's Markdown as the design has it: code blocks drawn by our own plugin,
+/// inline code without the kit's tint.
+fn markdown_style(text: TextView) -> AnyElement {
+    text.style(TextViewStyle::default().inline_code(HighlightStyle {
+        background_color: Some(gpui_kit::transparent_black()),
+        ..Default::default()
+    }))
+    .plugin(super::code_block::CodeBlocks)
+    .into_any_element()
 }
 
 /// A command's exit code: green when it succeeded, red when it didn't.
