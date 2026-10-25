@@ -89,7 +89,7 @@ Markdown tables in Pi's replies follow the design: a mantle header, rows divided
 
 ### Shell commands
 
-A message that starts with `!` runs as a shell command in the worktree instead of going to the model. The message box turns maroon while you type one. Treehouse runs it through Pi's `bash` RPC command, so Pi adds the command and its output to the conversation for the model to see. Start with `!!` to keep the output out of the model's context. The chat shows the output as it arrives, with the exit code and time. Stop ends a command that's still running.
+A message that starts with `!` runs as a shell command in the worktree instead of going to the model. The message box turns yellow while you type one. Treehouse runs it through Pi's `bash` RPC command, so Pi adds the command and its output to the conversation for the model to see. Start with `!!` to keep the output out of the model's context. The chat shows the output as it arrives, with the exit code and time. Stop ends a command that's still running.
 
 ### Without a model
 
