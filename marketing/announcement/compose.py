@@ -19,8 +19,7 @@ SPEC = json.loads((HERE / "scenes.json").read_text())
 FPS, W, H = SPEC["fps"], SPEC["width"], SPEC["height"]
 INTRO = 1.6  # matches INTRO_SECONDS in render.mjs
 FADE = 0.4
-# The window hole in frame.html (--win-*).
-WIN_X, WIN_Y, WIN_W, WIN_H = 720, 190, 1120, 700
+WIN = SPEC["window"]
 BASE = "0x1e1e2e"
 
 
@@ -54,8 +53,8 @@ def scene_video(scene):
             "-filter_complex",
             # The overlay's intro frames, then its last frame held to the end.
             f"[2]tpad=stop_mode=clone:stop_duration={length}[fg];"
-            f"[1]scale={WIN_W}:{WIN_H}:flags=lanczos,setsar=1,fps={FPS},fade=in:d=0.5[app];"
-            f"[0][app]overlay={WIN_X}:{WIN_Y}[a];"
+            f"[1]scale={WIN['w']}:{WIN['h']}:flags=lanczos,setsar=1,fps={FPS},fade=in:d=0.5[app];"
+            f"[0][app]overlay={WIN['x']}:{WIN['y']}[a];"
             f"[a][fg]overlay=shortest=1,trim=duration={length}",
             *encode(), "-an", str(target),
         )
