@@ -68,6 +68,9 @@ export default defineConfig({
       pattern: 'https://github.com/paulvandermeijs/treehouse/edit/master/docs/:path',
     },
     search: { provider: 'local' },
+    footer: {
+      message: 'Released under the MIT License.',
+    },
     outline: 'deep',
   },
 })

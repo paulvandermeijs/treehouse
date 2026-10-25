@@ -55,10 +55,20 @@ Pi has no built-in tool approval or sub-agents. Treehouse adds both with a small
 - Some Pi messages are only human-readable text; `src/mcp.rs` parses MCP sign-in notices by their exact wording. Check it against Pi's source when Pi changes.
 - Pi doesn't replay events for a resumed session, so `Transcript::restore` builds the chat from the session file's stored messages.
 
+## gpui-kit components used
+
+The sidebar is laid out by hand to the design with gpui-kit buttons and context menus; `Diff` for the worktree diff in unified and split layouts; `Command` in a `Dialog` for the command palette; `Settings` for the settings dialog; `TextView` for streaming Markdown; `ShimmerText` and `Spinner` for running work; `Textarea`, `Button`, `ButtonGroup`, `PopupMenu`, `Kbd` and alert dialogs throughout.
+
+## Status
+
+Treehouse implements the screens of the Treehouse design: the worktree chat, sub-agents in the main screen and the right dock, the diff dock and its full-screen split view, the command palette, settings, the sidebar states, the trust prompt and read-only projects, and the agent output for messages, thinking, read, edit, write, bash, approvals, sub-agent cards, notes and errors.
+
+Not built yet, from the design's output boards: data tables (long tables and CSV) and charts from tool output, Mermaid diagrams, maths, image thumbnails, plan cards, local server links, the "Open in terminal" dock tab, and a test button for provider keys.
+
 ## Design
 
 The UI follows the Treehouse design canvas: Catppuccin Mocha and Latte, IBM Plex Sans and Mono. Colours come from `theme::Palette` in `src/theme.rs`. Layouts the kit doesn't provide, such as the sidebar, are built by hand from gpui-kit primitives.
 
 ## Licences
 
-IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The colours are Catppuccin's (MIT).
+Treehouse is released under the [MIT License](https://github.com/paulvandermeijs/treehouse/blob/master/LICENSE). IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The colours are Catppuccin's (MIT).
