@@ -69,7 +69,9 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .mt_2()
             .gap_3()
             .items_start()
-            .child(avatar(&view.initials, &p))
+            // Centre the avatar on the first line, which grows with the text
+            // size (GPUI's default line height is 1.618 × the text size).
+            .child(avatar(&view.initials, &p).mt(first_line_offset(cx)))
             .child(
                 div()
                     .flex_1()
@@ -564,6 +566,13 @@ fn render_error(
             )
         })
         .into_any_element()
+}
+
+/// How far a 22px avatar or badge moves down to sit centred on the first
+/// line of body text.
+pub fn first_line_offset(cx: &App) -> Pixels {
+    let line = crate::config::Config::global(cx).text_size * 1.618;
+    px(((line - 22.) / 2.).max(0.))
 }
 
 pub fn avatar(initials: &SharedString, p: &Palette) -> Div {
