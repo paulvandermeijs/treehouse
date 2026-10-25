@@ -19,6 +19,7 @@ use serde_json::Value;
 use super::chat::ChatView;
 use super::icon;
 use crate::session::{AgentStatus, ApprovalChoice, PendingApproval, Session};
+use crate::setup::LinkOutcome;
 use crate::theme::{MONO, Palette, mix, palette};
 use crate::transcript::{
     Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
@@ -227,9 +228,17 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
     let lines: Vec<&str> = run.output.trim_end().lines().collect();
     // As Pi's bash card: the last 5 lines while it runs, up to 40 after.
     let keep = if run.running { 5 } else { 40 };
-    let failed = !run.running && !run.cancelled && run.exit_code.is_some_and(|c| c != 0);
+    // The worktree's setup shares this row; only the lead and accent differ.
+    let setup = run.setup.as_ref();
+    let failed = !run.running
+        && !run.cancelled
+        && (run.exit_code.is_some_and(|c| c != 0) || (setup.is_some() && run.error.is_some()));
     // A failure turns the header Red, as Pi's failed bash rows do.
-    let accent = if failed { p.red } else { p.shell_text };
+    let accent = match (failed, setup) {
+        (true, _) => p.red,
+        (false, Some(_)) => p.subtext0,
+        (false, None) => p.shell_text,
+    };
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
     let mut meta = Vec::new();
@@ -241,22 +250,73 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
         if let Some(duration) = run.duration {
             meta.push(format_duration(duration));
         }
-        meta.push(
-            if run.excluded {
-                "kept from Pi"
-            } else {
-                "sent to Pi"
+        match setup {
+            Some(links) => {
+                let linked = links
+                    .iter()
+                    .filter(|l| matches!(l.outcome, LinkOutcome::Linked | LinkOutcome::Moved))
+                    .count();
+                if linked > 0 {
+                    meta.push(format!("{linked} linked"));
+                }
             }
-            .to_string(),
-        );
+            None => meta.push(
+                if run.excluded {
+                    "kept from Pi"
+                } else {
+                    "sent to Pi"
+                }
+                .to_string(),
+            ),
+        }
     }
     let session = view.session.clone();
+    let lead = match setup {
+        // Not yours: a plain glyph where your badge would be.
+        Some(_) => div()
+            .flex_none()
+            .size(px(22.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(icon(Lucide::Package).size(px(16.)).text_color(if failed {
+                p.red
+            } else {
+                p.subtext0
+            }))
+            .into_any_element(),
+        None => shell_badge(&p, failed).into_any_element(),
+    };
+    let links: Vec<AnyElement> = setup
+        .into_iter()
+        .flatten()
+        .filter(|l| l.outcome != LinkOutcome::Missing)
+        .map(|link| {
+            let (text, colour) = match &link.outcome {
+                LinkOutcome::Linked => ("Linked".to_string(), p.subtext0),
+                LinkOutcome::Moved => ("Moved to the main worktree and linked".into(), p.subtext0),
+                LinkOutcome::NotIgnored => ("Skipped, not ignored by git:".into(), p.yellow_text),
+                LinkOutcome::Failed(err) => (format!("Couldn't link ({err}):"), p.red),
+                LinkOutcome::Missing => unreachable!(),
+            };
+            h_flex()
+                .gap_2()
+                .font_family(crate::theme::SANS)
+                .text_size(px(12.5))
+                .text_color(colour)
+                .child(icon(Lucide::Link).size(px(14.)))
+                .child(text)
+                .child(mono(link.path.clone(), p.text))
+                .into_any_element()
+        })
+        .collect();
+    let has_links = !links.is_empty();
     h_flex()
         .id(("shell", run.id.0))
         .mt_2()
         .gap_3()
         .items_start()
-        .child(shell_badge(&p, failed))
+        .child(lead)
         .child(
             v_flex()
                 .flex_1()
@@ -297,8 +357,18 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                     .ghost()
                                     .xsmall()
                                     .label("Stop")
-                                    .on_click(move |_, _, cx| {
-                                        session.update(cx, |s, cx| s.stop_shell(cx))
+                                    .on_click({
+                                        let session = session.clone();
+                                        let setup = setup.is_some();
+                                        move |_, _, cx| {
+                                            session.update(cx, |s, cx| {
+                                                if setup {
+                                                    s.stop_setup(cx)
+                                                } else {
+                                                    s.stop_shell(cx)
+                                                }
+                                            })
+                                        }
                                     }),
                             )
                         }),
@@ -324,14 +394,17 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                             // the same; the faint yellow ties it to the badge.
                             .bg(p.mantle)
                             .border_1()
-                            .border_color(if failed {
-                                mix(p.red, p.base, 0.5)
-                            } else {
-                                mix(p.shell, p.surface0, 0.28)
+                            .border_color(match (failed, setup) {
+                                (true, _) => mix(p.red, p.base, 0.5),
+                                (false, Some(_)) => p.surface0,
+                                (false, None) => mix(p.shell, p.surface0, 0.28),
                             })
                             .font_family(MONO)
                             .text_size(px(12.))
                             .line_height(px(19.))
+                            .when(has_links, |this| {
+                                this.child(v_flex().gap_1().pb_1().children(links))
+                            })
                             .when(hidden > 0, |this| {
                                 this.child(
                                     div()
@@ -339,7 +412,9 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                         .child(format!("{hidden} earlier lines")),
                                 )
                             })
-                            .child(if shown.is_empty() {
+                            .child(if shown.is_empty() && has_links {
+                                div()
+                            } else if shown.is_empty() {
                                 div().text_color(p.subtext0).child("No output")
                             } else {
                                 div().whitespace_normal().child(SharedString::from(shown))
@@ -353,6 +428,36 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                         .child("Live output · last 5 lines"),
                                 )
                             }),
+                    )
+                })
+                // The worktree stays usable; Pi can look at what went wrong.
+                .when(failed && setup.is_some(), |this| {
+                    let (again, fix) = (session.clone(), session.clone());
+                    this.child(
+                        h_flex()
+                            .mt_1()
+                            .gap_2()
+                            .text_size(px(12.5))
+                            .text_color(p.subtext0)
+                            .child(div().flex_1().child("The worktree is still usable."))
+                            .child(
+                                Button::new(("setup-again", run.id.0))
+                                    .small()
+                                    .outline()
+                                    .label("Run again")
+                                    .on_click(move |_, _, cx| {
+                                        again.update(cx, |s, cx| s.run_setup(cx))
+                                    }),
+                            )
+                            .child(
+                                Button::new(("setup-fix", run.id.0))
+                                    .small()
+                                    .outline()
+                                    .label("Ask Pi to fix it")
+                                    .on_click(move |_, _, cx| {
+                                        fix.update(cx, |s, cx| s.ask_to_fix_setup(cx))
+                                    }),
+                            ),
                     )
                 })
                 .when_some(run.full_output.clone(), |this, path| {

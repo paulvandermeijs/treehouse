@@ -65,9 +65,18 @@ Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates
 
 Pi only loads a project's own skills, templates and extensions (`.pi/` and `.agents/skills`) once the project is trusted.
 
+### Worktree setup
+
+A new worktree can be prepared with the project's own files, as in [Delta](https://delta.dev/docs/concepts/worktrees#configuring-your-checkouts). Both are committed to the project:
+
+- `.agents/linked` lists git-ignored paths, one per line, such as `.env` or `config/local.json`. Each becomes a symlink to the main worktree's copy, so every worktree shares it. A path git doesn't ignore is skipped, so no tracked file ends up behind a link; if only the new worktree has the file, it is moved to the main worktree first.
+- `.agents/prepare` is an executable script that Treehouse runs from the new worktree's root, for installing dependencies and the like. `ROOT_WORKTREE_PATH` holds the main worktree's path (Delta defines no variable for it; the name follows Cursor's worktree setup). On Windows it runs with Git Bash.
+
+The setup shows as the first row of the new worktree's chat, with the linked paths and the script's output. A message you send while it runs waits and goes to Pi when it finishes. Stop ends the script and what it started. When it fails the worktree is still usable: **Run again**, or **Ask Pi to fix it**, which sends Pi the output. Right-click a worktree for **Run setup again**. Both files are the project's own code, so in an untrusted project the setup waits until you trust it.
+
 ### Project trust
 
-The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings and skills, connects no MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Read only** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
+The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings and skills, connects no MCP servers, and Treehouse doesn't run the project's worktree setup. An untrusted project shows a warning in the sidebar and a **Read only** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
 
 Decisions are saved to Pi's own `~/.pi/agent/trust.json`, so `pi` in a terminal sees them too, and Treehouse passes them to Pi as `--approve` or `--no-approve`. Changing a decision restarts the worktree's Pi with the new tools, resuming the same Pi session.
 
@@ -105,6 +114,7 @@ A message that starts with `!` runs as a shell command in the worktree instead o
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
 | `src/history.rs` | Which Pi session file holds each worktree's chat, and reading one back |
+| `src/setup.rs` | Preparing a new worktree from `.agents/linked` and `.agents/prepare` |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact` and `/new` |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
 | `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |

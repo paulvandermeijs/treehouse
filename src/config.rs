@@ -55,7 +55,6 @@ pub struct Config {
 
     pub worktree_location: String,
     pub compare_base: CompareBase,
-    pub setup_command: String,
     pub delete_on_remove: bool,
 }
 
@@ -79,7 +78,6 @@ impl Default for Config {
             always_ask: AlwaysAsk::default(),
             worktree_location: "{project}/.worktrees/{branch}".into(),
             compare_base: CompareBase::CreatedFrom,
-            setup_command: String::new(),
             delete_on_remove: false,
         }
     }

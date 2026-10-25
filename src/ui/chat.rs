@@ -189,6 +189,84 @@ impl ChatView {
             .update(cx, |state, cx| state.focus(window, cx));
     }
 
+    /// Around the worktree's setup: what waits for it to finish, or for the
+    /// project to be trusted.
+    fn render_setup_extras(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let p = palette(cx);
+        let session = self.session.read(cx);
+        let mut extras: Vec<AnyElement> = session
+            .setup_queue
+            .iter()
+            .map(|message| {
+                h_flex()
+                    .gap_3()
+                    .items_start()
+                    .child(super::items::avatar(&self.initials, &p))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .pt(px(1.))
+                            .child(message.clone())
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(p.subtext0)
+                                    .child("Sends when setup finishes"),
+                            ),
+                    )
+                    .into_any_element()
+            })
+            .collect();
+        if session.setup_waiting {
+            extras.push(
+                h_flex()
+                    .gap_3()
+                    .items_start()
+                    .px_3()
+                    .py(px(10.))
+                    .rounded(px(6.))
+                    .border_1()
+                    .border_color(mix(p.yellow, p.base, 0.35))
+                    .bg(mix(p.yellow, p.base, 0.1))
+                    .text_size(px(13.))
+                    .child(icon(Lucide::Lock).size(px(14.)).text_color(p.yellow_text).mt(px(3.)))
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child("Setup waits until you trust this project")
+                            .child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(p.subtext0)
+                                    .child("Its .agents/prepare and .agents/linked are the project's own code, so they run once it's trusted."),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("setup-trust")
+                            .flex_none()
+                            .px_3()
+                            .py_1()
+                            .rounded(px(6.))
+                            .border_1()
+                            .border_color(mix(p.yellow, p.base, 0.45))
+                            .bg(mix(p.yellow, p.base, 0.14))
+                            .hover(|s| s.bg(mix(p.yellow, p.base, 0.24)))
+                            .text_color(p.yellow_text)
+                            .text_size(px(12.5))
+                            .font_medium()
+                            .cursor_pointer()
+                            .child("Review trust…")
+                            .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
+                    )
+                    .into_any_element(),
+            );
+        }
+        extras
+    }
+
     /// Back to the end, following new output again.
     fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
         self.scroll.scroll_to_bottom();
@@ -1099,7 +1177,11 @@ impl Render for ChatView {
         let jump = self.render_jump(items.len(), task.is_some() as usize, cx);
         let running = self.session.read(cx).is_running();
         let compacting = self.session.read(cx).is_compacting();
-        let empty = items.is_empty() && task.is_none();
+        let setup_pending = {
+            let s = self.session.read(cx);
+            s.setup_waiting || !s.setup_queue.is_empty()
+        };
+        let empty = items.is_empty() && task.is_none() && !setup_pending;
         let untrusted = self.untrusted_project(cx).map(|(_, name)| name);
         let placeholder: SharedString = match &untrusted {
             Some(name) => format!("Ask about {name}…").into(),
@@ -1159,6 +1241,7 @@ impl Render for ChatView {
                             })
                             .children(task)
                             .children(items)
+                            .children(self.render_setup_extras(cx))
                             .when(running || compacting, |this| {
                                 this.child(
                                     h_flex()

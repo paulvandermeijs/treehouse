@@ -243,7 +243,7 @@ impl Workspace {
             .collect()
     }
 
-    /// Creates a worktree with a new branch and runs the setup command.
+    /// Creates a worktree with a new branch and prepares it with the project's `.agents/` setup.
     pub fn new_worktree(
         &mut self,
         project: &Path,
@@ -252,24 +252,7 @@ impl Workspace {
     ) -> Result<PathBuf> {
         let config = Config::global(cx);
         let location = git::worktree_location(&config.worktree_location, project, branch);
-        // The setup command is the project's own code: only with trust.
-        let setup = if crate::trust::lookup(project).is_trusted() {
-            config.setup_command.clone()
-        } else {
-            String::new()
-        };
         git::add_worktree(project, branch, &location)?;
-        if !setup.trim().is_empty() {
-            let location = location.clone();
-            cx.background_spawn(async move {
-                let _ = std::process::Command::new("sh")
-                    .arg("-c")
-                    .arg(setup)
-                    .current_dir(location)
-                    .status();
-            })
-            .detach();
-        }
         let base = git::default_base(project);
         let worktree = self.make_worktree(
             project,
@@ -279,9 +262,13 @@ impl Workspace {
             false,
             cx,
         );
+        // The project's .agents/ setup runs in the new worktree's chat; it
+        // waits there when the project isn't trusted yet.
+        let session = worktree.session.clone();
         if let Some(project) = self.projects.iter_mut().find(|p| p.path == project) {
             project.worktrees.push(worktree);
         }
+        session.update(cx, |session, cx| session.run_setup(cx));
         cx.notify();
         Ok(location)
     }

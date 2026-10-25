@@ -437,18 +437,6 @@ fn worktrees_page() -> SettingPage {
             )
             .item(
                 SettingItem::new(
-                    "Setup command",
-                    SettingField::input(
-                        |cx| Config::global(cx).setup_command.clone().into(),
-                        |v: SharedString, cx| {
-                            Config::update(cx, |c| c.setup_command = v.to_string())
-                        },
-                    ),
-                )
-                .description("Runs once after a worktree is created, e.g. npm install"),
-            )
-            .item(
-                SettingItem::new(
                     "Also delete its folder and branch",
                     SettingField::switch(
                         |cx| Config::global(cx).delete_on_remove,

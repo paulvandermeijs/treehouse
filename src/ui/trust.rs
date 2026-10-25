@@ -167,7 +167,7 @@ pub fn open(
                                                 .child(bullet("edit, create and delete files in its worktrees"))
                                                 .child(bullet("run commands, including the project's own scripts"))
                                                 .child(bullet("load the project's AGENTS.md, Pi settings and skills"))
-                                                .child(bullet("run the worktree setup command")),
+                                                .child(bullet("run its worktree setup in .agents/")),
                                         ),
                                 )
                                 .child(

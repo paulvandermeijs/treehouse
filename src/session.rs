@@ -123,6 +123,30 @@ pub struct Session {
     pub started: Instant,
     pub start_error: Option<String>,
     _reader: Option<Task<()>>,
+    /// Messages sent while the worktree's setup runs. Pi starts once it
+    /// ends, so it finds the worktree ready.
+    pub setup_queue: Vec<String>,
+    /// Setup that waits for the project to be trusted.
+    pub setup_waiting: bool,
+    setup_stop: Option<SetupStop>,
+    _setup: Option<Task<()>>,
+}
+
+/// Reaches the running setup script to stop it.
+#[derive(Clone)]
+struct SetupStop {
+    child: std::sync::Arc<std::sync::Mutex<Option<std::process::Child>>>,
+    stopped: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+enum SetupMessage {
+    Links(Vec<crate::setup::Link>),
+    Output(String),
+    Done {
+        exit_code: Option<i64>,
+        cancelled: bool,
+        error: Option<String>,
+    },
 }
 
 impl EventEmitter<SessionEvent> for Session {}
@@ -174,6 +198,10 @@ impl Session {
             started: Instant::now(),
             start_error: None,
             _reader: None,
+            setup_queue: Vec::new(),
+            setup_waiting: false,
+            setup_stop: None,
+            _setup: None,
         }
     }
 
@@ -406,7 +434,14 @@ impl Session {
     /// `/compact` and `/new` run as commands instead.
     pub fn send(&mut self, message: &str, cx: &mut Context<Self>) {
         let message = message.trim();
-        if message.is_empty() || !self.ensure_started(cx) {
+        if message.is_empty() {
+            return;
+        }
+        if self.transcript.setup_running() {
+            self.setup_queue.push(message.to_string());
+            return cx.notify();
+        }
+        if !self.ensure_started(cx) {
             return;
         }
         if let Some(command) = message.strip_prefix('!') {
@@ -493,6 +528,108 @@ impl Session {
         }
     }
 
+    /// Prepares a new worktree with the project's `.agents/linked` and
+    /// `.agents/prepare`, as a command row in the chat. In a project that
+    /// isn't trusted yet it waits: they're the project's own code.
+    pub fn run_setup(&mut self, cx: &mut Context<Self>) {
+        let worktree = self.cwd.clone();
+        let root = self.project.clone();
+        if !crate::setup::has_setup(&worktree) || self.transcript.setup_running() {
+            return;
+        }
+        if !self.trusted {
+            self.setup_waiting = true;
+            return cx.notify();
+        }
+        self.setup_waiting = false;
+        self.transcript.start_setup(crate::setup::title(&worktree));
+        let stop = SetupStop {
+            child: Default::default(),
+            stopped: Default::default(),
+        };
+        self.setup_stop = Some(stop.clone());
+        let (tx, rx) = smol::channel::unbounded();
+        cx.background_spawn(async move { run_setup_blocking(&root, &worktree, stop, tx) })
+            .detach();
+        self._setup = Some(cx.spawn(async move |this, cx| {
+            while let Ok(message) = rx.recv().await {
+                if this
+                    .update(cx, |this, cx| this.on_setup(message, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        }));
+        cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
+    }
+
+    fn on_setup(&mut self, message: SetupMessage, cx: &mut Context<Self>) {
+        match message {
+            SetupMessage::Links(links) => {
+                if let Some(run) = self.transcript.setup_run() {
+                    run.setup = Some(links);
+                }
+            }
+            SetupMessage::Output(line) => {
+                if let Some(run) = self.transcript.setup_run() {
+                    run.output.push_str(&line);
+                    run.output.push('\n');
+                }
+            }
+            SetupMessage::Done {
+                exit_code,
+                cancelled,
+                error,
+            } => {
+                self.transcript.finish_setup(exit_code, cancelled, error);
+                self.setup_stop = None;
+                cx.emit(SessionEvent::StatusChanged);
+                for message in std::mem::take(&mut self.setup_queue) {
+                    self.send(&message, cx);
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    /// Stops the setup script; Pi can start.
+    pub fn stop_setup(&mut self, _: &mut Context<Self>) {
+        if let Some(stop) = &self.setup_stop {
+            stop.stopped
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            if let Some(child) = stop.child.lock().ok().as_mut().and_then(|c| c.as_mut()) {
+                crate::setup::stop(child);
+            }
+        }
+    }
+
+    /// Hands a failed setup to Pi to fix.
+    pub fn ask_to_fix_setup(&mut self, cx: &mut Context<Self>) {
+        let Some(run) = self.items().iter().rev().find_map(|item| match item {
+            Item::Shell(run) if run.setup.is_some() => Some(run.clone()),
+            _ => None,
+        }) else {
+            return;
+        };
+        let tail: Vec<&str> = run.output.lines().rev().take(40).collect();
+        let tail: Vec<&str> = tail.into_iter().rev().collect();
+        let why = match (&run.error, run.exit_code) {
+            (Some(error), _) => error.clone(),
+            (None, Some(code)) => format!("exit code {code}"),
+            _ => "an error".to_string(),
+        };
+        self.send(
+            &format!(
+                "The worktree setup (`{}`) failed with {why}. Please find the cause and fix it so a new worktree can be prepared. Its output:\n\n```\n{}\n```",
+                run.command,
+                tail.join("\n")
+            ),
+            cx,
+        );
+    }
+
     /// Applies a trust decision. A running Pi restarts on the same saved
     /// session, since its tools and project resources are fixed at launch.
     pub fn set_trusted(&mut self, trusted: bool, cx: &mut Context<Self>) {
@@ -500,6 +637,9 @@ impl Session {
             return;
         }
         self.trusted = trusted;
+        if trusted && self.setup_waiting {
+            self.run_setup(cx);
+        }
         if self.client.is_none() {
             return cx.notify();
         }
@@ -957,6 +1097,77 @@ pub enum ApprovalChoice {
     Run,
     AlwaysAllow(String),
     Deny(String),
+}
+
+/// Links, then runs the script, on a background thread, reporting each
+/// step and line of output.
+fn run_setup_blocking(
+    root: &std::path::Path,
+    worktree: &std::path::Path,
+    stop: SetupStop,
+    tx: smol::channel::Sender<SetupMessage>,
+) {
+    use std::io::BufRead as _;
+    let _ = tx.send_blocking(SetupMessage::Links(crate::setup::link_all(root, worktree)));
+    let done = |exit_code, cancelled, error| {
+        let _ = tx.send_blocking(SetupMessage::Done {
+            exit_code,
+            cancelled,
+            error,
+        });
+    };
+    let mut command = match crate::setup::prepare_command(root, worktree) {
+        None => return done(None, false, None),
+        Some(Err(error)) => return done(None, false, Some(error)),
+        Some(Ok(command)) => command,
+    };
+    let spawned = command
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn();
+    let mut child = match spawned {
+        Ok(child) => child,
+        Err(err) => return done(None, false, Some(format!("Couldn't run it: {err}"))),
+    };
+    let stderr = child.stderr.take();
+    let stdout = child.stdout.take();
+    if let Ok(mut slot) = stop.child.lock() {
+        *slot = Some(child);
+    }
+    let errors = stderr.map(|stderr| {
+        let tx = tx.clone();
+        std::thread::spawn(move || {
+            for line in std::io::BufReader::new(stderr)
+                .lines()
+                .map_while(Result::ok)
+            {
+                let _ = tx.send_blocking(SetupMessage::Output(line));
+            }
+        })
+    });
+    if let Some(stdout) = stdout {
+        for line in std::io::BufReader::new(stdout)
+            .lines()
+            .map_while(Result::ok)
+        {
+            let _ = tx.send_blocking(SetupMessage::Output(line));
+        }
+    }
+    if let Some(errors) = errors {
+        let _ = errors.join();
+    }
+    let status = stop
+        .child
+        .lock()
+        .ok()
+        .and_then(|mut slot| slot.take())
+        .and_then(|mut child| child.wait().ok());
+    let cancelled = stop.stopped.load(std::sync::atomic::Ordering::SeqCst);
+    done(
+        status.and_then(|s| s.code()).map(i64::from),
+        cancelled,
+        None,
+    );
 }
 
 #[cfg(test)]

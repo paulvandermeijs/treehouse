@@ -10,6 +10,7 @@ mod markdown;
 mod mcp;
 mod pi;
 mod session;
+mod setup;
 mod shell_env;
 mod slash;
 mod theme;

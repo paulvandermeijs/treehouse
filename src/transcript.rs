@@ -72,7 +72,13 @@ pub struct ShellRun {
     pub error: Option<String>,
     pub started: Instant,
     pub duration: Option<Duration>,
+    /// Set for the worktree's setup (`.agents/linked` and `.agents/prepare`),
+    /// with what linking did; `None` for a command you ran.
+    pub setup: Option<Vec<crate::setup::Link>>,
 }
+
+/// The request id of the worktree's setup run.
+pub const SETUP_ID: &str = "setup";
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignInState {
@@ -419,6 +425,7 @@ impl Transcript {
                         error: None,
                         started: Instant::now(),
                         duration: None,
+                        setup: None,
                     }));
                 }
                 _ => {}
@@ -517,7 +524,50 @@ impl Transcript {
             error: None,
             started: Instant::now(),
             duration: None,
+            setup: None,
         }));
+    }
+
+    /// The worktree's setup starts: a command row Treehouse runs itself.
+    pub fn start_setup(&mut self, title: &str) {
+        let id = self.alloc();
+        self.items.push(Item::Shell(ShellRun {
+            id,
+            request_id: SETUP_ID.to_string(),
+            command: title.to_string(),
+            excluded: true,
+            output: String::new(),
+            running: true,
+            exit_code: None,
+            cancelled: false,
+            full_output: None,
+            error: None,
+            started: Instant::now(),
+            duration: None,
+            setup: Some(Vec::new()),
+        }));
+    }
+
+    pub fn setup_run(&mut self) -> Option<&mut ShellRun> {
+        self.shell_mut(SETUP_ID)
+    }
+
+    pub fn setup_running(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| matches!(item, Item::Shell(run) if run.running && run.setup.is_some()))
+    }
+
+    /// The setup ended: with the script's exit code, stopped, or an error
+    /// that kept it from running.
+    pub fn finish_setup(&mut self, exit_code: Option<i64>, cancelled: bool, error: Option<String>) {
+        if let Some(run) = self.setup_run() {
+            run.running = false;
+            run.duration = Some(run.started.elapsed());
+            run.exit_code = exit_code;
+            run.cancelled = cancelled;
+            run.error = error;
+        }
     }
 
     pub fn shell_mut(&mut self, request_id: &str) -> Option<&mut ShellRun> {
@@ -536,8 +586,10 @@ impl Transcript {
     /// Ends `!` commands that will never get a result because Pi stopped.
     pub fn abandon_shells(&mut self) {
         for item in self.items.iter_mut() {
+            // The setup runs without Pi, so it carries on.
             if let Item::Shell(run) = item
                 && run.running
+                && run.setup.is_none()
             {
                 run.running = false;
                 run.duration = Some(run.started.elapsed());

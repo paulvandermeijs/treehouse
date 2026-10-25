@@ -772,9 +772,15 @@ fn worktree_menu(
     path: PathBuf,
     is_main: bool,
 ) -> MenuBuilder {
-    Box::new(move |menu, _, _| {
+    Box::new(move |menu, _, cx| {
         let (a1, s1) = (app.clone(), session.clone());
         let (a2, s2) = (app.clone(), session.clone());
+        let s5 = session.clone();
+        let has_setup = !is_main && crate::setup::has_setup(&path);
+        let busy = {
+            let s = session.read(cx);
+            s.is_running() || s.shell_running()
+        };
         let (a3, p3) = (app.clone(), path.clone());
         let (a4, p4) = (app.clone(), path.clone());
         let menu = menu
@@ -793,6 +799,13 @@ fn worktree_menu(
                         });
                     }),
             )
+            .when(has_setup, |menu| {
+                menu.item(
+                    PopupMenuItem::new("Run setup again")
+                        .disabled(busy)
+                        .on_click(move |_, _, cx| s5.update(cx, |s, cx| s.run_setup(cx))),
+                )
+            })
             .item(
                 PopupMenuItem::new("Rename branch").on_click(move |_, window, cx| {
                     let _ = a3.update(cx, |app, cx| {

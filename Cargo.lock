@@ -6692,6 +6692,7 @@ dependencies = [
  "futures",
  "gpui-kit",
  "image",
+ "libc",
  "resvg 0.45.1",
  "serde",
  "serde_json",
