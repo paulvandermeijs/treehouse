@@ -51,6 +51,13 @@ pub fn init(cx: &mut App) {
 
 /// Switches between Mocha and Latte, or follows the system appearance.
 pub fn apply(choice: ThemeChoice, window: Option<&mut Window>, cx: &mut App) {
+    // Tell macOS too, so its own drawing (the title bar buttons, menus,
+    // native dialogs) matches the theme rather than the system setting.
+    cx.set_window_appearance(match choice {
+        ThemeChoice::Mocha => Some(gpui_kit::WindowAppearance::Dark),
+        ThemeChoice::Latte => Some(gpui_kit::WindowAppearance::Light),
+        ThemeChoice::System => None,
+    });
     let mode = match choice {
         ThemeChoice::Mocha => ThemeMode::Dark,
         ThemeChoice::Latte => ThemeMode::Light,
