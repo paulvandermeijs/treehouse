@@ -159,7 +159,7 @@ impl Render for DiffPanel {
             .bg(p.base)
             .child(watch_width)
             .child(
-                h_flex()
+                super::drags_window(h_flex().id("diff-top"))
                     .h(px(BAR_HEIGHT))
                     .flex_none()
                     .gap_2()

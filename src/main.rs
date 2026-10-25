@@ -42,8 +42,9 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Treehouse".into()),
-                    ..Default::default()
+                    ..ui::titlebar()
                 }),
+                app_owns_titlebar_drag: cfg!(target_os = "macos"),
                 window_min_size: Some(Size::new(px(720.), px(480.))),
                 // Matches `assets/linux/treehouse.desktop`, so Wayland and X11
                 // desktops show the installed icon and group the windows.

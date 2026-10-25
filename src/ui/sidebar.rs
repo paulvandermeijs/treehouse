@@ -237,10 +237,11 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
         .border_r_1()
         .border_color(p.surface0)
         .child(
-            h_flex()
+            super::drags_window(h_flex().id("sidebar-top"))
                 .h(px(BAR_HEIGHT))
                 .flex_none()
                 .px_2()
+                .pl(px(8. + super::TRAFFIC_LIGHTS))
                 .gap(px(2.))
                 .border_b_1()
                 .border_color(p.surface0)

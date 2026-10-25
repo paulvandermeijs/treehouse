@@ -13,7 +13,7 @@ struct About {
 impl Render for About {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
-        v_flex()
+        super::drags_window(v_flex().id("about"))
             .size_full()
             .items_center()
             .justify_center()
@@ -64,8 +64,9 @@ pub fn open(cx: &mut App) {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
         titlebar: Some(TitlebarOptions {
             title: Some("About Treehouse".into()),
-            ..Default::default()
+            ..super::titlebar()
         }),
+        app_owns_titlebar_drag: cfg!(target_os = "macos"),
         is_resizable: false,
         is_minimizable: false,
         app_id: Some("treehouse".into()),

@@ -406,7 +406,7 @@ impl ChatView {
         let stat = worktree.map(|w| w.stat).unwrap_or_default();
         let untrusted = self.untrusted_project(cx).is_some();
 
-        h_flex()
+        super::drags_window(h_flex().id("chat-top"))
             .h(px(BAR_HEIGHT))
             .flex_none()
             .gap_2()
@@ -447,6 +447,8 @@ impl ChatView {
                 this.child(
                     h_flex()
                         .id("not-trusted")
+                        // A click here isn't a window drag.
+                        .on_mouse_down(MouseButton::Left, |_, window, _| window.prevent_default())
                         .flex_none()
                         .mr(px(6.))
                         .h(px(26.))

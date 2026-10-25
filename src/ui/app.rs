@@ -812,10 +812,11 @@ impl Render for TreehouseApp {
                         .border_color(p.surface0)
                         .bg(p.mantle)
                         .child(
-                            h_flex()
+                            super::drags_window(h_flex().id("rail-top"))
                                 .h(px(super::BAR_HEIGHT))
                                 .flex_none()
                                 .px_2()
+                                .pl(px(8. + super::TRAFFIC_LIGHTS))
                                 .border_b_1()
                                 .border_color(p.surface0)
                                 .child(
