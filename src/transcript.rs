@@ -51,6 +51,27 @@ pub enum Item {
     },
     /// A sign-in to an MCP server.
     SignIn(SignIn),
+    /// A command the user ran with `!`.
+    Shell(ShellRun),
+}
+
+#[derive(Clone, Debug)]
+pub struct ShellRun {
+    pub id: ItemId,
+    /// The id of the `bash` command, which its updates and result carry.
+    pub request_id: String,
+    pub command: String,
+    /// `!!`: Pi keeps the output out of the model's context.
+    pub excluded: bool,
+    pub output: String,
+    pub running: bool,
+    pub exit_code: Option<i64>,
+    pub cancelled: bool,
+    /// Pi cut the output; the whole of it is in this file.
+    pub full_output: Option<String>,
+    pub error: Option<String>,
+    pub started: Instant,
+    pub duration: Option<Duration>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -82,6 +103,7 @@ impl Item {
             | Item::Error { id, .. }
             | Item::McpAttention { id, .. } => *id,
             Item::SignIn(sign_in) => sign_in.id,
+            Item::Shell(run) => run.id,
             Item::Tool(tool) => tool.id,
         }
     }
@@ -329,6 +351,74 @@ impl Transcript {
         });
     }
 
+    pub fn start_shell(&mut self, request_id: String, command: &str, excluded: bool) {
+        let id = self.alloc();
+        self.items.push(Item::Shell(ShellRun {
+            id,
+            request_id,
+            command: command.to_string(),
+            excluded,
+            output: String::new(),
+            running: true,
+            exit_code: None,
+            cancelled: false,
+            full_output: None,
+            error: None,
+            started: Instant::now(),
+            duration: None,
+        }));
+    }
+
+    pub fn shell_mut(&mut self, request_id: &str) -> Option<&mut ShellRun> {
+        self.items.iter_mut().rev().find_map(|item| match item {
+            Item::Shell(run) if run.request_id == request_id => Some(run),
+            _ => None,
+        })
+    }
+
+    pub fn shell_running(&self) -> bool {
+        self.items
+            .iter()
+            .any(|item| matches!(item, Item::Shell(run) if run.running))
+    }
+
+    /// Ends `!` commands that will never get a result because Pi stopped.
+    pub fn abandon_shells(&mut self) {
+        for item in self.items.iter_mut() {
+            if let Item::Shell(run) = item
+                && run.running
+            {
+                run.running = false;
+                run.duration = Some(run.started.elapsed());
+                run.error = Some("Pi stopped before the command finished".into());
+            }
+        }
+    }
+
+    /// Applies a `bash` response: Pi's `BashResult`, or the error it failed with.
+    pub fn finish_shell(&mut self, request_id: &str, result: &Value, error: Option<String>) {
+        let Some(run) = self.shell_mut(request_id) else {
+            return;
+        };
+        run.running = false;
+        run.duration = Some(run.started.elapsed());
+        if let Some(output) = result.get("output").and_then(Value::as_str) {
+            run.output = output.to_string();
+        }
+        run.exit_code = result.get("exitCode").and_then(Value::as_i64);
+        run.cancelled = result
+            .get("cancelled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if result.get("truncated").and_then(Value::as_bool) == Some(true) {
+            run.full_output = result
+                .get("fullOutputPath")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+        }
+        run.error = error;
+    }
+
     fn alloc(&mut self) -> ItemId {
         let id = ItemId(self.next_id);
         self.next_id += 1;
@@ -481,6 +571,17 @@ impl Transcript {
                     if let Item::Error { retrying, .. } = item {
                         *retrying = false;
                     }
+                }
+                Effect::None
+            }
+            "bash_execution_update" => {
+                let request_id = event.get("id").and_then(Value::as_str).unwrap_or_default();
+                let delta = event
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if let Some(run) = self.shell_mut(request_id) {
+                    run.output.push_str(delta);
                 }
                 Effect::None
             }
@@ -734,6 +835,32 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn runs_a_shell_command() {
+        let mut t = Transcript::new("/tmp");
+        t.start_shell("th-3".into(), "cargo test", false);
+        assert!(t.shell_running());
+        feed(
+            &mut t,
+            &[
+                json!({"type": "bash_execution_update", "id": "th-3", "delta": "Compiling\n"}),
+                json!({"type": "bash_execution_update", "id": "other", "delta": "elsewhere\n"}),
+            ],
+        );
+        t.finish_shell(
+            "th-3",
+            &json!({"output": "Compiling\nok\n", "exitCode": 0, "cancelled": false, "truncated": true, "fullOutputPath": "/tmp/out"}),
+            None,
+        );
+        let Some(Item::Shell(run)) = t.items.last() else {
+            panic!("no shell row");
+        };
+        assert!(!run.running && !t.shell_running());
+        assert_eq!(run.output, "Compiling\nok\n");
+        assert_eq!(run.exit_code, Some(0));
+        assert_eq!(run.full_output.as_deref(), Some("/tmp/out"));
     }
 
     #[test]

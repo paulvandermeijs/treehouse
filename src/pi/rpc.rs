@@ -78,6 +78,8 @@ pub enum PiMessage {
 
 #[derive(Debug, Clone)]
 pub struct Response {
+    /// The id the command was sent with.
+    pub id: Option<String>,
     pub command: String,
     pub success: bool,
     pub data: Value,
@@ -93,6 +95,7 @@ pub fn parse_line(line: &str) -> Option<PiMessage> {
     let value: Value = serde_json::from_str(line).ok()?;
     if value.get("type").and_then(Value::as_str) == Some("response") {
         return Some(PiMessage::Response(Response {
+            id: value.get("id").and_then(Value::as_str).map(str::to_owned),
             command: str_field(&value, "command"),
             success: value
                 .get("success")
@@ -277,6 +280,14 @@ pub mod command {
     }
     pub fn abort() -> Value {
         json!({"type": "abort"})
+    }
+    /// Runs a command the user typed after `!`. Pi adds the output to the
+    /// context unless it is excluded (`!!`).
+    pub fn bash(command: &str, exclude_from_context: bool) -> Value {
+        json!({"type": "bash", "command": command, "excludeFromContext": exclude_from_context})
+    }
+    pub fn abort_bash() -> Value {
+        json!({"type": "abort_bash"})
     }
     pub fn get_state() -> Value {
         json!({"type": "get_state"})

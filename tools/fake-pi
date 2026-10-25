@@ -20,6 +20,7 @@ signs in, one containing "fail" fails, and cancelling cancels.
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -271,6 +272,25 @@ def run(message):
     emit({"type": "agent_settled", "aborted": False})
 
 
+shells = []
+
+
+def user_bash(req):
+    """Pi's `bash` command: runs what the user typed after `!`."""
+    proc = subprocess.Popen(["bash", "-c", req.get("command", "")], stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True)
+    shells.append(proc)
+    output = ""
+    for line in proc.stdout:
+        output += line
+        emit({"type": "bash_execution_update", "id": req.get("id"), "delta": line})
+    code = proc.wait()
+    shells.remove(proc)
+    cancelled = code < 0
+    respond(req, {"output": output, "exitCode": None if cancelled else code,
+                  "cancelled": cancelled, "truncated": False})
+
+
 if os.environ.get("FAKE_PI_MCP"):
     notify("MCP servers need attention:\n  figma: needs sign-in\nRun /mcp to fix.", "warning")
 
@@ -318,6 +338,12 @@ for line in sys.stdin:
     elif kind == "new_session":
         state["tokens"] = 0
         respond(req, {"cancelled": False})
+    elif kind == "bash":
+        threading.Thread(target=user_bash, args=(req,), daemon=True).start()
+    elif kind == "abort_bash":
+        for proc in list(shells):
+            proc.terminate()
+        respond(req)
     elif kind == "abort":
         respond(req)
     else:

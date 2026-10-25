@@ -98,6 +98,10 @@ pub struct Palette {
     pub yellow: Hsla,
     /// Text on a yellow tint; darker than Yellow in Latte for contrast.
     pub yellow_text: Hsla,
+    /// Shell commands (`!`): Catppuccin Maroon.
+    pub shell: Hsla,
+    /// Text in shell colour; darker than Shell in Latte for contrast.
+    pub shell_text: Hsla,
     /// Text colour of added lines; darker than Green in Latte for contrast.
     pub add: Hsla,
     pub delete: Hsla,
@@ -120,6 +124,8 @@ pub fn palette(cx: &App) -> Palette {
             red: c(0xf38ba8),
             yellow: c(0xf9e2af),
             yellow_text: c(0xf9e2af),
+            shell: c(0xeba0ac),
+            shell_text: c(0xeba0ac),
             add: c(0xa6e3a1),
             delete: c(0xf38ba8),
             on_accent: c(0x11111b),
@@ -138,6 +144,8 @@ pub fn palette(cx: &App) -> Palette {
             red: c(0xd20f39),
             yellow: c(0xdf8e1d),
             yellow_text: c(0x8a5a10),
+            shell: c(0xe64553),
+            shell_text: c(0xc4283d),
             add: c(0x2f7a1f),
             delete: c(0xb80d32),
             on_accent: c(0xeff1f5),

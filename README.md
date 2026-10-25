@@ -53,6 +53,10 @@ Pi reaches MCP tools through its `codemode` and `tool_search` tools, so Treehous
 
 Some servers only accept sign-ins from apps they have approved and refuse Pi with "dynamic client registration failed with status 403". Figma's remote server is one. For Figma, its desktop app's local MCP server (`http://127.0.0.1:3845/mcp`) needs no sign-in.
 
+### Shell commands
+
+A message that starts with `!` runs as a shell command in the worktree instead of going to the model. The message box turns maroon while you type one. Treehouse runs it through Pi's `bash` RPC command, so Pi adds the command and its output to the conversation for the model to see. Start with `!!` to keep the output out of the model's context. The chat shows the output as it arrives, with the exit code and time. Stop ends a command that's still running.
+
 ### Without a model
 
 `tools/fake-pi` speaks the same RPC protocol and plays back a scripted turn with tool calls, an approval and a sub-agent. Set it as the Pi command in Settings › Agent defaults to work on the UI without a model or an API key. `FAKE_PI_MCP=1` makes it report an MCP server that needs a sign-in.

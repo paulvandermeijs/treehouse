@@ -19,7 +19,9 @@ use super::chat::ChatView;
 use super::icon;
 use crate::session::{AgentStatus, ApprovalChoice, PendingApproval, Session};
 use crate::theme::{MONO, Palette, mix, palette};
-use crate::transcript::{Item, ItemId, SignIn, SignInState, ToolCall, ToolStatus, format_duration};
+use crate::transcript::{
+    Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
+};
 
 pub const GUTTER: f32 = 34.;
 
@@ -105,7 +107,146 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
         Item::Error { id, text, retrying } => render_error(view, *id, text, *retrying, cx),
         Item::McpAttention { id, servers } => render_mcp_attention(view, *id, servers, cx),
         Item::SignIn(sign_in) => render_sign_in(view, sign_in, cx),
+        Item::Shell(run) => render_shell(view, run, cx),
     }
+}
+
+/// The badge that stands in for the avatar on `!` commands.
+pub fn shell_badge(p: &Palette) -> Div {
+    div()
+        .flex_none()
+        .size(px(22.))
+        .rounded(px(6.))
+        .bg(p.shell)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icon(Lucide::Terminal).size(px(13.)).text_color(p.on_accent))
+}
+
+/// A command the user ran with `!`, and its output.
+fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> AnyElement {
+    let p = palette(cx);
+    let lines: Vec<&str> = run.output.trim_end().lines().collect();
+    let keep = if run.running { 8 } else { 40 };
+    let hidden = lines.len().saturating_sub(keep);
+    let shown = lines[hidden..].join("\n");
+    let duration = run.duration.unwrap_or_else(|| run.started.elapsed());
+    let mut meta = Vec::new();
+    if run.cancelled {
+        meta.push("stopped".to_string());
+    } else if let Some(code) = run.exit_code {
+        meta.push(format!("exit {code}"));
+    }
+    if !run.running {
+        meta.push(format_duration(duration));
+        meta.push(
+            if run.excluded {
+                "kept from Pi"
+            } else {
+                "sent to Pi"
+            }
+            .to_string(),
+        );
+    }
+    let failed = run.exit_code.is_some_and(|code| code != 0);
+    let session = view.session.clone();
+    h_flex()
+        .id(("shell", run.id.0))
+        .mt_2()
+        .gap_3()
+        .items_start()
+        .child(shell_badge(&p))
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    h_flex()
+                        .min_h(px(22.))
+                        .gap_2()
+                        .text_size(px(13.))
+                        .text_color(p.subtext0)
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_color(p.shell_text)
+                                .child(if run.running {
+                                    ShimmerText::new("Running").into_any_element()
+                                } else {
+                                    "Ran".into_any_element()
+                                }),
+                        )
+                        .child(
+                            mono(run.command.clone(), p.shell_text)
+                                .flex_1()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .text_ellipsis()
+                                .whitespace_nowrap(),
+                        )
+                        .when(!meta.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .flex_none()
+                                    .text_size(px(12.))
+                                    .when(failed, |this| this.text_color(p.delete))
+                                    .child(meta.join(" · ")),
+                            )
+                        })
+                        .when(run.running, |this| {
+                            this.child(
+                                Button::new(("shell-stop", run.id.0))
+                                    .ghost()
+                                    .xsmall()
+                                    .label("Stop")
+                                    .on_click(move |_, _, cx| {
+                                        session.update(cx, |s, cx| s.stop_shell(cx))
+                                    }),
+                            )
+                        }),
+                )
+                .when_some(run.error.clone(), |this, error| {
+                    this.child(
+                        div()
+                            .mt_1()
+                            .text_size(px(13.))
+                            .text_color(p.red)
+                            .child(error),
+                    )
+                })
+                .when(!shown.is_empty(), |this| {
+                    this.child(
+                        v_flex()
+                            .mt(px(6.))
+                            .px_3()
+                            .py_2()
+                            .rounded(px(6.))
+                            .bg(mix(p.shell, p.base, 0.08))
+                            .font_family(MONO)
+                            .text_size(px(12.))
+                            .line_height(px(19.))
+                            .when(hidden > 0, |this| {
+                                this.child(
+                                    div()
+                                        .text_color(p.subtext0)
+                                        .child(format!("{hidden} earlier lines")),
+                                )
+                            })
+                            .child(div().whitespace_normal().child(SharedString::from(shown))),
+                    )
+                })
+                .when_some(run.full_output.clone(), |this, path| {
+                    this.child(
+                        div()
+                            .mt_1()
+                            .text_size(px(12.))
+                            .text_color(p.subtext0)
+                            .child(format!("Output cut short · the whole of it is in {path}")),
+                    )
+                }),
+        )
+        .into_any_element()
 }
 
 /// MCP servers Pi couldn't use, with a Sign in button for those that need one.

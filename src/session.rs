@@ -185,7 +185,7 @@ impl Session {
     pub fn status(&self) -> AgentStatus {
         if !self.approvals.is_empty() || self.waiting_sign_in().is_some() {
             AgentStatus::NeedsInput
-        } else if self.transcript.run == RunState::Running {
+        } else if self.transcript.run == RunState::Running || self.transcript.shell_running() {
             AgentStatus::Working
         } else if self.transcript.run == RunState::Failed || self.start_error.is_some() {
             AgentStatus::Failed
@@ -311,6 +311,13 @@ impl Session {
         if message.is_empty() || !self.ensure_started(cx) {
             return;
         }
+        if let Some(command) = message.strip_prefix('!') {
+            let (command, excluded) = match command.strip_prefix('!') {
+                Some(command) => (command, true),
+                None => (command, false),
+            };
+            return self.run_shell(command.trim(), excluded, cx);
+        }
         match crate::slash::parse_builtin(message) {
             Some(crate::slash::Builtin::Compact(instructions)) => {
                 return self.compact(instructions.as_deref(), cx);
@@ -334,6 +341,33 @@ impl Session {
         }
         self.viewed = true;
         cx.notify();
+    }
+
+    /// Runs a command the user typed after `!` in the worktree, through Pi so
+    /// that it can see the output.
+    fn run_shell(&mut self, command: &str, excluded: bool, cx: &mut Context<Self>) {
+        if command.is_empty() {
+            return;
+        }
+        if let Some(client) = &self.client {
+            let request_id = client.send(command::bash(command, excluded));
+            self.transcript.start_shell(request_id, command, excluded);
+            cx.emit(SessionEvent::StatusChanged);
+        }
+        self.viewed = true;
+        cx.notify();
+    }
+
+    /// Stops the running `!` command.
+    pub fn stop_shell(&mut self, cx: &mut Context<Self>) {
+        if let Some(client) = &self.client {
+            client.send(command::abort_bash());
+        }
+        cx.notify();
+    }
+
+    pub fn shell_running(&self) -> bool {
+        self.transcript.shell_running()
     }
 
     fn compact(&mut self, instructions: Option<&str>, cx: &mut Context<Self>) {
@@ -387,6 +421,7 @@ impl Session {
         self._reader = None;
         self.client = None;
         self.approvals.clear();
+        self.transcript.abandon_shells();
         self.transcript
             .apply(&serde_json::json!({"type": "agent_settled"}));
         self.transcript.push_notice(notice);
@@ -553,6 +588,7 @@ impl Session {
                 }
                 self.subagent_requests.clear();
                 self.approvals.clear();
+                self.transcript.abandon_shells();
                 cx.emit(SessionEvent::StatusChanged);
             }
         }
@@ -561,6 +597,16 @@ impl Session {
     }
 
     fn handle_response(&mut self, response: crate::pi::rpc::Response) {
+        if response.command == "bash" {
+            let id = response.id.clone().unwrap_or_default();
+            let error = (!response.success).then(|| {
+                response
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "The command failed".into())
+            });
+            return self.transcript.finish_shell(&id, &response.data, error);
+        }
         if !response.success {
             if response.command == "compact" {
                 self.transcript.compacting = false;

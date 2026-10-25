@@ -22,7 +22,7 @@ use crate::actions::{
 use crate::config::{Config, THINKING_LEVELS};
 use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
 use crate::slash::{self, CommandKind, SlashCommand};
-use crate::theme::{mix, palette};
+use crate::theme::{MONO, mix, palette};
 use crate::transcript::{ItemId, format_tokens};
 use crate::workspace::Workspace;
 
@@ -565,10 +565,77 @@ impl ChatView {
         )
     }
 
+    /// A message starting with `!` is a shell command, `!!` one whose output
+    /// Pi keeps out of the context.
+    fn shell_mode(&self, cx: &App) -> Option<bool> {
+        let value = self.composer.read(cx).value();
+        let rest = value.trim_start().strip_prefix('!')?;
+        Some(rest.starts_with('!'))
+    }
+
+    /// Where a `!` command runs: `project/branch`.
+    fn shell_location(&self, cx: &App) -> String {
+        let workspace = self.workspace.read(cx);
+        let project = workspace
+            .worktree_of(self.session.entity_id())
+            .and_then(|w| workspace.project_of(&w.path))
+            .map(|p| p.name.to_string())
+            .unwrap_or_default();
+        format!("{project}/{}", self.branch)
+    }
+
+    fn render_shell_hint(&self, excluded: bool, cx: &App) -> impl IntoElement {
+        let p = palette(cx);
+        let sep = || div().opacity(0.5).child("·");
+        h_flex()
+            .flex_wrap()
+            .gap(px(6.))
+            .ml(px(10.))
+            .text_size(px(12.))
+            .text_color(p.subtext0)
+            .child(
+                div()
+                    .h(px(18.))
+                    .px(px(6.))
+                    .rounded(px(4.))
+                    .flex()
+                    .items_center()
+                    .bg(mix(p.shell, p.base, 0.22))
+                    .text_color(p.shell_text)
+                    .text_size(px(11.5))
+                    .font_medium()
+                    .child("Shell"),
+            )
+            .child("Runs in")
+            .child(
+                div()
+                    .font_family(MONO)
+                    .text_color(p.text)
+                    .child(SharedString::from(self.shell_location(cx))),
+            )
+            .child(sep())
+            .map(|this| {
+                if excluded {
+                    this.child("output stays out of Pi's context")
+                } else {
+                    this.child("output is sent to Pi")
+                        .child(sep())
+                        .child(div().font_family(MONO).text_color(p.text).child("!!"))
+                        .child("to keep it out of the context")
+                }
+            })
+            .child(sep())
+            .child(gpui_kit::component::kbd::Kbd::new(
+                Keystroke::parse("enter").unwrap(),
+            ))
+            .child("run")
+    }
+
     fn render_composer(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let commands = self.slash_matches(cx);
         let menu_open = !commands.is_empty();
+        let shell = self.shell_mode(cx);
         h_flex()
             .relative()
             .when(menu_open, |this| {
@@ -596,7 +663,13 @@ impl ChatView {
             .py_3()
             .border_t_1()
             .border_color(p.surface0)
-            .child(avatar(&self.initials, &p))
+            .when(shell.is_some(), |this| {
+                this.bg(mix(p.shell, p.base, 0.08)).border_color(p.shell)
+            })
+            .child(match shell {
+                Some(_) => super::items::shell_badge(&p).into_any_element(),
+                None => avatar(&self.initials, &p).into_any_element(),
+            })
             .child(
                 // A multi-line input pads its text by 10px across and 8px down
                 // (medium size). Pull it back so the text starts at the gap
@@ -609,8 +682,14 @@ impl ChatView {
                     .child(
                         Textarea::new(&self.composer)
                             .appearance(false)
-                            .aria_label("Message Pi"),
-                    ),
+                            .aria_label("Message Pi, or start with ! to run a shell command")
+                            .when(shell.is_some(), |this| {
+                                this.font_family(MONO).text_color(p.shell_text)
+                            }),
+                    )
+                    .when_some(shell, |this, excluded| {
+                        this.child(self.render_shell_hint(excluded, cx))
+                    }),
             )
     }
 
@@ -641,6 +720,8 @@ impl ChatView {
         let current_thinking = session.thinking.clone();
         let session_entity = self.session.clone();
         let read_only = self.untrusted_project(cx).is_some();
+        let shell = self.shell_mode(cx).is_some();
+        let shell_running = session.shell_running();
 
         h_flex()
             .flex_none()
@@ -794,7 +875,26 @@ impl ChatView {
                         })),
                 )
             })
-            .child(
+            .when(shell_running && !running, |this| {
+                this.child(
+                    Button::new("stop-shell")
+                        .ghost()
+                        .small()
+                        .icon(icon(Lucide::Square))
+                        .tooltip("Stop command")
+                        .on_click(cx.listener(|view, _, _, cx| {
+                            view.session.update(cx, |s, cx| s.stop_shell(cx))
+                        })),
+                )
+            })
+            .child(if shell {
+                Button::new("send")
+                    .ghost()
+                    .small()
+                    .icon(icon(Lucide::Terminal).text_color(p.shell_text))
+                    .tooltip("Run command · Enter")
+                    .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
+            } else {
                 Button::new("send")
                     .ghost()
                     .small()
@@ -804,8 +904,8 @@ impl ChatView {
                     } else {
                         "Send · Enter"
                     })
-                    .on_click(cx.listener(|view, _, window, cx| view.send(window, cx))),
-            )
+                    .on_click(cx.listener(|view, _, window, cx| view.send(window, cx)))
+            })
     }
 }
 
