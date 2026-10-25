@@ -1,6 +1,7 @@
 // Renders each scene's overlay (frame.html) as PNG frames with a transparent
 // window hole, stepping the CSS animations by hand so every frame is exact.
 // Usage: node render.mjs <out folder> [scene id ...]
+// Every theme in scenes.json gets its own frames, in <out>/frames/<theme>/<scene id>/.
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -11,19 +12,19 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? 'out');
 const only = process.argv.slice(3);
-const { fps, width, height, window: win, scenes } = JSON.parse(readFileSync(join(here, 'scenes.json'), 'utf8'));
+const { fps, width, height, window: win, themes, scenes } = JSON.parse(readFileSync(join(here, 'scenes.json'), 'utf8'));
 // The intro animations finish within this; compose.py holds the last frame.
 const INTRO_SECONDS = 1.6;
 
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width, height } });
-for (const scene of scenes) {
+for (const theme of Object.keys(themes)) for (const scene of scenes) {
   if (only.length && !only.includes(scene.id)) continue;
-  const dir = join(out, 'frames', scene.id);
+  const dir = join(out, 'frames', theme, scene.id);
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const url = pathToFileURL(join(here, 'frame.html'));
-  url.search = new URLSearchParams({ scene: scene.id, scenes: JSON.stringify(scenes), window: JSON.stringify(win) });
+  url.search = new URLSearchParams({ theme, scene: scene.id, scenes: JSON.stringify(scenes), window: JSON.stringify(win) });
   await page.goto(url.href);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => Promise.all([...document.images].map(i => i.decode())));
@@ -32,6 +33,6 @@ for (const scene of scenes) {
     await page.evaluate(t => document.getAnimations().forEach(a => { a.pause(); a.currentTime = t; }), (f * 1000) / fps);
     await page.screenshot({ path: join(dir, `${String(f).padStart(3, '0')}.png`), omitBackground: true });
   }
-  console.log(`${scene.id}: ${count} frames`);
+  console.log(`${theme}/${scene.id}: ${count} frames`);
 }
 await browser.close();

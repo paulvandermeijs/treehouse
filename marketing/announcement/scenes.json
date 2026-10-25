@@ -24,11 +24,19 @@
     "seconds": 70,
     "volume": 0.12
   },
+  "themes": {
+    "mocha": {
+      "base": "#1e1e2e"
+    },
+    "latte": {
+      "base": "#eff1f5"
+    }
+  },
   "scenes": [
     {
       "id": "title",
       "kind": "title",
-      "headline": "Every agent deserves its own branch.",
+      "headline": "Every agent deserves its own space.",
       "hold": 3.5,
       "voice": "Meet Treehouse. <break time=\"0.7s\" /> Because we think every coding agent needs its own space."
     },
