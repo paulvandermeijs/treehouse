@@ -816,7 +816,7 @@ impl ChatView {
                 this.bg(mix(p.shell, p.base, 0.08)).border_color(p.shell)
             })
             .child(match shell {
-                Some(_) => super::items::shell_badge(&p).into_any_element(),
+                Some(_) => super::items::shell_badge(&p, false).into_any_element(),
                 None => avatar(&self.initials, &p).into_any_element(),
             })
             .child(

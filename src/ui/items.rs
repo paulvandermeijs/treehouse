@@ -204,16 +204,21 @@ fn exit_pill(ok: bool, label: String, p: &Palette) -> Div {
 }
 
 /// The badge that stands in for the avatar on `!` commands.
-pub fn shell_badge(p: &Palette) -> Div {
+/// Marks a command as yours; Red once it fails, like the rest of its row.
+pub fn shell_badge(p: &Palette, failed: bool) -> Div {
     div()
         .flex_none()
         .size(px(22.))
         .rounded(px(6.))
-        .bg(p.shell)
+        .bg(if failed { p.red } else { p.shell })
         .flex()
         .items_center()
         .justify_center()
-        .child(icon(Lucide::Terminal).size(px(13.)).text_color(p.on_shell))
+        .child(icon(Lucide::Terminal).size(px(13.)).text_color(if failed {
+            p.on_accent
+        } else {
+            p.on_shell
+        }))
 }
 
 /// A command the user ran with `!`, and its output.
@@ -251,7 +256,7 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
         .mt_2()
         .gap_3()
         .items_start()
-        .child(shell_badge(&p))
+        .child(shell_badge(&p, failed))
         .child(
             v_flex()
                 .flex_1()
