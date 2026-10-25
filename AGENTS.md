@@ -1,0 +1,58 @@
+# AGENTS.md
+
+This file provides guidance to coding agents (Claude Code, Pi and others) when working with code in this repository.
+
+Treehouse is a Rust desktop app (GPUI via [gpui-kit](https://gpui-kit.com/docs/) 0.8) that runs [Pi](https://github.com/badlogic/pi-mono) coding agents in git worktrees. Every chat is a `pi --mode rpc` child process spoken to in JSON lines. The default branch is `master`.
+
+## Commands
+
+```sh
+cargo build                      # debug build; the binary is target/debug/treehouse
+cargo run --release
+cargo test                       # all tests (unit tests live next to the code)
+cargo test closest_decision_wins # one test, by name substring
+cargo clippy --all-targets       # keep it warning-free
+cargo fmt
+cargo run --example render-icons # after changing assets/icon/treehouse.svg
+```
+
+`cargo test` and `cargo clippy` don't rebuild `target/debug/treehouse`; run `cargo build` before launching the app to check a change.
+
+Linux needs `libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers` to link and run.
+
+### Running without a model
+
+`tools/fake-pi` is a Python stand-in for `pi --mode rpc` that plays scripted turns. Set it as the Pi command in Settings › Agent defaults (the `pi_command` key in `settings.json`). The first word of a message picks the script: `Find` (sub-agent), `Fail` (provider error), `Approve` (long approval pattern), `Long` (long-running command), `Mangle` (garbled tool name), `MCP` (MCP tool calls); anything else plays a worktree turn with tools, an approval and a sub-agent. It also handles `/mcp login`, `!` shell commands (Pi's `bash` RPC, run for real), and `FAKE_PI_MCP=1` (an MCP server needing sign-in). Extend it when a feature needs a new Pi behaviour to test against.
+
+For screenshots without a display, run the app under Xvfb and drive it with `xdotool`. Point `XDG_CONFIG_HOME`/`XDG_DATA_HOME` at a scratch folder for Treehouse's settings, and `PI_CODING_AGENT_DIR` at one for Pi's (`trust.json`, `auth.json`), so real settings aren't touched.
+
+## Architecture
+
+Data flows one way: **Pi process → `PiClient` → `Session` → `Transcript` items → `ChatView` render**.
+
+- `src/pi/rpc.rs`: spawns Pi (`LaunchOptions::args` builds every flag), writes commands with an `id`, and reads stdout into `PiMessage::{Response, Event, Exited}`. `pi::rpc::command` has a constructor per RPC command.
+- `src/session.rs`: one entity per chat (a worktree's chat or a sub-agent, `SessionKind`). It starts Pi lazily on the first message (`ensure_started`) and turns responses and events into transcript changes. It also owns pending approvals, extension UI requests (approvals, sub-agents, MCP sign-in) and restarts (`restart`, used for `/reload` and trust changes; it resumes the same `sessionFile`).
+- `src/transcript.rs`: the chat's state as a list of `Item`s, built from Pi's events by `Transcript::apply`. Most behaviour is unit-tested here by feeding JSON events.
+- `src/workspace.rs`: projects → worktrees → sub-agent sessions. It creates and removes worktrees through `src/git.rs`, which shells out to `git`, and applies trust decisions to every session.
+- `src/ui/`: `app.rs` is the root (sidebar, main chat, right dock, dialogs); `chat.rs` is a chat pane, `items.rs` renders each transcript item, `diff.rs` the dock's diff, and `trust.rs`, `settings.rs` and `palette.rs` the dialogs.
+
+### The bridge extension
+
+Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extension that Treehouse writes to its data folder and loads with `-e`. It sends every tool call to Treehouse as an `extension_ui_request` input titled `treehouse:approval`, and registers a `subagent` tool that asks Treehouse (title `treehouse:subagent`) to run another Session. `src/approval.rs` decides allow or ask from the user's settings.
+
+### Things that bite
+
+- `--tools` replaces Pi's whole tool selection: name the bridge's `subagent` tool, and `codemode` and `tool_search` (the only way MCP tools are reachable). Untrusted projects get `read` only, plus `--no-approve`, `--no-mcp` and a read-only note through `--append-system-prompt`.
+- Project trust is stored in Pi's own `~/.pi/agent/trust.json`, shared with `pi` in a terminal (`src/trust.rs`, which takes Pi's `.json.lock` directory lock).
+- Some Pi messages are only human-readable text; `src/mcp.rs` parses MCP sign-in notices by their exact wording. Check it against Pi's source when Pi changes.
+- `/compact`, `/new` and `/reload` are handled in Treehouse (`src/slash.rs`, `Session::send`). Messages starting with `!`/`!!` go to Pi's `bash` RPC command, not to the model.
+- Actions are registered at app level (`route::<A>` in `ui/app.rs`) so they work whatever has focus. Keys that must beat an input's own bindings use a key context such as `"SlashMenu > Input"`.
+- A dialog opened while `TreehouseApp` is still being constructed panics; defer it (`window.defer`).
+- In `#[cfg(test)]` modules, import items by name rather than `use super::*` when the parent glob-imports `gpui_kit::*`; the glob causes a recursion error.
+
+## Design and conventions
+
+- The UI follows a Treehouse design canvas (Catppuccin Mocha/Latte, IBM Plex Sans and Mono). Colours come from `theme::Palette` (`src/theme.rs`); add a token there rather than hard-coding a colour. Icons beyond gpui-kit's defaults are added to `ExtraIcons` in `src/assets.rs`.
+- Use gpui-kit components where they fit. Layouts the kit doesn't provide, such as the sidebar, are built by hand from `div`/`h_flex`/`v_flex` to the design.
+- Comments explain why, not what. User-facing text is short and plain.
+- Keep `README.md` up to date with user-visible behaviour; it has the user-facing documentation of each feature.
