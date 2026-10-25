@@ -256,6 +256,26 @@ impl Session {
             .filter(|e| e["message"]["role"] == "assistant")
             .find_map(|e| e["message"]["usage"]["totalTokens"].as_u64())
             .filter(|tokens| *tokens > 0);
+        // Until Pi starts, show the model the chat last used rather than the
+        // default: a default like `z-ai/glm-5.3-flash` can resolve to another
+        // provider in Pi, which only the session records.
+        if let Some(model) = entries.iter().rev().find_map(|e| {
+            let (provider, id) = match e["type"].as_str() {
+                Some("model_change") => (e["provider"].as_str()?, e["modelId"].as_str()?),
+                Some("message") if e["message"]["role"] == "assistant" => (
+                    e["message"]["provider"].as_str()?,
+                    e["message"]["model"].as_str()?,
+                ),
+                _ => return None,
+            };
+            Some(ModelInfo {
+                provider: provider.into(),
+                id: id.into(),
+                context_window: None,
+            })
+        }) {
+            self.model = Some(model);
+        }
         self.sync_texts(cx);
         cx.notify();
     }
