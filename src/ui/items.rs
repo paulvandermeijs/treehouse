@@ -213,14 +213,16 @@ pub fn shell_badge(p: &Palette) -> Div {
         .flex()
         .items_center()
         .justify_center()
-        .child(icon(Lucide::Terminal).size(px(13.)).text_color(p.on_accent))
+        .child(icon(Lucide::Terminal).size(px(13.)).text_color(p.on_shell))
 }
 
 /// A command the user ran with `!`, and its output.
 fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> AnyElement {
     let p = palette(cx);
     let lines: Vec<&str> = run.output.trim_end().lines().collect();
-    let keep = if run.running { 8 } else { 40 };
+    // As Pi's bash card: the last 5 lines while it runs, up to 40 after.
+    let keep = if run.running { 5 } else { 40 };
+    let failed = !run.running && !run.cancelled && run.exit_code.is_some_and(|c| c != 0);
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
     let mut meta = Vec::new();
@@ -308,7 +310,8 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                             .child(error),
                     )
                 })
-                .when(!shown.is_empty(), |this| {
+                // A finished command with nothing to show says so, as Pi's does.
+                .when(!shown.is_empty() || !run.running, |this| {
                     this.child(
                         v_flex()
                             .mt(px(6.))
@@ -316,10 +319,14 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                             .py_2()
                             .rounded(px(6.))
                             // The well of Pi's own bash card, so output reads
-                            // the same; the faint maroon ties it to the badge.
+                            // the same; the faint yellow ties it to the badge.
                             .bg(p.mantle)
                             .border_1()
-                            .border_color(mix(p.shell, p.surface0, 0.28))
+                            .border_color(if failed {
+                                mix(p.red, p.base, 0.5)
+                            } else {
+                                mix(p.shell, p.surface0, 0.28)
+                            })
                             .font_family(MONO)
                             .text_size(px(12.))
                             .line_height(px(19.))
@@ -330,7 +337,20 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                         .child(format!("{hidden} earlier lines")),
                                 )
                             })
-                            .child(div().whitespace_normal().child(SharedString::from(shown))),
+                            .child(if shown.is_empty() {
+                                div().text_color(p.subtext0).child("No output")
+                            } else {
+                                div().whitespace_normal().child(SharedString::from(shown))
+                            })
+                            .when(run.running, |this| {
+                                this.child(
+                                    div()
+                                        .mt_1()
+                                        .font_family(crate::theme::SANS)
+                                        .text_color(p.subtext0)
+                                        .child("Live output · last 5 lines"),
+                                )
+                            }),
                     )
                 })
                 .when_some(run.full_output.clone(), |this, path| {
@@ -1132,7 +1152,6 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
     };
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
-    let command = tool.command().unwrap_or("");
 
     card(p)
         .when(failed, |this| this.border_color(mix(p.red, p.base, 0.5)))
@@ -1143,11 +1162,6 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
                 .font_family(MONO)
                 .text_size(px(12.))
                 .line_height(px(19.))
-                .child(
-                    div()
-                        .text_color(p.subtext0)
-                        .child(SharedString::from(format!("$ {command}"))),
-                )
                 .when(hidden > 0, |this| {
                     this.child(
                         div()
@@ -1155,7 +1169,11 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
                             .child(format!("{hidden} earlier lines")),
                     )
                 })
-                .child(div().whitespace_normal().child(SharedString::from(shown))),
+                .child(if shown.is_empty() && !running {
+                    div().text_color(p.subtext0).child("No output")
+                } else {
+                    div().whitespace_normal().child(SharedString::from(shown))
+                }),
         )
         .when(running, |this| {
             this.child(
