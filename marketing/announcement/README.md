@@ -1,6 +1,6 @@
 # Announcement video
 
-A 50-second video of Treehouse for the README and social posts: a title card, five chapters that each show the real app next to a caption, and an end card. The app runs on a virtual display with `tools/fake-pi`, so recording needs no model or API key.
+A 50-second video of Treehouse for the README and social posts: a title card, five chapters that each show the real app next to a caption, and an end card, with a voiceover and quiet background music. The app runs on a virtual display with `tools/fake-pi`, so recording needs no model or API key.
 
 ## Making it
 
@@ -11,6 +11,7 @@ sudo apt install xvfb xdotool dmz-cursor-theme ffmpeg
 cargo build --release
 cd marketing/announcement
 ./record.py out          # records the app, cuts out/clips/<scene>.mp4
+./narrate.py             # only after changing a "voice" line or the music; needs ELEVENLABS_API_KEY
 node render.mjs out      # draws the captions and cards, out/frames/<scene>/
 ./compose.py out         # out/treehouse-announcement.mp4, .gif and a poster
 ```
@@ -24,8 +25,10 @@ node render.mjs out      # draws the captions and cards, out/frames/<scene>/
 | `run-app.sh` | Starts Treehouse on `:99` with fake-pi and scratch settings |
 | `record.py` | Drives the app with xdotool and records it; the pauses follow fake-pi's script |
 | `frame.html`, `render.mjs` | One scene's overlay, rendered frame by frame |
-| `compose.py` | Puts the clips under the overlays and cross-fades the scenes |
+| `narrate.py` | Speaks each scene's `voice` line and makes the music with ElevenLabs, into `voice/` |
+| `voice/` | The generated narration and music, kept so the video builds without an API key |
+| `compose.py` | Puts the clips under the overlays, cross-fades the scenes and mixes in the audio |
 
-Captions and card text live in `scenes.json`; rerun `render.mjs` and `compose.py` after changing them. After a UI change, rerun `record.py` too, and check the click positions in it.
+Captions, card text and the narration (`voice`) live in `scenes.json`; rerun `render.mjs` and `compose.py` after changing them, and `narrate.py` first for a changed line. After a UI change, rerun `record.py` too, and check the click positions in it.
 
-The video has no sound yet.
+Each line starts half a second into its scene. A scene that is shorter than its line is stretched by holding its last frame, so the video grows with longer lines. The voice, model and music prompt are under `narration` and `music` in `scenes.json`; `music.volume` sets how quiet the music sits under the voice.
