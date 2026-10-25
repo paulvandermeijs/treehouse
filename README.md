@@ -25,6 +25,14 @@ Pi starts the first time you send a message in a worktree. It uses Pi's own conf
 
 Settings are saved in the platform config folder (`~/.config/treehouse/settings.json` on Linux). Pi sessions are saved under the platform data folder (`~/.local/share/treehouse/sessions`).
 
+### App icon and packaging
+
+The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example render-icons` renders it into `assets/icon/png/`, `treehouse.icns` (macOS, on Apple's icon grid) and `treehouse.ico` (Windows); run it after changing the SVG.
+
+- **macOS:** the Dock shows the icon once Treehouse runs as an app bundle: `cargo install cargo-bundle`, then `cargo bundle --release` builds `target/release/bundle/osx/Treehouse.app`. Started with `cargo run`, it's a bare executable and shows the default icon.
+- **Linux:** X11 windows get the icon directly. Wayland docks look it up through the desktop file: copy `assets/linux/treehouse.desktop` to `~/.local/share/applications/` and `assets/icon/png/256x256.png` to `~/.local/share/icons/hicolor/256x256/apps/treehouse.png`. `cargo bundle --release` also builds a `.deb` with both.
+- **Windows:** `build.rs` embeds `treehouse.ico` in the executable.
+
 ### Slash commands
 
 Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]` and `/new`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands.

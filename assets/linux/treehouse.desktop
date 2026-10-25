@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Treehouse
+Comment=Run Pi coding agents in git worktrees
+Exec=treehouse
+Icon=treehouse
+Terminal=false
+Categories=Development;
+StartupWMClass=treehouse

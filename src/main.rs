@@ -15,6 +15,14 @@ mod workspace;
 
 use gpui_kit::{AppContext as _, Bounds, Size, TitlebarOptions, WindowBounds, WindowOptions, px};
 
+/// The window icon. Only X11 reads it; macOS takes the icon from the app
+/// bundle, Windows from the executable, Wayland from the desktop file.
+fn window_icon() -> Option<std::sync::Arc<image::RgbaImage>> {
+    let png = include_bytes!("../assets/icon/png/256x256.png");
+    let image = image::load_from_memory_with_format(png, image::ImageFormat::Png).ok()?;
+    Some(std::sync::Arc::new(image.to_rgba8()))
+}
+
 fn main() {
     gpui_kit::application()
         .with_assets(assets::Assets)
@@ -32,6 +40,10 @@ fn main() {
                     ..Default::default()
                 }),
                 window_min_size: Some(Size::new(px(720.), px(480.))),
+                // Matches `assets/linux/treehouse.desktop`, so Wayland and X11
+                // desktops show the installed icon and group the windows.
+                app_id: Some("treehouse".into()),
+                icon: window_icon(),
                 ..Default::default()
             };
             gpui_kit::open_window(options, cx, |window, cx| {
