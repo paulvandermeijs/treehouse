@@ -11,6 +11,41 @@
   --vp-c-brand-2: #94d38f;
   --vp-c-brand-3: #40a02b;
   --vp-c-brand-soft: rgba(166, 227, 161, 0.16);
+
+  /* Mocha's surfaces and text: Base, Mantle, Crust, Surface 0–2, Text, Subtext and Overlay. */
+  --vp-c-bg: #1e1e2e;
+  --vp-c-bg-alt: #181825;
+  --vp-c-bg-elv: #181825;
+  --vp-c-bg-soft: #181825;
+  --vp-c-border: #45475a;
+  --vp-c-divider: #313244;
+  --vp-c-gutter: #11111b;
+  --vp-c-text-1: #cdd6f4;
+  --vp-c-text-2: #a6adc8;
+  --vp-c-text-3: #7f849c;
+  --vp-c-default-1: #585b70;
+  --vp-c-default-2: #45475a;
+  --vp-c-default-3: #313244;
+  --vp-c-default-soft: rgba(88, 91, 112, 0.24);
+  --vp-code-block-bg: #11111b;
+}
+
+/* A soft green glow behind the home page logo, as on the poster. */
+:root {
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(64, 160, 43, 0.38) 0%, rgba(64, 160, 43, 0) 65%);
+  --vp-home-hero-image-filter: blur(40px);
+}
+
+.dark {
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(166, 227, 161, 0.3) 0%, rgba(166, 227, 161, 0) 65%);
+}
+
+.VPHero .image-src {
+  filter: drop-shadow(0 0 28px rgba(64, 160, 43, 0.35));
+}
+
+.dark .VPHero .image-src {
+  filter: drop-shadow(0 0 28px rgba(166, 227, 161, 0.28));
 }
 
 /* Images come in a Latte and a Mocha version; show the one for the current theme. */
