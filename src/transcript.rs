@@ -116,6 +116,19 @@ pub struct ToolCall {
 }
 
 impl ToolCall {
+    /// Pi rejected the call because it has no tool by that name, often a
+    /// model writing its own markup into the name.
+    pub fn is_unknown_tool(&self) -> bool {
+        self.status == ToolStatus::Failed
+            && self.output.trim() == format!("Tool {} not found", self.name)
+    }
+
+    /// The tool name up to any leaked model markup, on one line.
+    pub fn clean_name(&self) -> &str {
+        let name = self.name.split("<|").next().unwrap_or("");
+        name.lines().next().unwrap_or("").trim()
+    }
+
     pub fn path(&self) -> Option<&str> {
         self.args.get("path").and_then(Value::as_str)
     }
@@ -721,6 +734,26 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn spots_a_garbled_tool_name() {
+        let name = "exec:echo hi > LICENSE\n<|channel>thought\nNow verify.<channel|>";
+        let mut t = Transcript::new("/tmp");
+        feed(
+            &mut t,
+            &[
+                json!({"type": "message_start", "message": {"role": "assistant", "content": []}}),
+                json!({"type": "message_update", "assistantMessageEvent": {"type": "toolcall_end", "contentIndex": 0, "toolCall": {"id": "c1", "name": name, "arguments": {}}}}),
+                json!({"type": "tool_execution_start", "toolCallId": "c1", "toolName": name, "args": {}}),
+                json!({"type": "tool_execution_end", "toolCallId": "c1", "toolName": name, "result": {"content": [{"type": "text", "text": format!("Tool {name} not found")}]}, "isError": true}),
+            ],
+        );
+        let Some(Item::Tool(tool)) = t.items.last() else {
+            panic!("no tool row");
+        };
+        assert!(tool.is_unknown_tool());
+        assert_eq!(tool.clean_name(), "exec:echo hi > LICENSE");
     }
 
     #[test]

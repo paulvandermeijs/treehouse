@@ -532,11 +532,18 @@ fn describe(tool: &ToolCall) -> ToolText {
                 .to_string(),
             result: None,
         },
-        other => ToolText {
+        _ if tool.is_unknown_tool() => ToolText {
+            icon: Lucide::CircleAlert,
+            running: "Running",
+            done: "Tried a tool Pi doesn't have",
+            target: tool.clean_name().to_string(),
+            result: None,
+        },
+        _ => ToolText {
             icon: Lucide::Wrench,
             running: "Running",
             done: "Used",
-            target: other.to_string(),
+            target: tool.clean_name().to_string(),
             result: None,
         },
     }
@@ -564,6 +571,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
     let stat = patch.as_deref().map(crate::git::diff_stat);
     let output_lines = tool.output.lines().count();
     let running = matches!(tool.status, ToolStatus::Running | ToolStatus::Preparing);
+    let unknown = tool.is_unknown_tool();
     let failed = tool.status == ToolStatus::Failed;
     let session_running = view.session.read(cx).is_running();
     let keep_diffs = crate::config::Config::global(cx).keep_diffs_expanded;
@@ -601,6 +609,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
 
     let result: Option<AnyElement> = match (tool.name.as_str(), tool.status) {
         (_, ToolStatus::Denied) => Some(div().child("denied").into_any_element()),
+        _ if unknown => Some(div().child("nothing ran").into_any_element()),
         ("bash", ToolStatus::Stopped) => Some(
             h_flex()
                 .gap_2()
@@ -664,12 +673,19 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .child(lead)
         .child(div().flex_none().whitespace_nowrap().child(verb))
         .child(
-            mono(text.target.clone(), if failed { p.red } else { p.subtext1 })
-                .flex_1()
-                .min_w_0()
-                .overflow_hidden()
-                .text_ellipsis()
-                .whitespace_nowrap(),
+            mono(
+                text.target.clone(),
+                if failed && !unknown {
+                    p.red
+                } else {
+                    p.subtext1
+                },
+            )
+            .flex_1()
+            .min_w_0()
+            .overflow_hidden()
+            .text_ellipsis()
+            .whitespace_nowrap(),
         )
         .when_some(result, |this, result| {
             this.child(div().flex_none().text_size(px(12.5)).child(result))
@@ -698,6 +714,14 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
                 Some(patch) => this.child(render_mini_diff(view, tool, patch, cx)),
                 None => this,
             },
+            _ if unknown => this.child(error_card(
+                &if view.session.read(cx).trusted {
+                    format!("Pi has no tool called “{}”, so nothing ran. The model may have mangled the call; Pi usually tries again.", tool.clean_name())
+                } else {
+                    format!("Pi has no tool called “{}”, so nothing ran. This folder isn't trusted, so Pi can only read files.", tool.clean_name())
+                },
+                &p,
+            )),
             _ if !tool.output.is_empty() && failed => this.child(error_card(&tool.output, &p)),
             _ => this,
         })

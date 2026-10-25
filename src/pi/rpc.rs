@@ -25,6 +25,8 @@ pub struct LaunchOptions {
     /// Project trust for this run: loads or skips the project's own Pi
     /// settings, skills, extensions and MCP servers.
     pub approve: Option<bool>,
+    /// Added to Pi's system prompt with `--append-system-prompt`.
+    pub system_note: Option<String>,
 }
 
 impl LaunchOptions {
@@ -53,6 +55,9 @@ impl LaunchOptions {
             Some(true) => args.push("--approve".to_string()),
             Some(false) => args.push("--no-approve".to_string()),
             None => {}
+        }
+        if let Some(note) = &self.system_note {
+            args.extend(["--append-system-prompt".to_string(), note.clone()]);
         }
         args
     }
@@ -331,6 +336,7 @@ mod tests {
             session_dir: None,
             session_file: None,
             approve: Some(false),
+            system_note: None,
         };
         assert_eq!(
             options.args(),

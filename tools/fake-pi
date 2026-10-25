@@ -8,7 +8,7 @@ on the chat UI without a model or an API key:
 
 A message that starts with "Find" plays the sub-agent script, "Fail" a
 provider error with a stack trace, and "Approve" a command with a long approval
-pattern, "Long" a long-running command with a
+pattern, "Mangle" a tool call with a garbled tool name, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -239,6 +239,13 @@ def run(message):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
         sub = "run-" + "-".join(["a-very-long-script-name"] * 6)
         tool(0, "a-bash", "bash", {"command": f"npm {sub} --workspace /Users/someone/Workspace/project/packages/app"}, "ok")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+    elif message.startswith("Mangle"):
+        # A model that writes its chat template into the tool name.
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        name = 'exec:echo "Hello, World!" > LICENSE\n<|channel>thought\nNow I should verify the file.<channel|><|tool_call'
+        tool(0, "a-bad", name, {}, f"Tool {name} not found", is_error=True)
+        say(1, "I have created a LICENSE file.")
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Long"):
         long_command_turn()
