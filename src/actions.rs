@@ -28,6 +28,7 @@ actions!(
         SlashDown,
         SlashAccept,
         SlashDismiss,
+        OpenInDock,
     ]
 );
 
@@ -78,6 +79,10 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("tab", SlashAccept, Some("SlashMenu > Input")),
         KeyBinding::new("enter", SlashAccept, Some("SlashMenu > Input")),
         KeyBinding::new("escape", SlashDismiss, Some("SlashMenu > Input")),
+        // ⌘⏎ in the switcher opens the pick in the right dock, as ⌘-click
+        // does in the sidebar. More specific than the search field's own.
+        KeyBinding::new("secondary-enter", OpenInDock, Some("Command > Input")),
+        KeyBinding::new("secondary-enter", OpenInDock, Some("Command")),
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &About, cx| crate::ui::open_about(cx));

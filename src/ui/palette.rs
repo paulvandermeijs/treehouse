@@ -201,7 +201,7 @@ fn build_switcher(
     workspace: &Entity<Workspace>,
     app: WeakEntity<TreehouseApp>,
     cx: &mut App,
-) -> Command {
+) -> impl IntoElement {
     let p = palette(cx);
     let query = state.read(cx).query(cx);
     let mut targets: Vec<(i32, Target)> = targets(workspace, cx)
@@ -254,16 +254,44 @@ fn build_switcher(
                 )
         }));
     }
-    command.on_confirm(move |index, window, cx| {
-        let Some(session) = sessions.get(index.row).cloned() else {
-            return;
-        };
-        window.close_dialog(cx);
-        let app = app.clone();
-        window.defer(cx, move |window, cx| {
-            let _ = app.update(cx, |app, cx| app.open_session(session, false, window, cx));
-        });
-    })
+    let open = {
+        let sessions = sessions.clone();
+        move |row: usize, in_dock: bool, window: &mut Window, cx: &mut App| {
+            let Some(session) = sessions.get(row).cloned() else {
+                return;
+            };
+            window.close_dialog(cx);
+            let app = app.clone();
+            window.defer(cx, move |window, cx| {
+                let _ = app.update(cx, |app, cx| app.open_session(session, in_dock, window, cx));
+            });
+        }
+    };
+    let open_in_dock = open.clone();
+    let state = state.clone();
+    let key = |keys: &str| Kbd::new(Keystroke::parse(keys).unwrap_or_default());
+    gpui_kit::component::v_flex()
+        .on_action(move |_: &OpenInDock, window, cx| {
+            if let Some(index) = state.read(cx).selected_index() {
+                open_in_dock(index.row, true, window, cx);
+            }
+        })
+        .child(command.on_confirm(move |index, window, cx| open(index.row, false, window, cx)))
+        .child(
+            h_flex()
+                .gap_2()
+                .px_3()
+                .py_2()
+                .border_t_1()
+                .border_color(p.surface0)
+                .text_size(px(12.))
+                .text_color(p.subtext0)
+                .child(key("enter"))
+                .child("open")
+                .child(div().w_2())
+                .child(key("secondary-enter"))
+                .child("open in the right dock"),
+        )
 }
 
 fn build(state: &Entity<CommandState>, window: &mut Window, cx: &mut App) -> Command {

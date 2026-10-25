@@ -35,7 +35,7 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ### Command palette and switcher
 
-⌘K (Ctrl+K) opens the command palette. ⌘P (Ctrl+P) opens a switcher with every worktree and sub-agent: type a few letters of a branch, sub-agent or project ("fdv" finds feat/diff-view) and press Enter to open it.
+⌘K (Ctrl+K) opens the command palette. ⌘P (Ctrl+P) opens a switcher with every worktree and sub-agent: type a few letters of a branch, sub-agent or project ("fdv" finds feat/diff-view) and press Enter to open it, or ⌘Enter (Ctrl+Enter) to open it in the right dock.
 
 ### Status cards
 
