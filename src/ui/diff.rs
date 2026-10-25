@@ -30,6 +30,8 @@ pub struct DiffPanel {
     revision: u64,
     pending_scroll: Option<String>,
     pub full_screen: bool,
+    /// The panel's width when last painted; see `render`.
+    width: std::rc::Rc<std::cell::Cell<Pixels>>,
 }
 
 impl EventEmitter<DiffPanelEvent> for DiffPanel {}
@@ -54,6 +56,7 @@ impl DiffPanel {
             revision: 0,
             pending_scroll: None,
             full_screen: false,
+            width: Default::default(),
         };
         this.reload(cx);
         this
@@ -132,10 +135,29 @@ impl Render for DiffPanel {
         let unified = self.mode == DiffMode::Unified;
         let empty = !self.loading && self.error.is_none() && self.stat.files == 0;
 
+        // The kit's diff learns its new width while painting and asks for
+        // another frame from there, which the window ignores mid-draw. On
+        // macOS nothing else draws until the next input, so after a resize
+        // (full screen, the sidebar) the diff kept its old width. Schedule
+        // that frame ourselves.
+        let width = self.width.clone();
+        let watch_width = canvas(
+            move |bounds, window, _| {
+                if width.replace(bounds.size.width) != bounds.size.width {
+                    window.on_next_frame(|window, _| window.refresh());
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .size_full();
+
         v_flex()
+            .relative()
             .size_full()
             .min_w_0()
             .bg(p.base)
+            .child(watch_width)
             .child(
                 h_flex()
                     .h(px(BAR_HEIGHT))
