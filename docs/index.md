@@ -36,8 +36,3 @@ features:
   <img loading="lazy" class="light-only" src="/treehouse-announcement-latte.gif" alt="Treehouse running Pi agents in worktrees">
   <img loading="lazy" class="dark-only" src="/treehouse-announcement-mocha.gif" alt="Treehouse running Pi agents in worktrees">
 </div>
-
-<style>
-.announcement { max-width: 960px; margin: 48px auto 0; }
-.announcement img { width: 100%; border-radius: 12px; }
-</style>

@@ -32,20 +32,70 @@
 
 /* A soft green glow behind the home page logo, as on the poster. */
 :root {
-  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(64, 160, 43, 0.38) 0%, rgba(64, 160, 43, 0) 65%);
-  --vp-home-hero-image-filter: blur(40px);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(64, 160, 43, 0.45) 0%, rgba(64, 160, 43, 0.18) 40%, rgba(64, 160, 43, 0) 70%);
+  --vp-home-hero-image-filter: blur(56px);
 }
 
 .dark {
-  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(166, 227, 161, 0.3) 0%, rgba(166, 227, 161, 0) 65%);
+  --vp-home-hero-image-background-image: radial-gradient(circle, rgba(166, 227, 161, 0.55) 0%, rgba(166, 227, 161, 0.24) 40%, rgba(166, 227, 161, 0) 70%);
+}
+
+/* VitePress keeps the glow within the logo; let it spread well beyond,
+   without widening the page on a phone. */
+.VPHero {
+  overflow-x: clip;
+}
+
+.VPHero .image-bg {
+  width: 420px;
+  height: 420px;
+}
+
+@media (min-width: 640px) {
+  .VPHero .image-bg {
+    width: 560px;
+    height: 560px;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-bg {
+    width: 760px;
+    height: 760px;
+  }
 }
 
 .VPHero .image-src {
-  filter: drop-shadow(0 0 28px rgba(64, 160, 43, 0.35));
+  filter: drop-shadow(0 0 48px rgba(64, 160, 43, 0.45));
 }
 
-.dark .VPHero .image-src {
-  filter: drop-shadow(0 0 28px rgba(166, 227, 161, 0.28));
+.dark /* VitePress keeps the glow within the logo; let it spread well beyond,
+   without widening the page on a phone. */
+.VPHero {
+  overflow-x: clip;
+}
+
+.VPHero .image-bg {
+  width: 420px;
+  height: 420px;
+}
+
+@media (min-width: 640px) {
+  .VPHero .image-bg {
+    width: 560px;
+    height: 560px;
+  }
+}
+
+@media (min-width: 960px) {
+  .VPHero .image-bg {
+    width: 760px;
+    height: 760px;
+  }
+}
+
+.VPHero .image-src {
+  filter: drop-shadow(0 0 48px rgba(166, 227, 161, 0.35));
 }
 
 /* Images come in a Latte and a Mocha version; show the one for the current theme. */
@@ -57,4 +107,17 @@ html:not(.dark) .dark-only {
 .vp-doc img.screen {
   border-radius: 8px;
   border: 1px solid var(--vp-c-divider);
+}
+
+.announcement {
+  max-width: 960px;
+  margin: 48px auto 0;
+  padding: 0 24px;
+}
+
+.announcement img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 12px;
 }
