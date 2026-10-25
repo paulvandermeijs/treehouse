@@ -58,4 +58,4 @@ Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extensio
 - Use gpui-kit components where they fit. Layouts the kit doesn't provide, such as the sidebar, are built by hand from `div`/`h_flex`/`v_flex` to the design.
 - Follow existing standards (Pi's own files, `.agents/` conventions such as `.agents/prepare`, skills, `AGENTS.md`) rather than inventing Treehouse-specific files or formats; only add our own when no standard exists.
 - Comments explain why, not what. User-facing text is short and plain.
-- Keep `README.md` up to date with user-visible behaviour; it has the user-facing documentation of each feature.
+- Keep `README.md` and the manual in `docs/` up to date with user-visible behaviour. The README has a short section per feature; `docs/guide/` has the full manual and `docs/development/` the contributor docs. Check the site still builds with `npm run build` in `docs/`.

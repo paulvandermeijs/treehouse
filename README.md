@@ -1,8 +1,12 @@
 # Treehouse
 
+![Treehouse: Pi agents working in worktrees, with approvals, sub-agents and the diff](docs/public/treehouse-announcement-latte.gif)
+
 A desktop app for running [Pi](https://github.com/badlogic/pi-mono) coding agents in git worktrees. Each worktree of a project gets its own Pi chat; Pi can start sub-agents that you can open, steer and stop; and the right dock shows the worktree's diff or a second chat.
 
 Treehouse is written in Rust with [GPUI](https://www.gpui.rs) and [gpui-kit](https://gpui-kit.com/docs/). It drives Pi through Pi's [RPC mode](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/rpc.md): every session is a `pi --mode rpc` process.
+
+The manual is at [paulvandermeijs.github.io/treehouse](https://paulvandermeijs.github.io/treehouse/); its source is in [`docs/`](docs/).
 
 ## Running it
 
@@ -150,4 +154,12 @@ IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`as
 ```sh
 cargo test
 cargo clippy --all-targets
+```
+
+The documentation site is built with [VitePress](https://vitepress.dev) and deployed to GitHub Pages by `.github/workflows/docs.yml` on every push to `master` that changes `docs/`. To preview it:
+
+```sh
+cd docs
+npm install
+npm run dev
 ```

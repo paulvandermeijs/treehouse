@@ -1,0 +1,14 @@
+/* Catppuccin green, as in the app: Latte for light, Mocha for dark. */
+:root {
+  --vp-c-brand-1: #40a02b;
+  --vp-c-brand-2: #368a24;
+  --vp-c-brand-3: #40a02b;
+  --vp-c-brand-soft: rgba(64, 160, 43, 0.14);
+}
+
+.dark {
+  --vp-c-brand-1: #a6e3a1;
+  --vp-c-brand-2: #94d38f;
+  --vp-c-brand-3: #40a02b;
+  --vp-c-brand-soft: rgba(166, 227, 161, 0.16);
+}
