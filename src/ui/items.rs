@@ -223,6 +223,8 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
     // As Pi's bash card: the last 5 lines while it runs, up to 40 after.
     let keep = if run.running { 5 } else { 40 };
     let failed = !run.running && !run.cancelled && run.exit_code.is_some_and(|c| c != 0);
+    // A failure turns the header Red, as Pi's failed bash rows do.
+    let accent = if failed { p.red } else { p.shell_text };
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
     let mut meta = Vec::new();
@@ -260,18 +262,13 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                         .gap_2()
                         .text_size(px(13.))
                         .text_color(p.subtext0)
+                        .child(div().flex_none().text_color(accent).child(if run.running {
+                            ShimmerText::new("Running").into_any_element()
+                        } else {
+                            "Ran".into_any_element()
+                        }))
                         .child(
-                            div()
-                                .flex_none()
-                                .text_color(p.shell_text)
-                                .child(if run.running {
-                                    ShimmerText::new("Running").into_any_element()
-                                } else {
-                                    "Ran".into_any_element()
-                                }),
-                        )
-                        .child(
-                            mono(run.command.clone(), p.shell_text)
+                            mono(run.command.clone(), accent)
                                 .flex_1()
                                 .min_w_0()
                                 .overflow_hidden()
