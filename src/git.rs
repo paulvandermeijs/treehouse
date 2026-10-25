@@ -95,15 +95,97 @@ pub fn add_worktree(project: &Path, branch: &str, location: &Path) -> Result<()>
     .map(|_| ())
 }
 
-pub fn remove_worktree(project: &Path, path: &Path, delete_branch: Option<&str>) -> Result<()> {
-    git(
-        project,
-        &["worktree", "remove", "--force", &path.display().to_string()],
-    )?;
-    if let Some(branch) = delete_branch {
-        git(project, &["branch", "-D", branch])?;
+/// What removing a worktree, and perhaps its branch, would throw away.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct UnsavedWork {
+    /// Changed and untracked files, as `git status` lists them.
+    pub files: Vec<String>,
+    /// Commits on the branch that no other branch or remote has.
+    pub commits: usize,
+}
+
+impl UnsavedWork {
+    pub fn is_empty(&self) -> bool {
+        self.files.is_empty() && self.commits == 0
     }
-    Ok(())
+}
+
+pub fn unsaved_work(worktree: &Path, branch: &str) -> UnsavedWork {
+    let files = git(worktree, &["status", "--porcelain=v1", "-z"])
+        .map(|out| {
+            let mut entries = out.split('\0');
+            let mut files = Vec::new();
+            while let Some(entry) = entries.next() {
+                if entry.len() > 3 {
+                    files.push(entry[3..].to_string());
+                    // A rename's source path follows as its own entry.
+                    if entry.starts_with('R') || entry.starts_with('C') {
+                        entries.next();
+                    }
+                }
+            }
+            files
+        })
+        .unwrap_or_default();
+    let commits = only_on_branch(worktree, "HEAD", branch).unwrap_or(0);
+    UnsavedWork { files, commits }
+}
+
+/// How many commits reachable from `rev` no branch but `branch`, and no
+/// remote, has: the ones deleting `branch` would lose.
+fn only_on_branch(repo: &Path, rev: &str, branch: &str) -> Option<usize> {
+    // `--exclude` matches the names `--branches` lists, without `refs/heads/`.
+    let exclude = format!("--exclude={branch}");
+    git(
+        repo,
+        &[
+            "rev-list",
+            "--count",
+            rev,
+            "--not",
+            &exclude,
+            "--branches",
+            "--remotes",
+        ],
+    )
+    .ok()
+    .and_then(|out| out.trim().parse().ok())
+}
+
+/// Removes a worktree, and its branch when asked. Without `force`, git keeps
+/// a worktree with changed or untracked files, and `delete_branch` only
+/// deletes a branch whose commits are all on another branch or a remote.
+/// A branch that is kept is reported in the `Ok`, since the worktree is gone
+/// by then.
+pub fn remove_worktree(
+    project: &Path,
+    path: &Path,
+    delete_branch: Option<&str>,
+    force: bool,
+) -> Result<Option<String>> {
+    let path = path.display().to_string();
+    let mut args = vec!["worktree", "remove"];
+    if force {
+        args.push("--force");
+    }
+    args.push(&path);
+    git(project, &args)?;
+    if let Some(branch) = delete_branch {
+        // `branch -d` only checks the current branch and the upstream, which
+        // misses work merged into some other branch; check that ourselves.
+        let merged = force || only_on_branch(project, branch, branch) == Some(0);
+        if git(
+            project,
+            &["branch", if merged { "-D" } else { "-d" }, branch],
+        )
+        .is_err()
+        {
+            return Ok(Some(format!(
+                "Kept the branch {branch}: it has commits no other branch has."
+            )));
+        }
+    }
+    Ok(None)
 }
 
 pub fn rename_branch(worktree: &Path, new_name: &str) -> Result<()> {
@@ -303,5 +385,54 @@ mod tests {
         let status = git(repo, &["status", "--porcelain"]).unwrap();
         assert!(status.is_empty(), "unexpected status: {status}");
         assert_eq!(default_base(repo), "main");
+    }
+
+    #[test]
+    fn keeps_unsaved_work_unless_forced() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+
+        let location = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &location).unwrap();
+        assert!(unsaved_work(&location, "feat").is_empty());
+
+        // An untracked file and a commit only this branch has.
+        std::fs::write(location.join("b.txt"), "new\n").unwrap();
+        let unsaved = unsaved_work(&location, "feat");
+        assert_eq!(unsaved.files, ["b.txt"]);
+        run(&location, &["add", "."]);
+        run(&location, &["commit", "-m", "work"]);
+        std::fs::write(location.join("a.txt"), "changed\n").unwrap();
+        let unsaved = unsaved_work(&location, "feat");
+        assert_eq!((unsaved.files.len(), unsaved.commits), (1, 1));
+
+        // Not forced: git keeps the worktree and its changes.
+        assert!(remove_worktree(repo, &location, Some("feat"), false).is_err());
+        assert!(location.join("a.txt").exists());
+
+        // Committed but unmerged: the worktree goes, the branch stays.
+        run(&location, &["checkout", "a.txt"]);
+        let kept = remove_worktree(repo, &location, Some("feat"), false).unwrap();
+        assert!(kept.is_some_and(|note| note.contains("feat")));
+        assert!(!location.exists());
+        assert!(git(repo, &["rev-parse", "--verify", "feat"]).is_ok());
+
+        // Merged: the branch is deleted too.
+        run(repo, &["merge", "--ff-only", "feat"]);
+        let again = repo.join(".worktrees/feat2");
+        add_worktree(repo, "feat2", &again).unwrap();
+        assert_eq!(
+            remove_worktree(repo, &again, Some("feat2"), false).unwrap(),
+            None
+        );
+        assert!(git(repo, &["rev-parse", "--verify", "feat2"]).is_err());
     }
 }

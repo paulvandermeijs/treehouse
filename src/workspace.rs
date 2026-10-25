@@ -221,7 +221,14 @@ impl Workspace {
         Ok(location)
     }
 
-    pub fn delete_worktree(&mut self, path: &Path, cx: &mut Context<Self>) -> Result<()> {
+    /// Removes a worktree, and its branch when Settings say so. Without
+    /// `force` git refuses to drop changed files or unmerged commits.
+    pub fn delete_worktree(
+        &mut self,
+        path: &Path,
+        force: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<Option<String>> {
         let delete = Config::global(cx).delete_on_remove;
         for project in self.projects.iter_mut() {
             if let Some(ix) = project
@@ -230,14 +237,19 @@ impl Workspace {
                 .position(|w| w.path == path && !w.is_main)
             {
                 let branch = project.worktrees[ix].branch.to_string();
-                git::remove_worktree(&project.path, path, delete.then_some(branch.as_str()))?;
+                let note = git::remove_worktree(
+                    &project.path,
+                    path,
+                    delete.then_some(branch.as_str()),
+                    force,
+                )?;
                 let worktree = project.worktrees.remove(ix);
                 worktree.session.update(cx, |s, cx| s.stop(cx));
                 cx.notify();
-                return Ok(());
+                return Ok(note);
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     pub fn rename_branch(&mut self, path: &Path, name: &str, cx: &mut Context<Self>) -> Result<()> {

@@ -550,30 +550,51 @@ impl TreehouseApp {
             .map(|w| w.branch.to_string())
             .unwrap_or_default();
         let delete = Config::global(cx).delete_on_remove;
+        let mut unsaved = crate::git::unsaved_work(&worktree, &branch);
+        if !delete {
+            // The branch is kept, so its commits aren't lost.
+            unsaved.commits = 0;
+        }
+        let description = if unsaved.is_empty() {
+            if delete {
+                "Its folder and branch are deleted too. Its chat and sub-agents stop.".to_string()
+            } else {
+                "The folder is removed; the branch is kept. Its chat and sub-agents stop."
+                    .to_string()
+            }
+        } else {
+            lost_work(&unsaved, &branch)
+        };
+        let force = !unsaved.is_empty();
         let app = cx.entity().downgrade();
         window.open_alert_dialog(cx, move |alert, _, _| {
             let (app, worktree) = (app.clone(), worktree.clone());
             alert
                 .title(format!("Delete worktree “{branch}”?"))
-                .description(if delete {
-                    "Its folder and branch are deleted too. Its chat and sub-agents stop."
-                } else {
-                    "The folder is removed; the branch is kept. Its chat and sub-agents stop."
-                })
+                .description(description.clone())
                 .confirm()
-                .ok_text("Delete worktree")
+                .ok_text(if force {
+                    "Delete anyway"
+                } else {
+                    "Delete worktree"
+                })
                 .ok_variant(ButtonVariant::Danger)
                 .on_ok(move |_, window, cx| {
                     let _ = app.update(cx, |app, cx| {
-                        app.forget_worktree(&worktree, cx);
-                        if let Err(err) = app
+                        match app
                             .workspace
-                            .update(cx, |w, cx| w.delete_worktree(&worktree, cx))
+                            .update(cx, |w, cx| w.delete_worktree(&worktree, force, cx))
                         {
-                            window.push_notification(
+                            Ok(note) => {
+                                app.forget_worktree(&worktree, cx);
+                                if let Some(note) = note {
+                                    window.push_notification(note, cx);
+                                }
+                            }
+                            Err(err) => window.push_notification(
                                 format!("Couldn't delete the worktree: {err:#}"),
                                 cx,
-                            );
+                            ),
                         }
                     });
                     true
@@ -858,4 +879,32 @@ impl Render for TreehouseApp {
                     }),
             )
     }
+}
+
+/// The warning for deleting a worktree with work nothing else has.
+fn lost_work(unsaved: &crate::git::UnsavedWork, branch: &str) -> String {
+    let mut lost = Vec::new();
+    if !unsaved.files.is_empty() {
+        let n = unsaved.files.len();
+        let mut names: Vec<&str> = unsaved.files.iter().take(3).map(String::as_str).collect();
+        if n > 3 {
+            names.push("…");
+        }
+        lost.push(format!(
+            "{n} uncommitted {} ({})",
+            if n == 1 { "file" } else { "files" },
+            names.join(", ")
+        ));
+    }
+    if unsaved.commits > 0 {
+        let n = unsaved.commits;
+        lost.push(format!(
+            "{n} {} only on {branch}",
+            if n == 1 { "commit" } else { "commits" }
+        ));
+    }
+    format!(
+        "Deleting it throws away {}. Commit or merge the work first to keep it.",
+        lost.join(" and ")
+    )
 }
