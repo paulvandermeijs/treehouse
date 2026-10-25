@@ -21,7 +21,7 @@ sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-dr
 
 Add a project with the folder button next to **Projects**. Treehouse lists the project's worktrees (`git worktree list`). **New worktree** (⌘N, or right-click a project) creates a branch in `{project}/.worktrees/{branch}`, which you can change in Settings › Worktrees.
 
-Pi starts the first time you send a message in a worktree. It uses Pi's own configuration and credentials, so a key added in Settings › Providers also works for Pi in a terminal, and the other way round.
+Pi starts the first time you send a message in a worktree. Treehouse looks for `pi` on the `PATH` your login shell sets up, so an app started from the Dock, Finder or a desktop launcher finds the `pi` and `node` that Homebrew, nvm or npm installed. It reads that `PATH` once at startup by running your shell (`$SHELL -l -i`); set `TREEHOUSE_NO_SHELL_ENV=1` to skip this. It uses Pi's own configuration and credentials, so a key added in Settings › Providers also works for Pi in a terminal, and the other way round.
 
 Settings are saved in the platform config folder (`~/.config/treehouse/settings.json` on Linux). Pi sessions are saved under the platform data folder (`~/.local/share/treehouse/sessions`).
 

@@ -258,8 +258,8 @@ fn resolve_program(program: &Path) -> Result<PathBuf> {
     if program.components().count() > 1 {
         return Ok(program.to_path_buf());
     }
-    which::which(program).with_context(|| {
-        format!(
+    which::which(program).map_err(|_| {
+        anyhow::anyhow!(
             "`{}` was not found on PATH. Install Pi with `npm install -g @earendil-works/pi-coding-agent`, \
              or set its path in Settings › Agent defaults.",
             program.display()

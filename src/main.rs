@@ -8,6 +8,7 @@ mod git;
 mod mcp;
 mod pi;
 mod session;
+mod shell_env;
 mod slash;
 mod theme;
 mod transcript;
@@ -26,6 +27,7 @@ fn window_icon() -> Option<std::sync::Arc<image::RgbaImage>> {
 }
 
 fn main() {
+    shell_env::load_login_path();
     gpui_kit::application()
         .with_assets(assets::Assets)
         .run(|cx| {
