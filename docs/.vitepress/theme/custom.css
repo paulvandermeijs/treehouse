@@ -12,3 +12,14 @@
   --vp-c-brand-3: #40a02b;
   --vp-c-brand-soft: rgba(166, 227, 161, 0.16);
 }
+
+/* Images come in a Latte and a Mocha version; show the one for the current theme. */
+.dark .light-only,
+html:not(.dark) .dark-only {
+  display: none !important;
+}
+
+.vp-doc img.screen {
+  border-radius: 8px;
+  border: 1px solid var(--vp-c-divider);
+}

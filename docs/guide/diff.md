@@ -2,6 +2,9 @@
 
 <kbd>⌘D</kbd>, **Show diff** in a worktree's context menu, or the diff button in the chat's top bar opens the worktree's changes in the right dock.
 
+![The worktree's diff in the right dock, in the unified layout](/screens/diff-latte.png){.screen .light-only loading=lazy}
+![The worktree's diff in the right dock, in the unified layout](/screens/diff-mocha.png){.screen .dark-only loading=lazy}
+
 The diff shows everything since the branch split off from its base: commits, uncommitted changes and new untracked files. The header says what it compares, for example `feat/diff-view since main`.
 
 - **Unified** and **Split** switch between one column and side by side.

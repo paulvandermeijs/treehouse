@@ -10,12 +10,14 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   head: [
-    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/treehouse/logo.svg' }],
-    ['meta', { property: 'og:image', content: `${site}treehouse-poster.png` }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/treehouse/logo-latte.svg', media: '(prefers-color-scheme: light)' }],
+    ['link', { rel: 'icon', type: 'image/svg+xml', href: '/treehouse/logo-mocha.svg', media: '(prefers-color-scheme: dark)' }],
+    // A link preview can't follow the reader's theme, so it gets the Mocha poster.
+    ['meta', { property: 'og:image', content: `${site}treehouse-poster-mocha.png` }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
   ],
   themeConfig: {
-    logo: '/logo.svg',
+    logo: { light: '/logo-latte.svg', dark: '/logo-mocha.svg' },
     nav: [
       { text: 'Guide', link: '/guide/getting-started' },
       { text: 'Development', link: '/development/' },

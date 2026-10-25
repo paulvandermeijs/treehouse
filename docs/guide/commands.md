@@ -31,6 +31,9 @@ A message that starts with `!` runs as a shell command in the worktree instead o
 !!git log --oneline -20
 ```
 
+![A shell command in the message box, and the output of an earlier one in the chat](/screens/shell-latte.png){.screen .light-only loading=lazy}
+![A shell command in the message box, and the output of an earlier one in the chat](/screens/shell-mocha.png){.screen .dark-only loading=lazy}
+
 - `!` adds the command and its output to the conversation, so the model sees it.
 - `!!` keeps the output out of the model's context.
 

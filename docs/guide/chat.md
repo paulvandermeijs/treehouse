@@ -2,6 +2,9 @@
 
 Every worktree has its own chat with Pi. Pi starts the first time you send a message in a worktree; each chat is a separate `pi --mode rpc` process working in that worktree's folder.
 
+![A worktree chat: tool calls, two sub-agent cards and the toolbar under the message box](/screens/chat-latte.png){.screen .light-only loading=lazy}
+![A worktree chat: tool calls, two sub-agent cards and the toolbar under the message box](/screens/chat-mocha.png){.screen .dark-only loading=lazy}
+
 ## Sending and steering
 
 Type in the message box and press <kbd>Enter</kbd>. While Pi is working, the send button turns into **Steer**: a message you send then goes into the current run instead of waiting for it to finish.

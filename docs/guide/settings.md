@@ -38,10 +38,9 @@ See [Approvals](./approvals) for what each one covers.
 | --- | --- | --- | --- |
 | Location | `worktree_location` | `{project}/.worktrees/{branch}` | Where new worktrees go |
 | Compare against | `compare_base` | The branch it was created from | Or `origin/main`; the base for the diff and `+/−` counts |
-| Setup command | `setup_command` | none | Runs once after a worktree is created, for example `npm install` |
 | Also delete its folder and branch | `delete_on_remove` | off | When removing a worktree |
 
-The page also shows the commit author, read from `git config user.name`.
+The page also shows the commit author, read from `git config user.name`. Preparing new worktrees is up to the project itself; see [Preparing new worktrees](./worktrees#preparing-new-worktrees).
 
 ## Appearance
 

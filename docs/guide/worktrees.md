@@ -12,7 +12,38 @@ Right-click a project for **New worktree**, **Pin to top**, **Reveal in file man
 
 **New worktree** (<kbd>⌘N</kbd>, or right-click a project) asks for a branch name, such as `feat/my-change`. Treehouse creates the branch from the project's current `HEAD` and checks it out in `{project}/.worktrees/{branch}`. You can change that location in **Settings › Worktrees**; `{project}` and `{branch}` are filled in.
 
-If you set a **Setup command** in **Settings › Worktrees** (for example `npm install`), Treehouse runs it once in every new worktree. It doesn't run in projects you haven't trusted.
+## Preparing new worktrees
+
+A new worktree is a fresh checkout: it has no `node_modules`, no `.env` and nothing else git ignores. A project can prepare its worktrees with two files of its own, as in [Delta](https://delta.dev/docs/concepts/worktrees#configuring-your-checkouts). Both are committed to the project.
+
+### `.agents/linked`
+
+Lists git-ignored paths, one per line, that every worktree shares with the main worktree:
+
+```text
+.env
+config/local.json
+```
+
+Each becomes a symlink to the main worktree's copy. A path git doesn't ignore is skipped, so no tracked file ends up behind a link. If only the new worktree has the file, it is moved to the main worktree first.
+
+### `.agents/prepare`
+
+An executable script that Treehouse runs from the new worktree's root, for installing dependencies and the like. `ROOT_WORKTREE_PATH` holds the main worktree's path. On Windows it runs with Git Bash.
+
+```sh
+#!/bin/sh
+set -e
+npm ci
+```
+
+### While it runs
+
+The setup shows as the first row of the new worktree's chat, with the linked paths and the script's output. A message you send meanwhile waits, and goes to Pi when the setup finishes. Stop ends the script and everything it started.
+
+If the setup fails, the worktree is still usable. **Run again** retries it, and **Ask Pi to fix it** sends Pi the output. Right-click a worktree for **Run setup again** at any time.
+
+Both files are the project's own code, so in a project you haven't [trusted](./trust) the setup waits until you trust it.
 
 ::: tip
 Add `.worktrees/` to your project's `.gitignore`, or pick a location outside the project, so the worktrees don't show up as untracked files.

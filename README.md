@@ -1,6 +1,9 @@
 # Treehouse
 
-![Treehouse: Pi agents working in worktrees, with approvals, sub-agents and the diff](docs/public/treehouse-announcement-latte.gif)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/public/treehouse-announcement-mocha.gif">
+  <img alt="Treehouse: Pi agents working in worktrees, with approvals, sub-agents and the diff" src="docs/public/treehouse-announcement-latte.gif">
+</picture>
 
 A desktop app for running [Pi](https://github.com/badlogic/pi-mono) coding agents in git worktrees. Each worktree of a project gets its own Pi chat; Pi can start sub-agents that you can open, steer and stop; and the right dock shows the worktree's diff or a second chat.
 

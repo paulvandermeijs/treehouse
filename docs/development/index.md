@@ -36,6 +36,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/mcp.rs` | Reads Pi's MCP sign-in messages |
 | `src/workspace.rs` | Projects, worktrees and sub-agents; reports sub-agent results to their parent |
 | `src/git.rs` | Worktree list/add/remove and the diff since the base branch |
+| `src/setup.rs` | Preparing a new worktree from `.agents/linked` and `.agents/prepare` |
 | `src/theme.rs`, `assets/themes/treehouse.json` | Catppuccin Mocha and Latte, with IBM Plex Sans and Mono |
 | `src/ui/` | The window: sidebar, chat, tool output, diff dock, command palette, settings |
 

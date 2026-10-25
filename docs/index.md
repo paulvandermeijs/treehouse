@@ -6,7 +6,8 @@ hero:
   text: Run Pi coding agents in git worktrees
   tagline: Each worktree gets its own agent. You approve what runs, follow its sub-agents and review the diff.
   image:
-    src: /logo.svg
+    light: /logo-latte.svg
+    dark: /logo-mocha.svg
     alt: Treehouse
   actions:
     - theme: brand
@@ -31,4 +32,12 @@ features:
     link: /guide/diff
 ---
 
-<img src="/treehouse-announcement-latte.gif" alt="Treehouse running Pi agents in worktrees" style="margin: 48px auto 0; border-radius: 12px; max-width: 100%;">
+<div class="announcement">
+  <img loading="lazy" class="light-only" src="/treehouse-announcement-latte.gif" alt="Treehouse running Pi agents in worktrees">
+  <img loading="lazy" class="dark-only" src="/treehouse-announcement-mocha.gif" alt="Treehouse running Pi agents in worktrees">
+</div>
+
+<style>
+.announcement { max-width: 960px; margin: 48px auto 0; }
+.announcement img { width: 100%; border-radius: 12px; }
+</style>
