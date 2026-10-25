@@ -57,6 +57,10 @@ Some servers only accept sign-ins from apps they have approved and refuse Pi wit
 
 Code blocks in the chat and the diff dock are highlighted with tree-sitter for Astro, Bash, CSS, HTML, JavaScript, JSON, Markdown, Python, Rust, TOML, TSX, TypeScript and YAML, in the theme's Catppuccin colours. Other languages show as plain text. Each grammar is a gpui-kit feature in `Cargo.toml`; the first build with them takes a few minutes, after which cargo reuses them.
 
+### Tables
+
+Markdown tables in Pi's replies follow the design: a mantle header, rows divided by hairlines, a rounded border, and a copy button (Markdown or CSV) under the table. Columns whose values are all numbers, dates, sizes or durations are right-aligned once the reply has finished; an alignment marker in the Markdown (`:--:`) wins.
+
 ### Shell commands
 
 A message that starts with `!` runs as a shell command in the worktree instead of going to the model. The message box turns maroon while you type one. Treehouse runs it through Pi's `bash` RPC command, so Pi adds the command and its output to the conversation for the model to see. Start with `!!` to keep the output out of the model's context. The chat shows the output as it arrives, with the exit code and time. Stop ends a command that's still running.
@@ -98,7 +102,7 @@ The sidebar is laid out by hand to the design with gpui-kit buttons and context 
 
 This implements the screens of the Treehouse design: the worktree chat, sub-agents in the main screen and the right dock, the diff dock and its full-screen split view, the command palette, settings, the sidebar states, the trust prompt and read-only projects, and the agent output for messages, thinking, read, edit, write, bash, approvals, sub-agent cards, notes and errors.
 
-Not built yet, from the design's output boards: data tables and charts from tool output, Mermaid diagrams, maths, image thumbnails, plan cards, local server links, the "Open in terminal" dock tab, and a test button for provider keys.
+Not built yet, from the design's output boards: data tables (long tables and CSV) and charts from tool output, Mermaid diagrams, maths, image thumbnails, plan cards, local server links, the "Open in terminal" dock tab, and a test button for provider keys.
 
 ## Licences
 

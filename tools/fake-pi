@@ -8,7 +8,7 @@ on the chat UI without a model or an API key:
 
 A message that starts with "Find" plays the sub-agent script, "Fail" a
 provider error with a stack trace, and "Approve" a command with a long approval
-pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Long" a long-running command with a
+pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -240,6 +240,14 @@ def run(message):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
         sub = "run-" + "-".join(["a-very-long-script-name"] * 6)
         tool(0, "a-bash", "bash", {"command": f"npm {sub} --workspace /Users/someone/Workspace/project/packages/app"}, "ok")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+    elif message.startswith("Table"):
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        say(0, "Here's how the three diff libraries compare:\n\n"
+               "| Crate | Algorithm | Size | Last release |\n| --- | --- | --- | --- |\n"
+               "| `similar` | Myers, Patience | 96 KB | 2024-11-03 |\n"
+               "| `imara-diff` | Histogram, Myers | 54 KB | 2025-02-17 |\n"
+               "| `diffy` | Myers | 41 KB | 2023-08-29 |\n\nI'd pick `imara-diff`.", pause=0)
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Code"):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})

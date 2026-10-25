@@ -91,6 +91,9 @@ pub struct Session {
     pub project: PathBuf,
     client: Option<PiClient>,
     transcript: Transcript,
+    /// Each reply's Markdown view and how much of its text it has. The text
+    /// streams in as deltas; once the reply ends its tables get their final
+    /// alignment, and the length is set to `usize::MAX` to mark that done.
     texts: HashMap<ItemId, (Entity<TextViewState>, usize)>,
     pub approvals: Vec<PendingApproval>,
     /// Sub-agent requests waiting on a child session's report.
@@ -790,10 +793,25 @@ impl Session {
     /// Streams new assistant text into its markdown view.
     fn sync_texts(&mut self, cx: &mut Context<Self>) {
         for item in self.transcript.items() {
-            let Item::Text { id, text, .. } = item else {
+            let Item::Text {
+                id,
+                text,
+                streaming,
+            } = item
+            else {
                 continue;
             };
             match self.texts.get_mut(id) {
+                Some((_, usize::MAX)) => {}
+                Some((state, synced)) if !*streaming && *synced == text.len() => {
+                    // Right-aligning number columns rewrites the table's
+                    // delimiter row, so it waits until the reply is complete.
+                    let aligned = crate::markdown::align_numeric_columns(text);
+                    if aligned != *text {
+                        state.update(cx, |state, cx| state.set_text(&aligned, cx));
+                    }
+                    *synced = usize::MAX;
+                }
                 Some((state, synced)) => {
                     if text.len() > *synced
                         && text.starts_with(&text[..*synced])

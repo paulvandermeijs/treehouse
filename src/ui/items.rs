@@ -7,6 +7,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::shimmer::ShimmerText;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::{TextView, TextViewStyle};
@@ -81,11 +82,14 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .into_any_element(),
         Item::Text { id, text, .. } => {
             let body = match view.session.read(cx).text_view(*id) {
-                Some(state) => markdown_style(TextView::new(state).stream_fade(true)),
-                None => markdown_style(TextView::markdown(
-                    ("text", id.0),
-                    SharedString::from(text.clone()),
-                )),
+                Some(state) => markdown_style(TextView::new(state).stream_fade(true), cx),
+                None => markdown_style(
+                    TextView::markdown(
+                        ("text", id.0),
+                        SharedString::from(crate::markdown::align_numeric_columns(text)),
+                    ),
+                    cx,
+                ),
             };
             div().pl(px(GUTTER)).child(body).into_any_element()
         }
@@ -116,14 +120,74 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
 }
 
 /// Pi's Markdown as the design has it: code blocks drawn by our own plugin,
-/// inline code without the kit's tint.
-fn markdown_style(text: TextView) -> AnyElement {
-    text.style(TextViewStyle::default().inline_code(HighlightStyle {
-        background_color: Some(gpui_kit::transparent_black()),
-        ..Default::default()
-    }))
+/// inline code without the kit's tint, and tables with a mantle header,
+/// hairline rows and a copy menu.
+fn markdown_style(text: TextView, cx: &App) -> AnyElement {
+    let p = palette(cx);
+    let table = StyleRefinement::default()
+        .border_1()
+        .border_color(p.surface0)
+        .rounded(px(8.))
+        .text_size(px(13.));
+    let table_head = StyleRefinement::default()
+        .bg(p.mantle)
+        .text_color(p.subtext0)
+        .font_weight(FontWeight::NORMAL);
+    // The kit draws column dividers in the cell's border colour; the design
+    // has rows only.
+    let table_cell = StyleRefinement::default()
+        .px_3()
+        .py(px(7.))
+        .border_color(gpui_kit::transparent_black());
+    text.style(
+        TextViewStyle::default()
+            .inline_code(HighlightStyle {
+                background_color: Some(gpui_kit::transparent_black()),
+                ..Default::default()
+            })
+            .table(table)
+            .table_head(table_head)
+            .table_cell(table_cell),
+    )
     .plugin(super::code_block::CodeBlocks)
+    .table_actions(|table, _, _| {
+        let (markdown, csv) = (table.markdown.clone(), table_csv(table));
+        h_flex().justify_end().child(
+            Button::new("copy-table")
+                .ghost()
+                .xsmall()
+                .icon(icon(Lucide::Copy).size(px(14.)))
+                .tooltip("Copy table")
+                .dropdown_menu(move |menu, _, _| {
+                    let (markdown, csv) = (markdown.clone(), csv.clone());
+                    menu.item(
+                        PopupMenuItem::new("Copy as Markdown").on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(markdown.clone()))
+                        }),
+                    )
+                    .item(PopupMenuItem::new("Copy as CSV").on_click(move |_, _, cx| {
+                        cx.write_to_clipboard(ClipboardItem::new_string(csv.clone()))
+                    }))
+                }),
+        )
+    })
     .into_any_element()
+}
+
+/// A table as CSV, quoting cells that need it.
+fn table_csv(table: &gpui_kit::component::text::TableData) -> String {
+    let quote = |cell: &String| {
+        if cell.contains([',', '"', '\n']) {
+            format!("\"{}\"", cell.replace('"', "\"\""))
+        } else {
+            cell.clone()
+        }
+    };
+    std::iter::once(&table.headers)
+        .chain(table.rows.iter())
+        .map(|row| row.iter().map(quote).collect::<Vec<_>>().join(","))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// A command's exit code: green when it succeeded, red when it didn't.
