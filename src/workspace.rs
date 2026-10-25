@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use crate::config::{CompareBase, Config};
 use crate::git::{self, DiffStat};
 use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
+use crate::trust::Trust;
 
 pub struct SubAgent {
     pub session: Entity<Session>,
@@ -44,6 +45,7 @@ pub struct Project {
     pub name: SharedString,
     pub worktrees: Vec<Worktree>,
     pub error: Option<String>,
+    pub trust: Trust,
 }
 
 pub enum WorkspaceEvent {
@@ -102,6 +104,7 @@ impl Workspace {
             path: path.clone(),
             name: name.into(),
             worktrees: Vec::new(),
+            trust: crate::trust::lookup(&path),
             error: None,
         };
         match git::list_worktrees(&path) {
@@ -151,13 +154,16 @@ impl Workspace {
         is_main: bool,
         cx: &mut Context<Self>,
     ) -> Worktree {
+        let trusted = crate::trust::lookup(project).is_trusted();
         let session = cx.new(|cx| {
-            Session::new(
+            let mut session = Session::new(
                 SessionKind::Worktree,
                 path.clone(),
                 project.to_path_buf(),
                 cx,
-            )
+            );
+            session.trusted = trusted;
+            session
         });
         let subscription = cx.subscribe(&session, Self::on_session_event);
         Worktree {
@@ -181,7 +187,12 @@ impl Workspace {
     ) -> Result<PathBuf> {
         let config = Config::global(cx);
         let location = git::worktree_location(&config.worktree_location, project, branch);
-        let setup = config.setup_command.clone();
+        // The setup command is the project's own code: only with trust.
+        let setup = if crate::trust::lookup(project).is_trusted() {
+            config.setup_command.clone()
+        } else {
+            String::new()
+        };
         git::add_worktree(project, branch, &location)?;
         if !setup.trim().is_empty() {
             let location = location.clone();
@@ -233,6 +244,33 @@ impl Workspace {
         git::rename_branch(path, name)?;
         if let Some(worktree) = self.worktree_mut(path) {
             worktree.branch = name.to_string().into();
+        }
+        cx.notify();
+        Ok(())
+    }
+
+    /// Saves a trust decision and applies it to every project it covers
+    /// (trusting a parent folder can cover several).
+    pub fn set_trust(
+        &mut self,
+        project: &Path,
+        decision: crate::trust::Decision,
+        cx: &mut Context<Self>,
+    ) -> Result<()> {
+        crate::trust::save(project, decision)?;
+        for project in self.projects.iter_mut() {
+            project.trust = crate::trust::lookup(&project.path);
+            let trusted = project.trust.is_trusted();
+            for worktree in project.worktrees.iter() {
+                worktree
+                    .session
+                    .update(cx, |s, cx| s.set_trusted(trusted, cx));
+                for subagent in worktree.subagents.iter() {
+                    subagent
+                        .session
+                        .update(cx, |s, cx| s.set_trusted(trusted, cx));
+                }
+            }
         }
         cx.notify();
         Ok(())
@@ -301,13 +339,14 @@ impl Workspace {
                 };
                 // Without a sub-agent model setting, a sub-agent uses whatever
                 // its parent runs on, including a model picked in the chat.
-                let (parent_model, parent_thinking) = {
+                let (parent_model, parent_thinking, parent_trusted) = {
                     let s = session.read(cx);
-                    (s.model.clone(), s.thinking.clone())
+                    (s.model.clone(), s.thinking.clone(), s.trusted)
                 };
                 let inherit = Config::global(cx).subagent_model.is_none();
                 let child = cx.new(|cx| {
                     let mut child = Session::new(kind, cwd.clone(), project, cx);
+                    child.trusted = parent_trusted;
                     if inherit {
                         child.model = parent_model.or(child.model);
                         child.thinking = parent_thinking;

@@ -12,6 +12,10 @@ pattern, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
+
+Set FAKE_PI_MCP to report a "figma" MCP server that needs a sign-in when
+Pi starts. `/mcp login <server>` then plays Pi's sign-in: pasting any address
+signs in, one containing "fail" fails, and cancelling cancels.
 """
 
 import json
@@ -62,10 +66,31 @@ def ask(title, payload):
     rid = str(uuid.uuid4())
     event = threading.Event()
     pending[rid] = {"event": event, "value": None}
-    emit({"type": "extension_ui_request", "id": rid, "method": "input", "title": title,
-          "placeholder": json.dumps(payload)})
+    request = {"type": "extension_ui_request", "id": rid, "method": "input", "title": title}
+    if payload:
+        request["placeholder"] = json.dumps(payload)
+    emit(request)
     event.wait()
     return pending.pop(rid)["value"]
+
+
+def notify(message, kind="info"):
+    emit({"type": "extension_ui_request", "id": str(uuid.uuid4()), "method": "notify",
+          "message": message, "notifyType": kind})
+
+
+def mcp_login(server):
+    """Plays Pi's `/mcp login`: browser link, then a wait for the redirect."""
+    notify(f'Sign in to MCP server "{server}" in your browser:\n'
+           f"https://www.figma.com/oauth?client_id=treehouse&redirect_uri=http%3A%2F%2F127.0.0.1%3A53682%2Fcallback")
+    redirect = ask(f'Waiting for sign-in to "{server}". If the browser cannot reach this machine, '
+                   "paste the URL it was redirected to.", {})
+    if not redirect:
+        notify("Sign-in cancelled.")
+    elif "fail" in redirect:
+        notify(f"Couldn't sign in to \"{server}\": the authorization code has expired.", "error")
+    else:
+        notify(f'Signed in to MCP server "{server}" (12 tools).')
 
 
 def update(ev):
@@ -228,6 +253,9 @@ def run(message):
     emit({"type": "agent_settled", "aborted": False})
 
 
+if os.environ.get("FAKE_PI_MCP"):
+    notify("MCP servers need attention:\n  figma: needs sign-in\nRun /mcp to fix.", "warning")
+
 for line in sys.stdin:
     try:
         req = json.loads(line)
@@ -240,7 +268,8 @@ for line in sys.stdin:
             slot["value"] = None if req.get("cancelled") else req.get("value")
             slot["event"].set()
     elif kind == "get_state":
-        respond(req, {"model": state["model"], "thinkingLevel": state["thinking"], "isStreaming": False})
+        respond(req, {"model": state["model"], "thinkingLevel": state["thinking"], "isStreaming": False,
+                      "sessionFile": "/tmp/fake-pi-session.jsonl"})
     elif kind == "get_available_models":
         respond(req, {"models": MODELS})
     elif kind == "set_model":
@@ -252,6 +281,9 @@ for line in sys.stdin:
     elif kind == "get_session_stats":
         respond(req, {"contextUsage": {"tokens": 48200 if state["tokens"] > 4000 else 21700,
                                        "contextWindow": 200000, "percent": 24}})
+    elif kind == "prompt" and req.get("message", "").startswith("/mcp login "):
+        respond(req, {"disposition": "handled"})
+        threading.Thread(target=mcp_login, args=(req["message"].split()[2],), daemon=True).start()
     elif kind == "prompt":
         respond(req, {"disposition": "started"})
         threading.Thread(target=run, args=(req.get("message", ""),), daemon=True).start()

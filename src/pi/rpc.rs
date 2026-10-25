@@ -20,6 +20,11 @@ pub struct LaunchOptions {
     pub tools: Vec<String>,
     pub extensions: Vec<PathBuf>,
     pub session_dir: Option<PathBuf>,
+    /// Continue this saved session instead of starting a new one.
+    pub session_file: Option<PathBuf>,
+    /// Project trust for this run: loads or skips the project's own Pi
+    /// settings, skills, extensions and MCP servers.
+    pub approve: Option<bool>,
 }
 
 impl LaunchOptions {
@@ -40,6 +45,14 @@ impl LaunchOptions {
         match &self.session_dir {
             Some(dir) => args.extend(["--session-dir".to_string(), dir.display().to_string()]),
             None => args.push("--no-session".to_string()),
+        }
+        if let Some(file) = &self.session_file {
+            args.extend(["--session".to_string(), file.display().to_string()]);
+        }
+        match self.approve {
+            Some(true) => args.push("--approve".to_string()),
+            Some(false) => args.push("--no-approve".to_string()),
+            None => {}
         }
         args
     }
@@ -316,6 +329,8 @@ mod tests {
             tools: vec!["read".into(), "bash".into()],
             extensions: vec!["/x/treehouse.ts".into()],
             session_dir: None,
+            session_file: None,
+            approve: Some(false),
         };
         assert_eq!(
             options.args(),
@@ -330,7 +345,8 @@ mod tests {
                 "read,bash",
                 "-e",
                 "/x/treehouse.ts",
-                "--no-session"
+                "--no-session",
+                "--no-approve"
             ]
         );
     }

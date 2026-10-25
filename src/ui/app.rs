@@ -46,6 +46,8 @@ pub struct TreehouseApp {
     /// worktree shares its project's folder, so the kind is part of the key.
     collapsed: std::collections::HashSet<(Fold, PathBuf)>,
     chats: HashMap<EntityId, Entity<ChatView>>,
+    /// Undecided projects whose trust prompt was shown this run.
+    trust_asked: std::collections::HashSet<PathBuf>,
     palette_state: Entity<CommandState>,
     _subscriptions: Vec<Subscription>,
 }
@@ -82,6 +84,7 @@ impl TreehouseApp {
             sidebar_open: true,
             collapsed: Default::default(),
             chats: HashMap::new(),
+            trust_asked: Default::default(),
             palette_state: cx.new(|cx| CommandState::new(window, cx)),
             _subscriptions: subscriptions,
         };
@@ -239,7 +242,35 @@ impl TreehouseApp {
         }
         self.sync_chat_flags(cx);
         chat.update(cx, |chat, cx| chat.focus_composer(window, cx));
+        if !dock {
+            self.ask_trust(&session, window, cx);
+        }
         cx.notify();
+    }
+
+    /// Asks once per run whether to trust a project nobody decided on yet.
+    fn ask_trust(
+        &mut self,
+        session: &Entity<Session>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let workspace = self.workspace.read(cx);
+        let Some(project) = workspace
+            .worktree_of(session.entity_id())
+            .and_then(|w| workspace.project_of(&w.path))
+            .filter(|p| p.trust == crate::trust::Trust::Undecided)
+            .map(|p| p.path.clone())
+        else {
+            return;
+        };
+        if self.trust_asked.insert(project.clone()) {
+            // The first chat opens while the window is still being built.
+            let workspace = self.workspace.clone();
+            window.defer(cx, move |window, cx| {
+                super::trust::open(workspace, project, true, window, cx)
+            });
+        }
     }
 
     fn sync_chat_flags(&mut self, cx: &mut Context<Self>) {

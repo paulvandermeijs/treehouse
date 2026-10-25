@@ -37,11 +37,21 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]` and `/new`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands.
 
-Pi only loads a project's own skills, templates and extensions (`.pi/` and `.agents/skills`) once the project is trusted, and in RPC mode it can't ask. Until Treehouse handles project trust, record the decision by running `pi` once in the project and answering its trust prompt, or use `/trust` there.
+Pi only loads a project's own skills, templates and extensions (`.pi/` and `.agents/skills`) once the project is trusted.
+
+### Project trust
+
+The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings, skills and MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Not trusted** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
+
+Decisions are saved to Pi's own `~/.pi/agent/trust.json`, so `pi` in a terminal sees them too, and Treehouse passes them to Pi as `--approve` or `--no-approve`. Changing a decision restarts the worktree's Pi with the new tools, resuming the same Pi session.
+
+### MCP sign-in
+
+Pi reads MCP servers from `~/.pi/agent/mcp.json` and, in trusted projects, `.pi/mcp.json`. When a server needs a sign-in, the chat shows it with a **Sign in** button. That runs Pi's `/mcp login <server>`: Pi opens the browser, and the card waits for it. If the browser can't reach this machine (a remote session, for example), paste the address it ended up on into the card.
 
 ### Without a model
 
-`tools/fake-pi` speaks the same RPC protocol and plays back a scripted turn with tool calls, an approval and a sub-agent. Set it as the Pi command in Settings › Agent defaults to work on the UI without a model or an API key.
+`tools/fake-pi` speaks the same RPC protocol and plays back a scripted turn with tool calls, an approval and a sub-agent. Set it as the Pi command in Settings › Agent defaults to work on the UI without a model or an API key. `FAKE_PI_MCP=1` makes it report an MCP server that needs a sign-in.
 
 ## How it fits together
 
@@ -54,6 +64,8 @@ Pi only loads a project's own skills, templates and extensions (`.pi/` and `.age
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact` and `/new` |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
+| `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |
+| `src/mcp.rs` | Reads Pi's MCP sign-in messages |
 | `src/workspace.rs` | Projects, worktrees and sub-agents; reports sub-agent results to their parent |
 | `src/git.rs` | Worktree list/add/remove and the diff since the base branch |
 | `src/theme.rs`, `assets/themes/treehouse.json` | Catppuccin Mocha and Latte, with IBM Plex Sans and Mono |
@@ -72,7 +84,7 @@ The sidebar is laid out by hand to the design with gpui-kit buttons and context 
 
 ## Status
 
-This implements the screens of the Treehouse design: the worktree chat, sub-agents in the main screen and the right dock, the diff dock and its full-screen split view, the command palette, settings, the sidebar states, and the agent output for messages, thinking, read, edit, write, bash, approvals, sub-agent cards, notes and errors.
+This implements the screens of the Treehouse design: the worktree chat, sub-agents in the main screen and the right dock, the diff dock and its full-screen split view, the command palette, settings, the sidebar states, the trust prompt and read-only projects, and the agent output for messages, thinking, read, edit, write, bash, approvals, sub-agent cards, notes and errors.
 
 Not built yet, from the design's output boards: data tables and charts from tool output, Mermaid diagrams, maths, image thumbnails, plan cards, local server links, the "Open in terminal" dock tab, and a test button for provider keys.
 

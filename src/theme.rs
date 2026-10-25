@@ -95,6 +95,9 @@ pub struct Palette {
     pub blue: Hsla,
     pub green: Hsla,
     pub red: Hsla,
+    pub yellow: Hsla,
+    /// Text on a yellow tint; darker than Yellow in Latte for contrast.
+    pub yellow_text: Hsla,
     /// Text colour of added lines; darker than Green in Latte for contrast.
     pub add: Hsla,
     pub delete: Hsla,
@@ -115,6 +118,8 @@ pub fn palette(cx: &App) -> Palette {
             blue: c(0x89b4fa),
             green: c(0xa6e3a1),
             red: c(0xf38ba8),
+            yellow: c(0xf9e2af),
+            yellow_text: c(0xf9e2af),
             add: c(0xa6e3a1),
             delete: c(0xf38ba8),
             on_accent: c(0x11111b),
@@ -131,6 +136,8 @@ pub fn palette(cx: &App) -> Palette {
             blue: c(0x1e66f5),
             green: c(0x40a02b),
             red: c(0xd20f39),
+            yellow: c(0xdf8e1d),
+            yellow_text: c(0x8a5a10),
             add: c(0x2f7a1f),
             delete: c(0xb80d32),
             on_accent: c(0xeff1f5),

@@ -44,6 +44,32 @@ pub enum Item {
         text: String,
         retrying: bool,
     },
+    /// MCP servers Pi couldn't use, with what's wrong with each.
+    McpAttention {
+        id: ItemId,
+        servers: Vec<(String, String)>,
+    },
+    /// A sign-in to an MCP server.
+    SignIn(SignIn),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum SignInState {
+    /// Waiting for the browser.
+    Waiting,
+    Done(String),
+    Failed(String),
+    Cancelled,
+}
+
+#[derive(Clone, Debug)]
+pub struct SignIn {
+    pub id: ItemId,
+    pub server: String,
+    pub url: Option<String>,
+    /// Pi's request for a pasted redirect URL, while it waits.
+    pub request_id: Option<String>,
+    pub state: SignInState,
 }
 
 impl Item {
@@ -53,7 +79,9 @@ impl Item {
             | Item::Text { id, .. }
             | Item::Thinking { id, .. }
             | Item::Notice { id, .. }
-            | Item::Error { id, .. } => *id,
+            | Item::Error { id, .. }
+            | Item::McpAttention { id, .. } => *id,
+            Item::SignIn(sign_in) => sign_in.id,
             Item::Tool(tool) => tool.id,
         }
     }
@@ -210,6 +238,65 @@ impl Transcript {
         self.typed.clear();
         self.run = RunState::Idle;
         self.compacting = false;
+    }
+
+    pub fn push_mcp_attention(&mut self, servers: Vec<(String, String)>) {
+        let id = self.alloc();
+        self.items.push(Item::McpAttention { id, servers });
+    }
+
+    /// The sign-in to `server` that is still waiting, if any.
+    pub fn waiting_sign_in(&mut self, server: Option<&str>) -> Option<&mut SignIn> {
+        self.items.iter_mut().rev().find_map(|item| match item {
+            Item::SignIn(sign_in)
+                if sign_in.state == SignInState::Waiting
+                    && server.is_none_or(|s| s == sign_in.server) =>
+            {
+                Some(sign_in)
+            }
+            _ => None,
+        })
+    }
+
+    /// Starts a sign-in again in place when the last item is that server's
+    /// cancelled or failed one, instead of stacking a new card under it.
+    pub fn retry_sign_in(&mut self, server: &str) {
+        if let Some(Item::SignIn(sign_in)) = self.items.last_mut()
+            && sign_in.server == server
+            && matches!(
+                sign_in.state,
+                SignInState::Cancelled | SignInState::Failed(_)
+            )
+        {
+            sign_in.state = SignInState::Waiting;
+            sign_in.url = None;
+        }
+    }
+
+    /// A sign-in started or got its browser URL or pending request.
+    pub fn sign_in(&mut self, server: &str) -> &mut SignIn {
+        if self.waiting_sign_in(Some(server)).is_none() {
+            let id = self.alloc();
+            self.items.push(Item::SignIn(SignIn {
+                id,
+                server: server.to_string(),
+                url: None,
+                request_id: None,
+                state: SignInState::Waiting,
+            }));
+        }
+        self.waiting_sign_in(Some(server)).unwrap()
+    }
+
+    pub fn finish_sign_in(&mut self, server: Option<&str>, state: SignInState) -> bool {
+        match self.waiting_sign_in(server) {
+            Some(sign_in) => {
+                sign_in.state = state;
+                sign_in.request_id = None;
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn push_notice(&mut self, text: impl Into<String>) {

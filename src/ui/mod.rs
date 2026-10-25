@@ -7,6 +7,7 @@ mod items;
 mod palette;
 mod settings;
 mod sidebar;
+mod trust;
 
 pub use app::TreehouseApp;
 

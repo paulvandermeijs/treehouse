@@ -35,6 +35,10 @@ gpui_kit::assets::icon_assets!(
         KeyRound,
         Keyboard,
         PanelRightClose,
+        Plug,
+        Lock,
+        ShieldAlert,
+        TriangleAlert,
     ]
 );
 

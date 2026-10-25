@@ -46,6 +46,10 @@ pub struct ChatView {
     pub session: Entity<Session>,
     pub workspace: Entity<Workspace>,
     composer: Entity<TextareaState>,
+    /// Where a sign-in's redirect address is pasted.
+    /// The composer's current placeholder; it changes with the folder's trust.
+    placeholder: SharedString,
+    pub redirect_input: Entity<gpui_kit::component::input::InputState>,
     /// Items the user expanded or collapsed against their default.
     toggled: HashSet<ItemId>,
     scroll: ScrollHandle,
@@ -125,6 +129,11 @@ impl ChatView {
             session,
             workspace,
             composer,
+            placeholder: placeholder.into(),
+            redirect_input: cx.new(|cx| {
+                gpui_kit::component::input::InputState::new(window, cx)
+                    .placeholder("http://127.0.0.1:…/callback?code=…")
+            }),
             toggled: HashSet::new(),
             scroll: ScrollHandle::new(),
             follow_tail: true,
@@ -137,6 +146,25 @@ impl ChatView {
             slash_dismissed: false,
             slash_scroll: ScrollHandle::new(),
             _subscriptions: subscriptions,
+        }
+    }
+
+    /// The project this chat's worktree belongs to, when Pi runs it
+    /// read-only because the folder isn't trusted.
+    fn untrusted_project(&self, cx: &App) -> Option<(PathBuf, SharedString)> {
+        let session = self.session.read(cx);
+        if session.trusted || session.is_subagent() {
+            return None;
+        }
+        let workspace = self.workspace.read(cx);
+        let worktree = workspace.worktree_of(self.session.entity_id())?;
+        let project = workspace.project_of(&worktree.path)?;
+        Some((project.path.clone(), project.name.clone()))
+    }
+
+    fn review_trust(&self, window: &mut Window, cx: &mut App) {
+        if let Some((project, _)) = self.untrusted_project(cx) {
+            super::trust::open(self.workspace.clone(), project, false, window, cx);
         }
     }
 
@@ -376,6 +404,12 @@ impl ChatView {
             _ => String::new(),
         };
         let stat = worktree.map(|w| w.stat).unwrap_or_default();
+        let untrusted = self.untrusted_project(cx).is_some();
+        let description = if untrusted {
+            format!("{description} · read-only")
+        } else {
+            description
+        };
 
         h_flex()
             .h(px(BAR_HEIGHT))
@@ -406,6 +440,30 @@ impl ChatView {
                         .icon(icon(IconName::ChevronLeft))
                         .tooltip(format!("Back to {} chat", self.branch))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::Back))),
+                )
+            })
+            .when(untrusted, |this| {
+                this.child(
+                    h_flex()
+                        .id("not-trusted")
+                        .flex_none()
+                        .h(px(26.))
+                        .gap(px(6.))
+                        .pl_2()
+                        .pr(px(10.))
+                        .rounded(px(6.))
+                        .border_1()
+                        .border_color(mix(p.yellow, p.base, 0.45))
+                        .bg(mix(p.yellow, p.base, 0.16))
+                        .hover(|s| s.bg(mix(p.yellow, p.base, 0.26)))
+                        .text_color(p.yellow_text)
+                        .text_size(px(12.5))
+                        .font_medium()
+                        .whitespace_nowrap()
+                        .cursor_pointer()
+                        .child(icon(Lucide::TriangleAlert).size(px(14.)))
+                        .child("Not trusted")
+                        .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
                 )
             })
             .child(
@@ -580,6 +638,7 @@ impl ChatView {
         let current_model = session.model.clone();
         let current_thinking = session.thinking.clone();
         let session_entity = self.session.clone();
+        let read_only = self.untrusted_project(cx).is_some();
 
         h_flex()
             .flex_none()
@@ -657,18 +716,32 @@ impl ChatView {
                         }
                     }),
             )
-            .child(
-                Button::new("tools")
-                    .ghost()
-                    .small()
-                    .icon(icon(Lucide::Wrench))
-                    .label(tools)
-                    .tooltip("Tools Pi may use · Settings › Agent defaults")
-                    .on_click(|_, window, cx| {
-                        super::settings::open(super::settings::Section::Defaults, window, cx)
-                    }),
-            )
-            .when(!narrow && !is_subagent, |this| {
+            .when(read_only, |this| {
+                this.child(
+                    Button::new("read-only")
+                        .ghost()
+                        .small()
+                        .icon(icon(Lucide::Lock))
+                        .text_color(p.yellow_text)
+                        .label("read only")
+                        .tooltip("Only read is available until the folder is trusted")
+                        .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
+                )
+            })
+            .when(!read_only, |this| {
+                this.child(
+                    Button::new("tools")
+                        .ghost()
+                        .small()
+                        .icon(icon(Lucide::Wrench))
+                        .label(tools)
+                        .tooltip("Tools Pi may use · Settings › Agent defaults")
+                        .on_click(|_, window, cx| {
+                            super::settings::open(super::settings::Section::Defaults, window, cx)
+                        }),
+                )
+            })
+            .when(!narrow && !is_subagent && !read_only, |this| {
                 this.child(
                     Button::new("approval")
                         .ghost()
@@ -770,6 +843,18 @@ impl Render for ChatView {
         let running = self.session.read(cx).is_running();
         let compacting = self.session.read(cx).is_compacting();
         let empty = items.is_empty() && task.is_none();
+        let untrusted = self.untrusted_project(cx).map(|(_, name)| name);
+        let placeholder: SharedString = match &untrusted {
+            Some(name) => format!("Ask about {name}…").into(),
+            None if self.session.read(cx).is_subagent() => "Steer this sub-agent…".into(),
+            None => "Message Pi…".into(),
+        };
+        if placeholder != self.placeholder {
+            self.placeholder = placeholder.clone();
+            self.composer.update(cx, |state, cx| {
+                state.set_placeholder(placeholder, window, cx)
+            });
+        }
 
         v_flex()
             .size_full()
@@ -817,7 +902,42 @@ impl Render for ChatView {
                                         .child(gpui_kit::component::shimmer::ShimmerText::new(if compacting { "Compacting context…" } else { "Working…" })),
                                 )
                             })
-                            .when(empty, |this| {
+                            .when_some(untrusted.filter(|_| empty), |this, name| {
+                                this.child(
+                                    v_flex()
+                                        .items_center()
+                                        .gap(px(10.))
+                                        .pt(px(120.))
+                                        .mx_auto()
+                                        .max_w(px(440.))
+                                        .text_center()
+                                        .child(
+                                            div()
+                                                .size(px(44.))
+                                                .rounded(px(12.))
+                                                .bg(mix(p.yellow, p.base, 0.14))
+                                                .flex()
+                                                .items_center()
+                                                .justify_center()
+                                                .child(icon(Lucide::Lock).size(px(20.)).text_color(p.yellow)),
+                                        )
+                                        .child(div().text_size(px(16.)).font_semibold().text_color(p.text).child("Read-only until you trust this folder"))
+                                        .child(div().text_size(px(13.5)).text_color(p.subtext0).child(format!(
+                                            "Pi can read files and answer questions about {name}, but it won't edit files, run commands or load the project's own settings."
+                                        )))
+                                        .child(
+                                            div()
+                                                .id("review-trust")
+                                                .text_size(px(13.5))
+                                                .text_color(p.blue)
+                                                .cursor_pointer()
+                                                .hover(|s| s.underline())
+                                                .child("Review trust…")
+                                                .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
+                                        ),
+                                )
+                            })
+                            .when(empty && self.untrusted_project(cx).is_none(), |this| {
                                 this.child(
                                     v_flex()
                                         .items_center()

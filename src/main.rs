@@ -5,11 +5,13 @@ mod approval;
 mod assets;
 mod config;
 mod git;
+mod mcp;
 mod pi;
 mod session;
 mod slash;
 mod theme;
 mod transcript;
+mod trust;
 mod ui;
 mod workspace;
 

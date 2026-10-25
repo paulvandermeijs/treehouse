@@ -14,7 +14,7 @@ use std::time::Instant;
 use crate::approval::{AllowedPattern, Decision, Policy, ToolCallRequest, propose_pattern};
 use crate::config::Config;
 use crate::pi::rpc::{LaunchOptions, PiClient, PiMessage, command, str_field};
-use crate::transcript::{Effect, Item, ItemId, RunState, ToolStatus, Transcript};
+use crate::transcript::{Effect, Item, ItemId, RunState, SignInState, ToolStatus, Transcript};
 
 /// Sidebar and card status, most urgent first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -103,6 +103,11 @@ pub struct Session {
     pub context_tokens: Option<u64>,
     /// Pi's skills and prompt templates for the slash menu.
     pub commands: Vec<crate::slash::SlashCommand>,
+    /// Whether the project is trusted. An untrusted project runs Pi
+    /// read-only: the read tool only, without the project's own Pi resources.
+    pub trusted: bool,
+    /// Pi's saved session, so a restart continues the same conversation.
+    session_file: Option<PathBuf>,
     pub started: Instant,
     pub start_error: Option<String>,
     _reader: Option<Task<()>>,
@@ -139,6 +144,8 @@ impl Session {
             thinking: config.thinking.clone(),
             context_tokens: None,
             commands: Vec::new(),
+            trusted: false,
+            session_file: None,
             started: Instant::now(),
             start_error: None,
             _reader: None,
@@ -170,7 +177,7 @@ impl Session {
     }
 
     pub fn status(&self) -> AgentStatus {
-        if !self.approvals.is_empty() {
+        if !self.approvals.is_empty() || self.waiting_sign_in().is_some() {
             AgentStatus::NeedsInput
         } else if self.transcript.run == RunState::Running {
             AgentStatus::Working
@@ -234,14 +241,20 @@ impl Session {
             thinking: Some(self.thinking.clone()),
             // `--tools` replaces Pi's whole selection, so the bridge's own tool
             // has to be named. Sub-agents don't get it: no nested sub-agents.
-            tools: config
-                .tools
-                .iter()
-                .cloned()
-                .chain((!self.is_subagent()).then(|| "subagent".to_string()))
-                .collect(),
+            tools: if self.trusted {
+                config
+                    .tools
+                    .iter()
+                    .cloned()
+                    .chain((!self.is_subagent()).then(|| "subagent".to_string()))
+                    .collect()
+            } else {
+                vec!["read".to_string()]
+            },
             extensions: vec![extension],
             session_dir: Some(Config::data_dir().join("sessions")),
+            session_file: self.session_file.clone(),
+            approve: Some(self.trusted),
         };
         match PiClient::spawn(&options) {
             Ok((client, messages)) => {
@@ -291,7 +304,10 @@ impl Session {
         }
         let streaming = self.is_running();
         if let Some(client) = &self.client {
-            self.transcript.expect_user_text(message);
+            // `/mcp …` is an extension command: Pi runs it without a message.
+            if !message.starts_with("/mcp") {
+                self.transcript.expect_user_text(message);
+            }
             client.send(command::prompt(message, streaming));
         }
         self.viewed = true;
@@ -321,6 +337,63 @@ impl Session {
         {
             client.send(command::get_commands());
         }
+    }
+
+    /// Applies a trust decision. A running Pi restarts on the same saved
+    /// session, since its tools and project resources are fixed at launch.
+    pub fn set_trusted(&mut self, trusted: bool, cx: &mut Context<Self>) {
+        if self.trusted == trusted {
+            return;
+        }
+        self.trusted = trusted;
+        if self.client.is_none() {
+            return cx.notify();
+        }
+        self._reader = None;
+        self.client = None;
+        self.approvals.clear();
+        self.transcript
+            .apply(&serde_json::json!({"type": "agent_settled"}));
+        self.transcript.push_notice(if trusted {
+            "Folder trusted · Pi restarted with full access"
+        } else {
+            "Read-only · Pi restarted with the read tool only"
+        });
+        self.ensure_started(cx);
+        cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
+    }
+
+    /// The sign-in Pi is waiting on, with the request to answer.
+    pub fn waiting_sign_in(&self) -> Option<&crate::transcript::SignIn> {
+        self.items().iter().rev().find_map(|item| match item {
+            Item::SignIn(sign_in)
+                if sign_in.state == SignInState::Waiting && sign_in.request_id.is_some() =>
+            {
+                Some(sign_in)
+            }
+            _ => None,
+        })
+    }
+
+    /// Starts a sign-in to an MCP server through Pi's `/mcp login`.
+    pub fn sign_in(&mut self, server: &str, cx: &mut Context<Self>) {
+        self.transcript.retry_sign_in(server);
+        self.transcript.sign_in(server);
+        self.send(&crate::mcp::login_command(server), cx);
+    }
+
+    /// Hands Pi the URL the browser was redirected to, or cancels the sign-in.
+    pub fn answer_sign_in(&mut self, redirect: Option<String>, cx: &mut Context<Self>) {
+        let Some(request_id) = self.waiting_sign_in().and_then(|s| s.request_id.clone()) else {
+            return;
+        };
+        self.answer(&request_id, redirect.as_deref());
+        if let Some(sign_in) = self.transcript.waiting_sign_in(None) {
+            sign_in.request_id = None;
+        }
+        cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
     }
 
     pub fn is_compacting(&self) -> bool {
@@ -469,6 +542,9 @@ impl Session {
         let data = &response.data;
         match response.command.as_str() {
             "get_state" => {
+                if let Some(file) = data.get("sessionFile").and_then(Value::as_str) {
+                    self.session_file = Some(PathBuf::from(file));
+                }
                 if let Some(model) = ModelInfo::from_json(&data["model"]) {
                     self.model = Some(model);
                 }
@@ -601,11 +677,32 @@ impl Session {
             }
             ("notify", _) => {
                 let message = str_field(event, "message");
-                if str_field(event, "notifyType") == "error" {
-                    self.transcript.push_error(message);
+                let kind = str_field(event, "notifyType");
+                if let Some((server, url)) = crate::mcp::parse_sign_in_url(&message) {
+                    self.transcript.sign_in(&server).url = Some(url);
+                } else if let Some((server, detail)) = crate::mcp::parse_signed_in(&message) {
+                    self.transcript
+                        .finish_sign_in(Some(&server), SignInState::Done(detail));
+                } else if let Some(servers) = crate::mcp::parse_attention(&message) {
+                    self.transcript.push_mcp_attention(servers);
+                } else if message == "Sign-in cancelled." {
+                    self.transcript.finish_sign_in(None, SignInState::Cancelled);
+                } else if kind == "error" {
+                    // An error while a sign-in waits is that sign-in failing.
+                    if !self
+                        .transcript
+                        .finish_sign_in(None, SignInState::Failed(message.clone()))
+                    {
+                        self.transcript.push_error(message);
+                    }
                 } else {
                     self.transcript.push_notice(message);
                 }
+            }
+            ("input", title) if crate::mcp::parse_waiting(title).is_some() => {
+                let server = crate::mcp::parse_waiting(title).unwrap_or_default();
+                self.transcript.sign_in(&server).request_id = Some(request_id);
+                cx.emit(SessionEvent::StatusChanged);
             }
             // Other extensions' dialogs have no UI in Treehouse yet.
             ("select" | "confirm" | "input" | "editor", _) => self.answer(&request_id, None),

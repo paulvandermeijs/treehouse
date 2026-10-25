@@ -101,6 +101,22 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                 .text_color(p.subtext0),
             )
             .child(label(project.name.clone()))
+            .when(
+                project.error.is_none() && !project.trust.is_trusted(),
+                |this| {
+                    this.child(
+                        icon(Lucide::TriangleAlert)
+                            .size(px(14.))
+                            .text_color(p.yellow),
+                    )
+                    .tooltip(|window, cx| {
+                        gpui_kit::component::tooltip::Tooltip::new(
+                            "Not trusted · Pi can only read it",
+                        )
+                        .build(window, cx)
+                    })
+                },
+            )
             .when_some(project.error.clone(), |this, error| {
                 this.child(icon(Lucide::CircleAlert).text_color(p.red))
                     .tooltip(move |window, cx| {

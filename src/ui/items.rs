@@ -6,6 +6,7 @@
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::Input;
 use gpui_kit::component::shimmer::ShimmerText;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::TextView;
@@ -17,7 +18,7 @@ use super::chat::ChatView;
 use super::icon;
 use crate::session::{AgentStatus, ApprovalChoice, PendingApproval, Session};
 use crate::theme::{MONO, Palette, mix, palette};
-use crate::transcript::{Item, ItemId, ToolCall, ToolStatus, format_duration};
+use crate::transcript::{Item, ItemId, SignIn, SignInState, ToolCall, ToolStatus, format_duration};
 
 pub const GUTTER: f32 = 34.;
 
@@ -101,6 +102,231 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             .child(div().flex_1().h(px(1.)).bg(p.surface0))
             .into_any_element(),
         Item::Error { id, text, retrying } => render_error(view, *id, text, *retrying, cx),
+        Item::McpAttention { id, servers } => render_mcp_attention(view, *id, servers, cx),
+        Item::SignIn(sign_in) => render_sign_in(view, sign_in, cx),
+    }
+}
+
+/// MCP servers Pi couldn't use, with a Sign in button for those that need one.
+fn render_mcp_attention(
+    view: &ChatView,
+    id: ItemId,
+    servers: &[(String, String)],
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let session = view.session.clone();
+    // A later sign-in to a server settles or covers its row.
+    let sign_in_of = |server: &str| {
+        session
+            .read(cx)
+            .items()
+            .iter()
+            .rev()
+            .find_map(|item| match item {
+                Item::SignIn(s) if s.server == server && s.id.0 > id.0 => Some(s.state.clone()),
+                _ => None,
+            })
+    };
+    let rows: Vec<_> = servers
+        .iter()
+        .map(|(name, state)| {
+            let later = sign_in_of(name);
+            let shown = match &later {
+                Some(SignInState::Done(_)) => "signed in".to_string(),
+                _ if state.starts_with("needs sign-in") => "needs sign-in".to_string(),
+                _ => state.clone(),
+            };
+            let offer = state.starts_with("needs sign-in")
+                && !matches!(later, Some(SignInState::Done(_) | SignInState::Waiting));
+            (name.clone(), shown, offer)
+        })
+        .collect();
+    v_flex()
+        .id(("mcp-attention", id.0))
+        .ml(px(GUTTER))
+        .min_w_0()
+        .gap_1()
+        .px_3()
+        .py_2()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(mix(p.yellow, p.base, 0.4))
+        .bg(mix(p.yellow, p.base, 0.08))
+        .text_size(px(13.))
+        .child(
+            h_flex()
+                .gap_2()
+                .min_h(px(24.))
+                .child(icon(Lucide::Plug).text_color(p.yellow_text))
+                .child("MCP servers need attention"),
+        )
+        .children(
+            rows.into_iter()
+                .enumerate()
+                .map(|(ix, (name, state, offer))| {
+                    let (session, server) = (session.clone(), name.clone());
+                    h_flex()
+                        .min_h(px(28.))
+                        .gap_3()
+                        .pl(px(24.))
+                        .child(mono(name.clone(), p.text).flex_none())
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(p.subtext0)
+                                .child(SharedString::from(state.clone())),
+                        )
+                        .when(offer, |this| {
+                            this.child(
+                                Button::new(("mcp-sign-in", id.0 * 100 + ix as u64))
+                                    .small()
+                                    .label("Sign in")
+                                    .on_click(move |_, _, cx| {
+                                        session.update(cx, |s, cx| s.sign_in(&server, cx))
+                                    }),
+                            )
+                        })
+                }),
+        )
+        .into_any_element()
+}
+
+/// A sign-in to an MCP server: waiting for the browser, then how it went.
+fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>) -> AnyElement {
+    let p = palette(cx);
+    let session = view.session.clone();
+    let server = sign_in.server.clone();
+    let id = sign_in.id;
+    let retry = {
+        let (session, server) = (session.clone(), server.clone());
+        Button::new(("sign-in-retry", id.0))
+            .ghost()
+            .xsmall()
+            .label("Try again")
+            .on_click(move |_, _, cx| session.update(cx, |s, cx| s.sign_in(&server, cx)))
+    };
+    let outcome = |name: Lucide, color: Hsla, text: String| {
+        h_flex()
+            .id(("sign-in", id.0))
+            .gap_2()
+            .min_h(px(24.))
+            .text_size(px(13.))
+            .text_color(p.subtext0)
+            .child(
+                div()
+                    .ml(px(3.))
+                    .mr(px(7.))
+                    .child(icon(name).text_color(color)),
+            )
+            .child(div().flex_1().min_w_0().child(SharedString::from(text)))
+    };
+    match &sign_in.state {
+        SignInState::Done(detail) if detail.is_empty() => {
+            outcome(Lucide::Plug, p.green, format!("Signed in to {server}")).into_any_element()
+        }
+        SignInState::Done(detail) => outcome(
+            Lucide::Plug,
+            p.green,
+            format!("Signed in to {server} · {detail}"),
+        )
+        .into_any_element(),
+        SignInState::Cancelled => outcome(
+            Lucide::Plug,
+            p.subtext0,
+            format!("Sign-in to {server} cancelled"),
+        )
+        .child(retry)
+        .into_any_element(),
+        SignInState::Failed(error) => outcome(
+            Lucide::CircleAlert,
+            p.red,
+            format!("Couldn't sign in to {server}: {error}"),
+        )
+        .child(retry)
+        .into_any_element(),
+        SignInState::Waiting => {
+            let ready = sign_in.request_id.is_some();
+            let url = sign_in.url.clone();
+            let input = view.redirect_input.clone();
+            v_flex()
+                .id(("sign-in", id.0))
+                .mt_1()
+                .ml(px(GUTTER))
+                .gap_2()
+                .p_3()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(p.blue)
+                .bg(mix(p.blue, p.base, 0.06))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .text_size(px(13.5))
+                        .font_medium()
+                        .child(Spinner::new().with_size(px(14.)).color(p.blue))
+                        .child(format!("Signing in to {server}")),
+                )
+                .child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(p.subtext0)
+                        .child(if url.is_some() {
+                            "Finish signing in in your browser. If the browser can't reach this machine, paste the address it ended up on."
+                        } else {
+                            "Starting the sign-in…"
+                        }),
+                )
+                .when(ready, |this| {
+                    let (session_paste, session_cancel) = (session.clone(), session.clone());
+                    let paste = input.clone();
+                    this.child(
+                        h_flex()
+                            .gap_2()
+                            .child(div().flex_1().min_w_0().child(Input::new(&input).small()))
+                            .child(
+                                Button::new(("sign-in-paste", id.0))
+                                    .small()
+                                    .label("Use address")
+                                    .on_click(move |_, window, cx| {
+                                        let value = paste.read(cx).value().trim().to_string();
+                                        if value.is_empty() {
+                                            return;
+                                        }
+                                        paste.update(cx, |state, cx| state.set_value("", window, cx));
+                                        session_paste
+                                            .update(cx, |s, cx| s.answer_sign_in(Some(value), cx));
+                                    }),
+                            ),
+                    )
+                    .child(
+                        h_flex()
+                            .gap_2()
+                            .when_some(url, |this, url| {
+                                this.child(
+                                    Button::new(("sign-in-open", id.0))
+                                        .primary()
+                                        .small()
+                                        .icon(icon(Lucide::ExternalLink))
+                                        .label("Open sign-in page")
+                                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                                )
+                            })
+                            .child(
+                                Button::new(("sign-in-cancel", id.0))
+                                    .ghost()
+                                    .small()
+                                    .label("Cancel")
+                                    .on_click(move |_, _, cx| {
+                                        session_cancel.update(cx, |s, cx| s.answer_sign_in(None, cx))
+                                    }),
+                            ),
+                    )
+                })
+                .into_any_element()
+        }
     }
 }
 
