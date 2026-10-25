@@ -124,14 +124,22 @@ impl Policy<'_> {
 }
 
 /// Proposes an "Always allow" pattern from the command's first two words,
-/// for example `cargo add gpui-kit@0.4` becomes `cargo add *`.
+/// for example `cargo add gpui-kit@0.4` becomes `cargo add *`. The second
+/// word only counts when it names a subcommand, not a flag or a path, so
+/// `ls /some/folder` becomes `ls *`.
 pub fn propose_pattern(command: &str) -> String {
-    let words: Vec<&str> = command.split_whitespace().take(2).collect();
-    match words.as_slice() {
-        [] => "*".to_string(),
-        [one] => format!("{one} *"),
-        [one, two] => format!("{one} {two} *"),
-        _ => unreachable!(),
+    let mut words = command.split_whitespace();
+    let Some(program) = words.next() else {
+        return "*".to_string();
+    };
+    let subcommand = words.next().filter(|word| {
+        word.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == ':')
+            && !word.starts_with('-')
+    });
+    match subcommand {
+        Some(subcommand) => format!("{program} {subcommand} *"),
+        None => format!("{program} *"),
     }
 }
 
@@ -360,6 +368,12 @@ mod tests {
             "cargo add *"
         );
         assert_eq!(propose_pattern("ls"), "ls *");
+        assert_eq!(
+            propose_pattern("ls /Users/someone/node_modules/pi/docs/"),
+            "ls *"
+        );
+        assert_eq!(propose_pattern("grep -rn foo src"), "grep *");
+        assert_eq!(propose_pattern("npm run test:unit"), "npm run *");
         assert!(pattern_matches("git status", "git status"));
         assert!(!pattern_matches("git status", "git status --short"));
     }

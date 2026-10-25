@@ -7,7 +7,8 @@ on the chat UI without a model or an API key:
     Settings › Agent defaults › Pi command: /path/to/treehouse/tools/fake-pi
 
 A message that starts with "Find" plays the sub-agent script, "Fail" a
-provider error with a stack trace, and "Long" a long-running command with a
+provider error with a stack trace, and "Approve" a command with a long approval
+pattern, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -209,6 +210,11 @@ def run(message):
         subagent_turn()
     elif message.startswith("Fail"):
         error_turn()
+    elif message.startswith("Approve"):
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        sub = "run-" + "-".join(["a-very-long-script-name"] * 6)
+        tool(0, "a-bash", "bash", {"command": f"npm {sub} --workspace /Users/someone/Workspace/project/packages/app"}, "ok")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Long"):
         long_command_turn()
     elif message.startswith("/"):

@@ -752,7 +752,7 @@ fn render_approval(
         .child(
             h_flex()
                 .gap_2()
-                .flex_wrap()
+                .min_w_0()
                 .child(
                     Button::new(("approve", approval.tool_call_id.len()))
                         .primary()
@@ -770,9 +770,13 @@ fn render_approval(
                 .when_some(approval.pattern.clone(), |this, pattern| {
                     let (session, id) = (session.clone(), request_id.clone());
                     this.child(
+                        // A long pattern shrinks to an ellipsis; the tooltip has it all.
                         Button::new("always-allow")
                             .small()
+                            .flex_shrink(1.)
+                            .min_w_0()
                             .label(format!("Always allow {pattern}"))
+                            .tooltip(format!("Always allow {pattern}"))
                             .on_click(move |_, _, cx| {
                                 let pattern = pattern.clone();
                                 session.update(cx, |s, cx| {
