@@ -5,6 +5,7 @@ mod approval;
 mod assets;
 mod config;
 mod git;
+mod history;
 mod markdown;
 mod mcp;
 mod pi;

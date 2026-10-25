@@ -13,6 +13,9 @@ long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
 
+Like Pi it saves the chat to a session file (`--session-dir`), and
+`--session <file>` continues one, so restoring a chat can be tried.
+
 Set FAKE_PI_MCP to report a "figma" MCP server that needs a sign-in when
 Pi starts. `/mcp login <server>` then plays Pi's sign-in: pasting any address
 signs in, one containing "fail" fails, and cancelling cancels.
@@ -30,8 +33,80 @@ out_lock = threading.Lock()
 pending = {}
 
 
+def arg(name):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv[:-1] else None
+
+
+class Recorder:
+    """Writes the messages of the chat to a session file in Pi's format."""
+
+    def __init__(self):
+        self.path = arg("--session")
+        self.last_id = None
+        self.content = []
+        # Pi ends the assistant message before running its tools; this script
+        # runs them inside it, so their results wait for the message.
+        self.results = []
+        if self.path and os.path.exists(self.path):
+            with open(self.path) as f:
+                ids = [json.loads(l).get("id") for l in f if l.strip()]
+            self.last_id = next((i for i in reversed(ids) if i), None)
+        else:
+            self.new()
+
+    def new(self):
+        directory = arg("--session-dir")
+        if not directory:
+            self.path = None
+            return
+        os.makedirs(directory, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
+        self.path = os.path.join(directory, f"{stamp}_{uuid.uuid4()}.jsonl")
+        self.last_id = None
+        with open(self.path, "w") as f:
+            f.write(json.dumps({"type": "session", "version": 3, "id": str(uuid.uuid4()), "cwd": os.getcwd()}) + "\n")
+
+    def write(self, message):
+        if not self.path:
+            return
+        message.setdefault("timestamp", int(time.time() * 1000))
+        entry_id = uuid.uuid4().hex[:8]
+        with open(self.path, "a") as f:
+            f.write(json.dumps({"type": "message", "id": entry_id, "parentId": self.last_id,
+                                "message": message}) + "\n")
+        self.last_id = entry_id
+
+    def saw(self, obj):
+        kind = obj.get("type")
+        if kind == "message_update":
+            ev = obj["assistantMessageEvent"]
+            if ev["type"] == "text_end":
+                self.content.append({"type": "text", "text": ev["content"]})
+            elif ev["type"] == "thinking_end":
+                self.content.append({"type": "thinking", "thinking": ev["content"]})
+            elif ev["type"] == "toolcall_end":
+                self.content.append(ev["toolCall"])
+        elif kind == "message_end":
+            message = dict(obj["message"])
+            if message.get("role") == "assistant":
+                message["content"], self.content = self.content, []
+                message["usage"] = {"totalTokens": state["tokens"]}
+            self.write(message)
+            for result in self.results:
+                self.write(result)
+            self.results = []
+        elif kind == "tool_execution_end":
+            self.results.append({"role": "toolResult", "toolCallId": obj["toolCallId"], "toolName": obj["toolName"],
+                        "content": obj["result"]["content"], "details": obj["result"].get("details"),
+                        "isError": obj.get("isError", False)})
+
+
+recorder = Recorder()
+
+
 def emit(obj):
     with out_lock:
+        recorder.saw(obj)
         sys.stdout.write(json.dumps(obj) + "\n")
         sys.stdout.flush()
 
@@ -303,8 +378,12 @@ def user_bash(req):
     code = proc.wait()
     shells.remove(proc)
     cancelled = code < 0
-    respond(req, {"output": output, "exitCode": None if cancelled else code,
-                  "cancelled": cancelled, "truncated": False})
+    result = {"output": output, "exitCode": None if cancelled else code,
+              "cancelled": cancelled, "truncated": False}
+    with out_lock:
+        recorder.write({"role": "bashExecution", "command": req.get("command", ""),
+                        "excludeFromContext": req.get("excludeFromContext", False), **result})
+    respond(req, result)
 
 
 if os.environ.get("FAKE_PI_MCP"):
@@ -323,7 +402,7 @@ for line in sys.stdin:
             slot["event"].set()
     elif kind == "get_state":
         respond(req, {"model": state["model"], "thinkingLevel": state["thinking"], "isStreaming": False,
-                      "sessionFile": "/tmp/fake-pi-session.jsonl"})
+                      "sessionFile": recorder.path})
     elif kind == "get_available_models":
         respond(req, {"models": MODELS})
     elif kind == "set_model":
@@ -353,6 +432,8 @@ for line in sys.stdin:
         threading.Thread(target=compact, daemon=True).start()
     elif kind == "new_session":
         state["tokens"] = 0
+        with out_lock:
+            recorder.new()
         respond(req, {"cancelled": False})
     elif kind == "bash":
         threading.Thread(target=user_bash, args=(req,), daemon=True).start()

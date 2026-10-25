@@ -170,6 +170,7 @@ impl TreehouseApp {
         if let Some(chat) = self.chats.get(&session.entity_id()) {
             return chat.clone();
         }
+        session.update(cx, |session, cx| session.restore_history(cx));
         let workspace = self.workspace.clone();
         let chat = cx.new(|cx| ChatView::new(session.clone(), workspace, window, cx));
         self._subscriptions

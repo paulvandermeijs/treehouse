@@ -111,6 +111,9 @@ pub struct Session {
     pub trusted: bool,
     /// Pi's saved session, so a restart continues the same conversation.
     session_file: Option<PathBuf>,
+    /// Whether the saved session's chat has been read back in; see
+    /// `restore_history`.
+    restored: bool,
     pub started: Instant,
     pub start_error: Option<String>,
     _reader: Option<Task<()>>,
@@ -130,6 +133,12 @@ impl Session {
         let model = match &kind {
             SessionKind::SubAgent { .. } => config.subagent_model.clone().or(config.model.clone()),
             SessionKind::Worktree => config.model.clone(),
+        };
+        // A worktree's chat continues where it was left; sub-agents finished
+        // with the run that started them.
+        let session_file = match &kind {
+            SessionKind::Worktree => crate::history::session_file(&cwd),
+            SessionKind::SubAgent { .. } => None,
         };
         Self {
             transcript: Transcript::new(cwd.clone()),
@@ -154,7 +163,8 @@ impl Session {
             context_tokens: None,
             commands: Vec::new(),
             trusted: false,
-            session_file: None,
+            session_file,
+            restored: false,
             started: Instant::now(),
             start_error: None,
             _reader: None,
@@ -228,10 +238,33 @@ impl Session {
         })
     }
 
+    /// Shows the saved session's chat. Done when the chat is first opened or
+    /// Pi starts, rather than for every worktree at launch, since session
+    /// files can be large.
+    pub fn restore_history(&mut self, cx: &mut Context<Self>) {
+        if std::mem::replace(&mut self.restored, true) {
+            return;
+        }
+        let Some(file) = &self.session_file else {
+            return;
+        };
+        let entries = crate::history::load(file);
+        self.transcript.restore(&entries);
+        self.context_tokens = entries
+            .iter()
+            .rev()
+            .filter(|e| e["message"]["role"] == "assistant")
+            .find_map(|e| e["message"]["usage"]["totalTokens"].as_u64())
+            .filter(|tokens| *tokens > 0);
+        self.sync_texts(cx);
+        cx.notify();
+    }
+
     fn ensure_started(&mut self, cx: &mut Context<Self>) -> bool {
         if self.client.is_some() {
             return true;
         }
+        self.restore_history(cx);
         let config = Config::global(cx);
         let extension = match crate::pi::extension_path() {
             Ok(path) => path,
@@ -623,7 +656,11 @@ impl Session {
         match response.command.as_str() {
             "get_state" => {
                 if let Some(file) = data.get("sessionFile").and_then(Value::as_str) {
-                    self.session_file = Some(PathBuf::from(file));
+                    let file = PathBuf::from(file);
+                    if matches!(self.kind, SessionKind::Worktree) {
+                        crate::history::remember(&self.cwd, &file);
+                    }
+                    self.session_file = Some(file);
                 }
                 if let Some(model) = ModelInfo::from_json(&data["model"]) {
                     self.model = Some(model);
@@ -651,6 +688,10 @@ impl Session {
                 self.context_tokens = None;
                 self.started = Instant::now();
                 self.transcript.push_notice("New session");
+                // Pi starts a new file; ask for it so a restart resumes this one.
+                if let Some(client) = &self.client {
+                    client.send(command::get_state());
+                }
             }
             "compact" => self.transcript.compacting = false,
             "get_session_stats" => {

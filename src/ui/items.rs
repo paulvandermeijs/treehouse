@@ -223,13 +223,15 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
     let keep = if run.running { 8 } else { 40 };
     let hidden = lines.len().saturating_sub(keep);
     let shown = lines[hidden..].join("\n");
-    let duration = run.duration.unwrap_or_else(|| run.started.elapsed());
     let mut meta = Vec::new();
     if run.cancelled {
         meta.push("stopped".to_string());
     }
     if !run.running {
-        meta.push(format_duration(duration));
+        // A run restored from Pi's session file has no duration.
+        if let Some(duration) = run.duration {
+            meta.push(format_duration(duration));
+        }
         meta.push(
             if run.excluded {
                 "kept from Pi"
@@ -679,8 +681,12 @@ fn render_thinking(
     let label: AnyElement = if streaming {
         ShimmerText::new("Thinking…").into_any_element()
     } else {
-        let secs = elapsed.map(|e| e.as_secs().max(1)).unwrap_or(1);
-        SharedString::from(format!("Thought for {secs}s")).into_any_element()
+        // A chat restored from Pi's session file doesn't know how long.
+        match elapsed {
+            Some(e) => SharedString::from(format!("Thought for {}s", e.as_secs().max(1))),
+            None => SharedString::from("Thought"),
+        }
+        .into_any_element()
     };
     v_flex()
         .id(("thinking", id.0))
@@ -1469,6 +1475,13 @@ fn render_subagent_card(
         .as_str()
         .unwrap_or("Sub-agent")
         .to_string();
+    let finished = !matches!(
+        tool.status,
+        ToolStatus::Preparing | ToolStatus::Running | ToolStatus::AwaitingApproval
+    );
+    if child.is_none() && finished {
+        return render_past_subagent(view, tool, title, cx);
+    }
     let Some(child) = child else {
         // The tool call is still being written, or Pi was started elsewhere.
         return h_flex()
@@ -1483,6 +1496,94 @@ fn render_subagent_card(
             .into_any_element();
     };
     render_agent_card(view, &child, Some(tool), cx)
+}
+
+/// A sub-agent from before Treehouse restarted: its session is gone, but
+/// the parent's tool result holds its report, which the card expands to.
+fn render_past_subagent(
+    view: &ChatView,
+    tool: &ToolCall,
+    title: String,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let id = tool.id;
+    let expanded = view.is_expanded(id, false);
+    let ok = tool.status == ToolStatus::Done;
+    let detail = match tool.duration {
+        Some(duration) if ok => format!("Finished · {}", format_duration(duration)),
+        _ if ok => "Finished".to_string(),
+        _ => "Stopped".to_string(),
+    };
+    v_flex()
+        .ml(px(GUTTER))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .overflow_hidden()
+        .child(
+            h_flex()
+                .id(("past-agent", id.0))
+                .gap_3()
+                .px_3()
+                .py(px(10.))
+                .cursor_pointer()
+                .hover(|s| s.bg(p.surface0))
+                .child(
+                    div()
+                        .flex_none()
+                        .size(px(30.))
+                        .rounded(px(6.))
+                        .bg(p.surface0)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(if ok {
+                            icon(IconName::Check).text_color(p.green)
+                        } else {
+                            icon(Lucide::CircleAlert).text_color(p.subtext0)
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_size(px(13.5)).font_medium().child(title))
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(p.subtext0)
+                                .child(detail),
+                        ),
+                )
+                .child(
+                    icon(if expanded {
+                        IconName::ChevronDown
+                    } else {
+                        IconName::ChevronRight
+                    })
+                    .text_color(p.subtext0),
+                )
+                .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, cx))),
+        )
+        .when(expanded, |this| {
+            this.child(
+                div()
+                    .px_3()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(p.surface0)
+                    .text_size(px(13.))
+                    .whitespace_normal()
+                    .child(SharedString::from(if tool.output.trim().is_empty() {
+                        "No report.".to_string()
+                    } else {
+                        tool.output.trim().to_string()
+                    })),
+            )
+        })
+        .into_any_element()
 }
 
 /// The card that stands for a sub-agent in its parent's chat.

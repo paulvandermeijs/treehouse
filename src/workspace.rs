@@ -245,6 +245,7 @@ impl Workspace {
                 )?;
                 let worktree = project.worktrees.remove(ix);
                 worktree.session.update(cx, |s, cx| s.stop(cx));
+                crate::history::forget(path);
                 cx.notify();
                 return Ok(note);
             }

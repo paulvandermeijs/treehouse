@@ -37,6 +37,10 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name. Clicks and right-click menus work as in the full sidebar. The footer keeps only Settings; a red dot on it means the provider has no key. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
 
+### Chat history
+
+Each worktree's chat comes back when you restart Treehouse. Pi saves every session as a file in Treehouse's data folder; Treehouse remembers which file belongs to which worktree (`sessions.json` there) and shows the chat again when you open the worktree. Your next message continues the same Pi session, so Pi has the whole conversation. `/new` starts a new session, which is the one that comes back from then on. Sub-agents from before the restart show as finished cards with their report.
+
 ### Slash commands
 
 Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]`, `/new` and `/reload`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands. RPC mode has no reload, so `/reload` restarts the worktree's Pi on the same session; use it after changing Pi's settings, skills, extensions or `mcp.json`.
@@ -82,6 +86,7 @@ A message that starts with `!` runs as a shell command in the worktree instead o
 | `assets/pi/treehouse.ts` | The Pi extension Treehouse loads into every session (see below) |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
+| `src/history.rs` | Which Pi session file holds each worktree's chat, and reading one back |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact` and `/new` |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
 | `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |

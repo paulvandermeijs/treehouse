@@ -275,6 +275,151 @@ impl Transcript {
         self.compacting = false;
     }
 
+    /// Rebuilds the chat from the messages of a saved Pi session, as
+    /// `crate::history::load` returns them. Pi's events never replay, so the
+    /// items are built from the stored messages themselves.
+    pub fn restore(&mut self, entries: &[Value]) {
+        // When each tool call was made, for its duration once the result is in.
+        let mut called_at: std::collections::HashMap<String, u64> = Default::default();
+        for entry in entries {
+            match entry.get("type").and_then(Value::as_str) {
+                Some("compaction") => {
+                    let before = entry.get("tokensBefore").and_then(Value::as_u64);
+                    self.push_notice(match before {
+                        Some(before) => {
+                            format!(
+                                "Context compacted · {} tokens before",
+                                format_tokens(before)
+                            )
+                        }
+                        None => "Context compacted".to_string(),
+                    });
+                    continue;
+                }
+                Some("message") => {}
+                _ => continue,
+            }
+            let message = &entry["message"];
+            let timestamp = message.get("timestamp").and_then(Value::as_u64);
+            match message.get("role").and_then(Value::as_str) {
+                Some("user") => {
+                    let id = self.alloc();
+                    let text = user_text(&message["content"]);
+                    self.items.push(Item::User { id, text });
+                }
+                Some("assistant") => {
+                    for block in message["content"].as_array().into_iter().flatten() {
+                        match block.get("type").and_then(Value::as_str) {
+                            Some("text") => {
+                                let text = str_field(block, "text");
+                                if text.trim().is_empty() {
+                                    continue;
+                                }
+                                let id = self.alloc();
+                                self.items.push(Item::Text {
+                                    id,
+                                    text,
+                                    streaming: false,
+                                });
+                            }
+                            Some("thinking") => {
+                                let text = str_field(block, "thinking");
+                                if text.trim().is_empty() {
+                                    continue;
+                                }
+                                let id = self.alloc();
+                                self.items.push(Item::Thinking {
+                                    id,
+                                    text,
+                                    streaming: false,
+                                    started: Instant::now(),
+                                    elapsed: None,
+                                });
+                            }
+                            Some("toolCall") => {
+                                let call_id = str_field(block, "id");
+                                let name = str_field(block, "name");
+                                if let Some(at) = timestamp {
+                                    called_at.insert(call_id.clone(), at);
+                                }
+                                let tool = self.ensure_tool(&call_id, &name);
+                                tool.args = block["arguments"].clone();
+                                // Without a result Pi was stopped mid-call.
+                                tool.status = ToolStatus::Stopped;
+                            }
+                            _ => {}
+                        }
+                    }
+                    match message.get("stopReason").and_then(Value::as_str) {
+                        Some("error") => {
+                            let text = message
+                                .get("errorMessage")
+                                .and_then(Value::as_str)
+                                .unwrap_or("The request failed.");
+                            self.push_error(format!("Request failed: {text}"));
+                        }
+                        Some("aborted") => self.push_notice("Stopped by you"),
+                        _ => {}
+                    }
+                }
+                Some("toolResult") => {
+                    let call_id = str_field(message, "toolCallId");
+                    let started = called_at.get(&call_id).copied();
+                    let Some(tool) = self.tool_mut(&call_id) else {
+                        continue;
+                    };
+                    tool.output = content_text(&message["content"]);
+                    tool.details = message.get("details").cloned().unwrap_or(Value::Null);
+                    tool.duration = started
+                        .zip(timestamp)
+                        .map(|(start, end)| Duration::from_millis(end.saturating_sub(start)));
+                    let is_error = message
+                        .get("isError")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    tool.status = if !is_error {
+                        ToolStatus::Done
+                    } else if tool.output.contains("Command aborted") {
+                        ToolStatus::Stopped
+                    } else if tool.output.contains("Denied by the user")
+                        || tool.output.contains("Stopped by the user")
+                    {
+                        ToolStatus::Denied
+                    } else {
+                        ToolStatus::Failed
+                    };
+                }
+                Some("bashExecution") => {
+                    let id = self.alloc();
+                    self.items.push(Item::Shell(ShellRun {
+                        id,
+                        request_id: String::new(),
+                        command: str_field(message, "command"),
+                        excluded: message
+                            .get("excludeFromContext")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        output: str_field(message, "output"),
+                        running: false,
+                        exit_code: message.get("exitCode").and_then(Value::as_i64),
+                        cancelled: message
+                            .get("cancelled")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false),
+                        full_output: message
+                            .get("fullOutputPath")
+                            .and_then(Value::as_str)
+                            .map(str::to_string),
+                        error: None,
+                        started: Instant::now(),
+                        duration: None,
+                    }));
+                }
+                _ => {}
+            }
+        }
+    }
+
     pub fn push_mcp_attention(&mut self, servers: Vec<(String, String)>) {
         let id = self.alloc();
         self.items.push(Item::McpAttention { id, servers });
@@ -835,6 +980,69 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn restores_a_saved_session() {
+        let entry = |message: Value| json!({"type": "message", "message": message});
+        let entries = [
+            entry(json!({"role": "system", "content": ""})),
+            entry(json!({"role": "user", "content": [{"type": "text", "text": "Fix the test"}]})),
+            entry(json!({"role": "assistant", "timestamp": 1000, "content": [
+                {"type": "thinking", "thinking": "Look first."},
+                {"type": "text", "text": "Running it."},
+                {"type": "toolCall", "id": "c1", "name": "bash", "arguments": {"command": "cargo test"}},
+                {"type": "toolCall", "id": "c2", "name": "write", "arguments": {"path": "x"}},
+            ]})),
+            entry(
+                json!({"role": "toolResult", "toolCallId": "c1", "timestamp": 3500, "isError": false, "content": [{"type": "text", "text": "ok"}]}),
+            ),
+            entry(
+                json!({"role": "toolResult", "toolCallId": "c2", "isError": true, "content": [{"type": "text", "text": "Denied by the user in Treehouse"}]}),
+            ),
+            json!({"type": "compaction", "tokensBefore": 52000}),
+            entry(
+                json!({"role": "bashExecution", "command": "ls", "output": "src\n", "exitCode": 0, "cancelled": false, "excludeFromContext": true}),
+            ),
+            entry(
+                json!({"role": "assistant", "stopReason": "aborted", "content": [
+                    {"type": "toolCall", "id": "c3", "name": "read", "arguments": {"path": "y"}},
+                ]}),
+            ),
+        ];
+        let mut t = Transcript::new("/tmp");
+        t.restore(&entries);
+        let kinds: Vec<&str> = t
+            .items
+            .iter()
+            .map(|item| match item {
+                Item::User { .. } => "user",
+                Item::Thinking { .. } => "thinking",
+                Item::Text { .. } => "text",
+                Item::Tool(_) => "tool",
+                Item::Notice { .. } => "notice",
+                Item::Shell(_) => "shell",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "user", "thinking", "text", "tool", "tool", "notice", "shell", "tool", "notice"
+            ]
+        );
+        let bash = t.tool("c1").unwrap();
+        assert_eq!(bash.status, ToolStatus::Done);
+        assert_eq!(bash.output, "ok");
+        assert_eq!(bash.duration, Some(Duration::from_millis(2500)));
+        assert_eq!(t.tool("c2").unwrap().status, ToolStatus::Denied);
+        // No result: Pi stopped before the call ran.
+        assert_eq!(t.tool("c3").unwrap().status, ToolStatus::Stopped);
+        let Some(Item::Shell(run)) = t.items.get(6) else {
+            panic!("no shell row");
+        };
+        assert!(run.excluded && !run.running && run.exit_code == Some(0));
+        assert_eq!(t.run, RunState::Idle);
     }
 
     #[test]

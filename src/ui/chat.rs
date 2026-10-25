@@ -128,6 +128,9 @@ impl ChatView {
             .worktree_of(session.entity_id())
             .map(|w| w.branch.clone())
             .unwrap_or_default();
+        // A chat restored from Pi's session file opens at its latest message.
+        let scroll = ScrollHandle::new();
+        scroll.scroll_to_bottom();
         Self {
             session,
             workspace,
@@ -138,7 +141,7 @@ impl ChatView {
                     .placeholder("http://127.0.0.1:…/callback?code=…")
             }),
             toggled: HashSet::new(),
-            scroll: ScrollHandle::new(),
+            scroll,
             follow_tail: true,
             in_dock: false,
             sidebar_lead: None,
