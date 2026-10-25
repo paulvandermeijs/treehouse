@@ -18,8 +18,6 @@
     --surface0: #313244; --surface1: #45475a;
     --text: #cdd6f4; --subtext: #a6adc8; --overlay: #7f849c;
     --green: #a6e3a1;
-    /* The app window's place in a chapter scene; compose.py reads it back. */
-    --win-x: 720px; --win-y: 190px; --win-w: 1120px; --win-h: 700px; --win-r: 14px;
   }
   html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
   body { font-family: Plex, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
@@ -40,11 +38,11 @@
     border: 1px solid rgba(205, 214, 244, 0.14);
     box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(17, 17, 27, 0.8);
   }
-  .copy { position: absolute; left: 120px; top: 0; bottom: 0; width: 540px; display: flex; flex-direction: column; justify-content: center; }
+  .copy { position: absolute; left: 100px; top: 0; bottom: 0; width: 450px; display: flex; flex-direction: column; justify-content: center; }
   .label { font-family: PlexMono, monospace; font-weight: 500; font-size: 22px; letter-spacing: 0.04em; color: var(--green); margin-bottom: 22px; }
   .label .num { color: var(--overlay); margin-right: 10px; }
-  .headline { font-size: 60px; line-height: 1.12; font-weight: 600; letter-spacing: -0.015em; }
-  .sub { margin-top: 24px; font-size: 28px; line-height: 1.4; color: var(--subtext); }
+  .headline { font-size: 54px; line-height: 1.12; font-weight: 600; letter-spacing: -0.015em; }
+  .sub { margin-top: 22px; font-size: 26px; line-height: 1.4; color: var(--subtext); }
 
   .centre { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
   .icon { width: 168px; height: 168px; filter: drop-shadow(0 24px 60px rgba(166, 227, 161, 0.25)); }
@@ -68,9 +66,9 @@
   const id = params.get('scene');
   const scenes = JSON.parse(params.get('scenes'));
   const scene = scenes.find(s => s.id === id);
-  const css = getComputedStyle(document.documentElement);
-  const px = name => parseFloat(css.getPropertyValue(name));
-  const [x, y, w, h, r] = ['--win-x', '--win-y', '--win-w', '--win-h', '--win-r'].map(px);
+  // The app window's place in a chapter scene, shared with compose.py.
+  const { x, y, w, h, r } = JSON.parse(params.get('window'));
+  for (const [k, v] of Object.entries({ x, y, w, h, r })) document.documentElement.style.setProperty(`--win-${k}`, v + 'px');
 
   // An even-odd path: the whole frame minus a rounded window, so the
   // background masks out exactly where the recording shows through.

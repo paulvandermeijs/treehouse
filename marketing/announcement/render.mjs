@@ -11,7 +11,7 @@ const { chromium } = createRequire(import.meta.url)('playwright');
 const here = dirname(fileURLToPath(import.meta.url));
 const out = resolve(process.argv[2] ?? 'out');
 const only = process.argv.slice(3);
-const { fps, width, height, scenes } = JSON.parse(readFileSync(join(here, 'scenes.json'), 'utf8'));
+const { fps, width, height, window: win, scenes } = JSON.parse(readFileSync(join(here, 'scenes.json'), 'utf8'));
 // The intro animations finish within this; compose.py holds the last frame.
 const INTRO_SECONDS = 1.6;
 
@@ -23,7 +23,7 @@ for (const scene of scenes) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const url = pathToFileURL(join(here, 'frame.html'));
-  url.search = new URLSearchParams({ scene: scene.id, scenes: JSON.stringify(scenes) });
+  url.search = new URLSearchParams({ scene: scene.id, scenes: JSON.stringify(scenes), window: JSON.stringify(win) });
   await page.goto(url.href);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => Promise.all([...document.images].map(i => i.decode())));
