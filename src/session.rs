@@ -54,6 +54,7 @@ pub struct PendingApproval {
     pub input: Value,
     /// The "Always allow" pattern proposed for a bash command.
     pub pattern: Option<String>,
+    pub asked: Instant,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -194,6 +195,14 @@ impl Session {
 
     pub fn items(&self) -> &[Item] {
         self.transcript.items()
+    }
+
+    pub fn transcript_run_started(&self) -> Option<Instant> {
+        self.transcript.run_started
+    }
+
+    pub fn transcript_settled_at(&self) -> Option<Instant> {
+        self.transcript.settled_at
     }
 
     pub fn is_running(&self) -> bool {
@@ -836,6 +845,7 @@ impl Session {
                             tool_name,
                             input,
                             pattern,
+                            asked: Instant::now(),
                         });
                     }
                 }

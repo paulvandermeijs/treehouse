@@ -221,6 +221,10 @@ pub struct Transcript {
     /// Maps the streaming assistant message's content indexes to items.
     blocks: Vec<(u64, ItemId)>,
     pub run: RunState,
+    /// When the current or last run started and when it settled, for the
+    /// sidebar's status card.
+    pub run_started: Option<Instant>,
+    pub settled_at: Option<Instant>,
     /// Set while Pi compacts the context.
     pub compacting: bool,
     /// What the user typed for messages Pi hasn't echoed yet. Pi echoes a
@@ -236,6 +240,8 @@ impl Transcript {
             next_id: 1,
             blocks: Vec::new(),
             run: RunState::Idle,
+            run_started: None,
+            settled_at: None,
             compacting: false,
             typed: VecDeque::new(),
             cwd: cwd.into(),
@@ -607,6 +613,11 @@ impl Transcript {
             .unwrap_or_default()
         {
             "agent_start" => {
+                // Pi starts a run again after a retry or a steer; the turn
+                // started with the first.
+                if self.run != RunState::Running {
+                    self.run_started = Some(Instant::now());
+                }
                 self.run = RunState::Running;
                 Effect::None
             }
@@ -785,6 +796,7 @@ impl Transcript {
                 tool.status = ToolStatus::Stopped;
             }
         }
+        self.settled_at = Some(Instant::now());
         let failed = matches!(self.items.last(), Some(Item::Error { .. }));
         self.run = if failed {
             RunState::Failed

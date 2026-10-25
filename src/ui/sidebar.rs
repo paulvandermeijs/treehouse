@@ -415,27 +415,33 @@ pub fn render_rail(
         for worktree in project.worktrees.iter() {
             let session = worktree.session.clone();
             let path = worktree.path.clone();
+            let trigger = row(
+                SharedString::from(format!("rail-worktree:{}", path.display())),
+                open_state(&session, main, docked),
+                &p,
+            )
+            .justify_center()
+            .child(status_dot(worktree.status(cx), cx))
+            .on_click(cx.listener({
+                let session = session.clone();
+                move |app, event: &ClickEvent, window, cx| {
+                    app.open_session(session.clone(), event.modifiers().secondary(), window, cx)
+                }
+            }))
+            .context_menu(worktree_menu(
+                weak.clone(),
+                session.clone(),
+                path.clone(),
+                worktree.is_main,
+            ));
             rows.push(
-                row(
-                    SharedString::from(format!("rail-worktree:{}", path.display())),
-                    open_state(&session, main, docked),
-                    &p,
-                )
-                .justify_center()
-                .child(status_dot(worktree.status(cx), cx))
-                .tooltip(tooltip(worktree.branch.clone()))
-                .on_click(cx.listener({
-                    let session = session.clone();
-                    move |app, event: &ClickEvent, window, cx| {
-                        app.open_session(session.clone(), event.modifiers().secondary(), window, cx)
-                    }
-                }))
-                .context_menu(worktree_menu(
-                    weak.clone(),
+                super::status_card::wrap(
+                    SharedString::from(format!("rail-card:{}", path.display())),
+                    trigger,
                     session.clone(),
-                    path.clone(),
-                    worktree.is_main,
-                ))
+                    app.workspace.clone(),
+                    weak.clone(),
+                )
                 .into_any_element(),
             );
             if worktree.subagents.is_empty() || app.is_collapsed(Fold::Worktree, &path) {
@@ -445,21 +451,27 @@ pub fn render_rail(
             let kids = worktree.subagents.iter().map(|subagent| {
                 let child = subagent.session.clone();
                 let status = child.read(cx).status();
-                row(
+                let trigger = row(
                     ("rail-subagent", child.entity_id().as_u64()),
                     open_state(&child, main, docked),
                     &p,
                 )
                 .justify_center()
                 .child(status_dot(status, cx))
-                .tooltip(tooltip(child.read(cx).title()))
                 .on_click(cx.listener({
                     let child = child.clone();
                     move |app, event: &ClickEvent, window, cx| {
                         app.open_session(child.clone(), event.modifiers().secondary(), window, cx)
                     }
                 }))
-                .context_menu(subagent_menu(weak.clone(), child))
+                .context_menu(subagent_menu(weak.clone(), child.clone()));
+                super::status_card::wrap(
+                    ("rail-card", child.entity_id().as_u64()),
+                    trigger,
+                    child,
+                    app.workspace.clone(),
+                    weak.clone(),
+                )
             });
             rows.push(
                 // The guide line ties the dots to the worktree above.

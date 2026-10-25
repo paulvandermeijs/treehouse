@@ -718,15 +718,15 @@ fn render_thinking(
         .into_any_element()
 }
 
-struct ToolText {
-    icon: Lucide,
-    running: &'static str,
-    done: &'static str,
-    target: String,
-    result: Option<String>,
+pub(super) struct ToolText {
+    pub icon: Lucide,
+    pub running: &'static str,
+    pub done: &'static str,
+    pub target: String,
+    pub result: Option<String>,
 }
 
-fn describe(tool: &ToolCall) -> ToolText {
+pub(super) fn describe(tool: &ToolCall) -> ToolText {
     let path = tool.path().unwrap_or("").to_string();
     match tool.name.as_str() {
         "read" => {

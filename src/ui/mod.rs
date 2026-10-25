@@ -9,6 +9,7 @@ mod items;
 mod palette;
 mod settings;
 mod sidebar;
+mod status_card;
 mod trust;
 
 pub use about::open as open_about;
