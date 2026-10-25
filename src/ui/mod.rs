@@ -1,5 +1,6 @@
 //! The Treehouse window.
 
+mod about;
 mod app;
 mod chat;
 mod code_block;
@@ -10,6 +11,7 @@ mod settings;
 mod sidebar;
 mod trust;
 
+pub use about::open as open_about;
 pub use app::TreehouseApp;
 
 use gpui_kit::component::spinner::Spinner;

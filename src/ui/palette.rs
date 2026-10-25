@@ -63,7 +63,10 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
         ),
         (
             "App",
-            vec![entry("Settings", IconName::Settings, OpenSettings)],
+            vec![
+                entry("Settings", IconName::Settings, OpenSettings),
+                entry("About Treehouse", IconName::Info, About),
+            ],
         ),
     ]
 }
