@@ -468,9 +468,11 @@ pub fn render_rail(
                     .child(
                         div()
                             .absolute()
-                            .left(px(8.))
-                            .top_1()
-                            .bottom_1()
+                            // As far from the dots as the space allows; full
+                            // height, like the expanded sidebar's guide.
+                            .left(px(3.))
+                            .top_0()
+                            .bottom_0()
                             .w(px(1.))
                             .bg(p.surface0),
                     )
