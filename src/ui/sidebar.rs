@@ -14,10 +14,8 @@ use gpui_kit::*;
 use std::path::PathBuf;
 
 use super::app::{Fold, TreehouseApp};
-use super::{BAR_HEIGHT, SIDEBAR_WIDTH, icon, status_dot};
-use crate::actions::{
-    CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleSidebar, ToggleTheme,
-};
+use super::{BAR_HEIGHT, RAIL_WIDTH, SIDEBAR_WIDTH, icon, status_dot};
+use crate::actions::{CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleTheme};
 use crate::session::{Session, SessionKind};
 use crate::theme::{Palette, mix, palette, toggle_label};
 
@@ -249,13 +247,7 @@ pub fn render(
                 .gap(px(2.))
                 .border_b_1()
                 .border_color(p.surface0)
-                .child(
-                    icon_button("toggle-sidebar", IconName::PanelLeft)
-                        .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(Box::new(ToggleSidebar), cx)
-                        }),
-                )
+                .child(super::sidebar_toggle("toggle-sidebar"))
                 .child(
                     div()
                         .px_1()
@@ -356,6 +348,228 @@ pub fn render(
                             }),
                     )
                 }),
+        )
+}
+
+fn tooltip(text: SharedString) -> impl Fn(&mut Window, &mut App) -> AnyView + 'static {
+    move |window, cx| gpui_kit::component::tooltip::Tooltip::new(text.clone()).build(window, cx)
+}
+
+/// The collapsed sidebar: a 48px rail with every row where the expanded
+/// sidebar has it, so collapsing moves nothing under the pointer. Projects
+/// show their folder, worktrees and sub-agents their status dot, and the
+/// name moves to a tooltip.
+///
+/// `shared_bar` is set on macOS outside full screen, where the traffic
+/// lights hang over the rail: its top cell then belongs to the top bar of
+/// the pane beside it, which holds the toggle.
+pub fn render_rail(
+    app: &TreehouseApp,
+    shared_bar: bool,
+    cx: &mut Context<TreehouseApp>,
+) -> impl IntoElement {
+    let p = palette(cx);
+    let main = app.main_session_id(cx);
+    let docked = app.docked_session_id(cx);
+    let weak = cx.entity().downgrade();
+
+    let mut rows: Vec<AnyElement> = Vec::new();
+    let workspace = app.workspace.read(cx);
+    for project in workspace.projects.iter() {
+        let project_path = project.path.clone();
+        let project_open = !app.is_collapsed(Fold::Project, &project.path);
+        let (colour, name) = if let Some(error) = &project.error {
+            (p.red, format!("{} — {error}", project.name))
+        } else if !project.trust.is_trusted() {
+            (p.yellow, format!("{} — read only", project.name))
+        } else {
+            (p.subtext0, project.name.to_string())
+        };
+        rows.push(
+            row(
+                SharedString::from(format!("rail-project:{}", project.path.display())),
+                Open::No,
+                &p,
+            )
+            .justify_center()
+            .child(
+                icon(if project_open {
+                    IconName::FolderOpen
+                } else {
+                    IconName::Folder
+                })
+                .text_color(colour),
+            )
+            .tooltip(tooltip(name.into()))
+            .on_click(cx.listener({
+                let path = project_path.clone();
+                move |app, _, _, cx| app.toggle_collapsed(Fold::Project, path.clone(), cx)
+            }))
+            .context_menu(project_menu(weak.clone(), project_path.clone()))
+            .into_any_element(),
+        );
+        if !project_open {
+            continue;
+        }
+
+        for worktree in project.worktrees.iter() {
+            let session = worktree.session.clone();
+            let path = worktree.path.clone();
+            rows.push(
+                row(
+                    SharedString::from(format!("rail-worktree:{}", path.display())),
+                    open_state(&session, main, docked),
+                    &p,
+                )
+                .justify_center()
+                .child(status_dot(worktree.status(cx), cx))
+                .tooltip(tooltip(worktree.branch.clone()))
+                .on_click(cx.listener({
+                    let session = session.clone();
+                    move |app, event: &ClickEvent, window, cx| {
+                        app.open_session(session.clone(), event.modifiers().secondary(), window, cx)
+                    }
+                }))
+                .context_menu(worktree_menu(
+                    weak.clone(),
+                    session.clone(),
+                    path.clone(),
+                    worktree.is_main,
+                ))
+                .into_any_element(),
+            );
+            if worktree.subagents.is_empty() || app.is_collapsed(Fold::Worktree, &path) {
+                continue;
+            }
+
+            let kids = worktree.subagents.iter().map(|subagent| {
+                let child = subagent.session.clone();
+                let status = child.read(cx).status();
+                row(
+                    ("rail-subagent", child.entity_id().as_u64()),
+                    open_state(&child, main, docked),
+                    &p,
+                )
+                .justify_center()
+                .child(status_dot(status, cx))
+                .tooltip(tooltip(child.read(cx).title()))
+                .on_click(cx.listener({
+                    let child = child.clone();
+                    move |app, event: &ClickEvent, window, cx| {
+                        app.open_session(child.clone(), event.modifiers().secondary(), window, cx)
+                    }
+                }))
+                .context_menu(subagent_menu(weak.clone(), child))
+            });
+            rows.push(
+                // The guide line ties the dots to the worktree above.
+                v_flex()
+                    .relative()
+                    .child(
+                        div()
+                            .absolute()
+                            .left(px(8.))
+                            .top_1()
+                            .bottom_1()
+                            .w(px(1.))
+                            .bg(p.surface0),
+                    )
+                    .children(kids)
+                    .into_any_element(),
+            );
+        }
+    }
+
+    let provider = app.provider_label(cx);
+
+    v_flex()
+        .w(px(RAIL_WIDTH))
+        .h_full()
+        .flex_none()
+        .child(
+            super::drags_window(h_flex().id("rail-top"))
+                .h(px(BAR_HEIGHT))
+                .flex_none()
+                .justify_center()
+                .border_b_1()
+                .border_color(p.surface0)
+                .map(|this| {
+                    if shared_bar {
+                        this.bg(p.base)
+                    } else {
+                        this.bg(p.mantle)
+                            .border_r_1()
+                            .child(super::sidebar_toggle("show-sidebar"))
+                    }
+                }),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_h_0()
+                .bg(p.mantle)
+                .border_r_1()
+                .border_color(p.surface0)
+                .child(
+                    v_flex()
+                        .id("rail-projects")
+                        .flex_1()
+                        .min_h_0()
+                        .overflow_y_scroll()
+                        .px(px(6.))
+                        .py_1()
+                        .child(
+                            // The Projects header's height, so the rows line up.
+                            h_flex().justify_center().pt_2().pb_1().child(
+                                icon_button("rail-add-project", Lucide::FolderPlus)
+                                    .tooltip("Add project — choose a folder")
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenProject), cx)
+                                    }),
+                            ),
+                        )
+                        .children(rows),
+                )
+                .child(
+                    v_flex()
+                        .flex_none()
+                        .items_center()
+                        .gap(px(6.))
+                        .py(px(6.))
+                        .border_t_1()
+                        .border_color(p.surface0)
+                        .child(
+                            icon_button("rail-settings", IconName::Settings)
+                                .tooltip_with_action("Settings", &OpenSettings, None)
+                                .on_click(|_, window, cx| {
+                                    window.dispatch_action(Box::new(OpenSettings), cx)
+                                }),
+                        )
+                        .when_some(provider, |this, (name, ok)| {
+                            this.child(
+                                div()
+                                    .id("rail-provider")
+                                    .p(px(4.))
+                                    .cursor_pointer()
+                                    .child(div().size(px(7.)).rounded_full().bg(if ok {
+                                        p.green
+                                    } else {
+                                        p.red
+                                    }))
+                                    .tooltip(tooltip(
+                                        if ok {
+                                            format!("{name}: connected")
+                                        } else {
+                                            format!("{name}: no key — open Settings › Providers")
+                                        }
+                                        .into(),
+                                    ))
+                                    .on_click(|_, window, cx| {
+                                        window.dispatch_action(Box::new(OpenSettings), cx)
+                                    }),
+                            )
+                        }),
+                ),
         )
 }
 

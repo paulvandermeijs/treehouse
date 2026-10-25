@@ -16,7 +16,7 @@ pub use app::TreehouseApp;
 
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Icon, Sizable as _};
-use gpui_kit::{App, IntoElement, ParentElement as _, Styled as _, div, px};
+use gpui_kit::{App, IntoElement, ParentElement as _, Pixels, Styled as _, div, px};
 
 use crate::session::AgentStatus;
 use crate::theme::palette;
@@ -55,6 +55,31 @@ pub fn traffic_lights(window: &gpui_kit::Window) -> f32 {
     } else {
         0.
     }
+}
+
+/// The collapsed sidebar's width.
+pub const RAIL_WIDTH: f32 = 48.;
+
+/// With the sidebar collapsed on macOS, the traffic lights don't fit in the
+/// rail: the pane next to it starts its top bar with the sidebar toggle,
+/// after this much padding, so the toggle sits where the sidebar has it.
+pub fn rail_lead(window: &gpui_kit::Window) -> Option<Pixels> {
+    let lights = traffic_lights(window);
+    (lights > 0.).then(|| px(8. + lights - RAIL_WIDTH))
+}
+
+/// The top bar's show/hide sidebar button.
+pub fn sidebar_toggle(id: &'static str) -> gpui_kit::component::button::Button {
+    use gpui_kit::component::IconName;
+    use gpui_kit::component::button::{Button, ButtonVariants as _};
+    Button::new(id)
+        .ghost()
+        .small()
+        .icon(icon(IconName::PanelLeft))
+        .tooltip_with_action("Toggle sidebar", &crate::actions::ToggleSidebar, None)
+        .on_click(|_, window, cx| {
+            window.dispatch_action(Box::new(crate::actions::ToggleSidebar), cx)
+        })
 }
 
 /// The title bar on macOS: hidden, with the traffic lights centred in the

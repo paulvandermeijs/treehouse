@@ -33,6 +33,10 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 - **Linux:** X11 windows get the icon directly. Wayland docks look it up through the desktop file: copy `assets/linux/treehouse.desktop` to `~/.local/share/applications/` and `assets/icon/png/256x256.png` to `~/.local/share/icons/hicolor/256x256/apps/treehouse.png`. `cargo bundle --release` also builds a `.deb` with both.
 - **Windows:** `build.rs` embeds `treehouse.ico` in the executable.
 
+### Collapsed sidebar
+
+⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name. Clicks and right-click menus work as in the full sidebar. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
+
 ### Slash commands
 
 Type `/` in the message box for Pi's skills (`/skill:name`) and prompt templates, plus `/compact [instructions]`, `/new` and `/reload`. ↑↓ choose, Tab or Enter picks, Esc closes. Skills and templates come from Pi's `get_commands`, so they are the ones Pi finds for that worktree; Pi expands them, and the chat shows the command as you typed it. `/compact` and `/new` run Pi's `compact` and `new_session` RPC commands. RPC mode has no reload, so `/reload` restarts the worktree's Pi on the same session; use it after changing Pi's settings, skills, extensions or `mcp.json`.

@@ -30,6 +30,8 @@ pub struct DiffPanel {
     revision: u64,
     pending_scroll: Option<String>,
     pub full_screen: bool,
+    /// See `ChatView::sidebar_lead`.
+    pub sidebar_lead: Option<Pixels>,
     /// The panel's width when last painted; see `render`.
     width: std::rc::Rc<std::cell::Cell<Pixels>>,
 }
@@ -56,6 +58,7 @@ impl DiffPanel {
             revision: 0,
             pending_scroll: None,
             full_screen: false,
+            sidebar_lead: None,
             width: Default::default(),
         };
         this.reload(cx);
@@ -164,6 +167,9 @@ impl Render for DiffPanel {
                     .flex_none()
                     .gap_2()
                     .px_2()
+                    .when_some(self.sidebar_lead, |this, lead| {
+                        this.pl(lead).child(super::sidebar_toggle("diff-sidebar"))
+                    })
                     .border_b_1()
                     .border_color(p.surface0)
                     .text_size(px(13.))

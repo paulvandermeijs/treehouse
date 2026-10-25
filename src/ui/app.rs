@@ -3,9 +3,7 @@
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{
-    ActiveTheme as _, IconName, Sizable as _, WindowExt as _, h_flex, v_flex,
-};
+use gpui_kit::component::{ActiveTheme as _, IconName, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -686,14 +684,37 @@ impl TreehouseApp {
         self.open_session(sessions[ix % sessions.len()].clone(), false, window, cx);
     }
 
-    fn render_empty(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_empty(
+        &self,
+        sidebar_lead: Option<Pixels>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let p = palette(cx);
+        v_flex()
+            .flex_1()
+            .h_full()
+            .bg(p.base)
+            .when_some(sidebar_lead, |this, lead| {
+                this.child(
+                    super::drags_window(h_flex().id("empty-top"))
+                        .h(px(super::BAR_HEIGHT))
+                        .flex_none()
+                        .pl(lead)
+                        .border_b_1()
+                        .border_color(p.surface0)
+                        .child(super::sidebar_toggle("empty-sidebar")),
+                )
+            })
+            .child(self.render_empty_body(cx))
+    }
+
+    fn render_empty_body(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         v_flex()
             .flex_1()
             .items_center()
             .justify_center()
             .gap_3()
-            .bg(p.base)
             .text_color(p.subtext0)
             .child(icon(IconName::FolderOpen).size(px(32.)))
             .child(
@@ -814,6 +835,40 @@ impl Render for TreehouseApp {
         };
         let full = self.dock_full && dock.is_some();
 
+        // The pane beside a collapsed sidebar carries its toggle on macOS;
+        // see `sidebar::render_rail`.
+        let lead = (!self.sidebar_open)
+            .then(|| super::rail_lead(window))
+            .flatten();
+        let beside = if full {
+            match &self.dock {
+                Some(Dock::Diff(panel)) => panel.entity_id(),
+                Some(Dock::Session(chat)) => chat.entity_id(),
+                None => unreachable!(),
+            }
+        } else {
+            match &self.main {
+                Some(chat) => chat.entity_id(),
+                None => cx.entity_id(),
+            }
+        };
+        for chat in self.chats.values() {
+            let lead = lead.filter(|_| chat.entity_id() == beside);
+            chat.update(cx, |chat, _| chat.sidebar_lead = lead);
+        }
+        match &self.dock {
+            Some(Dock::Diff(panel)) => {
+                let lead = lead.filter(|_| panel.entity_id() == beside);
+                panel.update(cx, |panel, _| panel.sidebar_lead = lead);
+            }
+            Some(Dock::Session(chat)) => {
+                let lead = lead.filter(|_| chat.entity_id() == beside);
+                chat.update(cx, |chat, _| chat.sidebar_lead = lead);
+            }
+            None => {}
+        }
+        let empty_lead = lead.filter(|_| beside == cx.entity_id());
+
         h_flex()
             .id("treehouse")
             .track_focus(&self.focus_handle)
@@ -826,35 +881,7 @@ impl Render for TreehouseApp {
                 this.child(sidebar::render(self, window, cx))
             })
             .when(!self.sidebar_open, |this| {
-                this.child(
-                    // The rail keeps the toggle exactly where the sidebar's
-                    // top bar has it, so it doesn't move under the pointer.
-                    v_flex()
-                        .h_full()
-                        .flex_none()
-                        .border_r_1()
-                        .border_color(p.surface0)
-                        .bg(p.mantle)
-                        .child(
-                            super::drags_window(h_flex().id("rail-top"))
-                                .h(px(super::BAR_HEIGHT))
-                                .flex_none()
-                                .px_2()
-                                .pl(px(8. + super::traffic_lights(window)))
-                                .border_b_1()
-                                .border_color(p.surface0)
-                                .child(
-                                    Button::new("show-sidebar")
-                                        .ghost()
-                                        .small()
-                                        .icon(icon(IconName::PanelLeft))
-                                        .tooltip_with_action("Toggle sidebar", &ToggleSidebar, None)
-                                        .on_click(|_, window, cx| {
-                                            window.dispatch_action(Box::new(ToggleSidebar), cx)
-                                        }),
-                                ),
-                        ),
-                )
+                this.child(sidebar::render_rail(self, lead.is_some(), cx))
             })
             .child(
                 h_flex()
@@ -865,7 +892,7 @@ impl Render for TreehouseApp {
                         Some(chat) => {
                             this.child(div().flex_1().min_w_0().h_full().child(chat.clone()))
                         }
-                        None => this.child(self.render_empty(cx)),
+                        None => this.child(self.render_empty(empty_lead, cx)),
                     })
                     .when_some(dock, |this, dock| {
                         this.child(

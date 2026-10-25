@@ -55,6 +55,9 @@ pub struct ChatView {
     scroll: ScrollHandle,
     follow_tail: bool,
     pub in_dock: bool,
+    /// Set when this pane sits beside the collapsed sidebar on macOS: the top
+    /// bar then starts with the sidebar toggle, this far in.
+    pub sidebar_lead: Option<Pixels>,
     /// The session open in the right dock, for card selection.
     pub docked_session: Option<EntityId>,
     pub diff_open: bool,
@@ -138,6 +141,7 @@ impl ChatView {
             scroll: ScrollHandle::new(),
             follow_tail: true,
             in_dock: false,
+            sidebar_lead: None,
             docked_session: None,
             diff_open: false,
             initials: initials.into(),
@@ -412,15 +416,20 @@ impl ChatView {
             .gap_2()
             // The read-only button sits as close to the edge as the diff button
             // on the right.
-            .pl(px(if self.in_dock || is_subagent || untrusted {
-                8.
-            } else {
-                16.
-            }))
+            .pl(self
+                .sidebar_lead
+                .unwrap_or(px(if self.in_dock || is_subagent || untrusted {
+                    8.
+                } else {
+                    16.
+                })))
             .pr_2()
             .border_b_1()
             .border_color(p.surface0)
             .text_size(px(13.))
+            .when(self.sidebar_lead.is_some(), |this| {
+                this.child(super::sidebar_toggle("chat-sidebar"))
+            })
             .when(self.in_dock, |this| {
                 this.child(
                     Button::new("dock-full")
