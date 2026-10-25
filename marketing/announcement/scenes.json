@@ -9,55 +9,77 @@
     "h": 775,
     "r": 14
   },
+  "narration": {
+    "voice_id": "MFZUKuGQUsGJPQjTS4wC",
+    "model_id": "eleven_multilingual_v2",
+    "settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    },
+    "lead": 0.5,
+    "tail": 0.7
+  },
+  "music": {
+    "prompt": "Calm, minimal ambient electronic background for a software product video. Soft warm synth pads, gentle plucked arpeggio, light pulse, no drums, no vocals. Unobtrusive, steady, 90 bpm.",
+    "seconds": 70,
+    "volume": 0.12
+  },
   "scenes": [
     {
       "id": "title",
       "kind": "title",
       "headline": "Every agent deserves its own branch.",
-      "hold": 3.5
+      "hold": 3.5,
+      "voice": "Meet Treehouse: every coding agent gets its own branch."
     },
     {
       "id": "worktrees",
       "kind": "chapter",
       "label": "01 Worktrees",
       "headline": "One chat, one worktree.",
-      "sub": "Every branch gets its own folder and its own Pi agent."
+      "sub": "Every branch gets its own folder and its own Pi agent.",
+      "voice": "Each chat runs a Pi agent in its own git worktree, so agents never step on each other's changes."
     },
     {
       "id": "approval",
       "kind": "chapter",
       "label": "02 Approvals",
       "headline": "You decide what runs.",
-      "sub": "Commands wait for Run, Always allow or Deny."
+      "sub": "Commands wait for Run, Always allow or Deny.",
+      "voice": "Nothing runs without you. Commands wait until you run, always allow, or deny them."
     },
     {
       "id": "subagents",
       "kind": "chapter",
       "label": "03 Sub-agents",
       "headline": "Hand off the side quests.",
-      "sub": "Pi starts helpers you can open, steer and stop."
+      "sub": "Pi starts helpers you can open, steer and stop.",
+      "voice": "Pi can hand side quests to sub-agents. Open one to follow along, steer it, or stop it."
     },
     {
       "id": "diff",
       "kind": "chapter",
       "label": "04 Diff",
       "headline": "Review before you merge.",
-      "sub": "Each worktree's changes, unified or side by side."
+      "sub": "Each worktree's changes, unified or side by side.",
+      "voice": "When the work is done, review each worktree's changes, unified or side by side."
     },
     {
       "id": "trust",
       "kind": "chapter",
       "label": "05 Trust",
       "headline": "New projects start read-only.",
-      "sub": "Trust a folder once. Pi in your terminal sees it too."
+      "sub": "Trust a folder once. Pi in your terminal sees it too.",
+      "voice": "New projects start read-only, until you choose to trust them."
     },
     {
       "id": "end",
       "kind": "end",
       "headline": "Treehouse",
       "sub": "Run Pi coding agents in git worktrees.",
-      "foot": "Open source · Rust + GPUI",
-      "hold": 4
+      "foot": "Open source \u00b7 Rust + GPUI",
+      "hold": 4,
+      "voice": "Treehouse. Open source, and built in Rust."
     }
   ]
 }

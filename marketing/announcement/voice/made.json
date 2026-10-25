@@ -1,0 +1,62 @@
+{
+  "title": {
+    "text": "Meet Treehouse: every coding agent gets its own branch.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "worktrees": {
+    "text": "Each chat runs a Pi agent in its own git worktree, so agents never step on each other's changes.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "approval": {
+    "text": "Nothing runs without you. Commands wait until you run, always allow, or deny them.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "subagents": {
+    "text": "Pi can hand side quests to sub-agents. Open one to follow along, steer it, or stop it.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "diff": {
+    "text": "When the work is done, review each worktree's changes, unified or side by side.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "trust": {
+    "text": "New projects start read-only, until you choose to trust them.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "end": {
+    "text": "Treehouse. Open source, and built in Rust.",
+    "model_id": "eleven_multilingual_v2",
+    "voice_settings": {
+      "stability": 0.5,
+      "similarity_boost": 0.75
+    }
+  },
+  "music": {
+    "prompt": "Calm, minimal ambient electronic background for a software product video. Soft warm synth pads, gentle plucked arpeggio, light pulse, no drums, no vocals. Unobtrusive, steady, 90 bpm.",
+    "music_length_ms": 70000
+  }
+}
