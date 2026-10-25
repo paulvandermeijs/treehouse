@@ -1,5 +1,6 @@
 //! Application actions and their key bindings.
 
+use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::{App, KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
 
 actions!(
@@ -79,6 +80,15 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("tab", SlashAccept, Some("SlashMenu > Input")),
         KeyBinding::new("enter", SlashAccept, Some("SlashMenu > Input")),
         KeyBinding::new("escape", SlashDismiss, Some("SlashMenu > Input")),
+        // Ctrl-N and Ctrl-P move through lists, as in a terminal or Emacs.
+        // On Linux and Windows they beat New worktree and the switcher while
+        // a list has focus.
+        KeyBinding::new("ctrl-p", SlashUp, Some("SlashMenu > Input")),
+        KeyBinding::new("ctrl-n", SlashDown, Some("SlashMenu > Input")),
+        KeyBinding::new("ctrl-p", SelectUp, Some("Command > Input")),
+        KeyBinding::new("ctrl-n", SelectDown, Some("Command > Input")),
+        KeyBinding::new("ctrl-p", SelectUp, Some("Command")),
+        KeyBinding::new("ctrl-n", SelectDown, Some("Command")),
         // ⌘⏎ in the switcher opens the pick in the right dock, as ⌘-click
         // does in the sidebar. More specific than the search field's own.
         KeyBinding::new("secondary-enter", OpenInDock, Some("Command > Input")),
