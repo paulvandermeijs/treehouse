@@ -33,6 +33,10 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 - **Linux:** X11 windows get the icon directly. Wayland docks look it up through the desktop file: copy `assets/linux/treehouse.desktop` to `~/.local/share/applications/` and `assets/icon/png/256x256.png` to `~/.local/share/icons/hicolor/256x256/apps/treehouse.png`. `cargo bundle --release` also builds a `.deb` with both.
 - **Windows:** `build.rs` embeds `treehouse.ico` in the executable.
 
+### Command palette and switcher
+
+⌘K (Ctrl+K) opens the command palette. ⌘P (Ctrl+P) opens a switcher with every worktree and sub-agent: type a few letters of a branch, sub-agent or project ("fdv" finds feat/diff-view) and press Enter to open it.
+
 ### Status cards
 
 Hovering a worktree or sub-agent, in the sidebar or the collapsed rail, opens a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or when it was last active, plus the worktree's diff stat or the sub-agent's tool calls.

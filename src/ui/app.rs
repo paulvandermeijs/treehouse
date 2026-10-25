@@ -47,6 +47,7 @@ pub struct TreehouseApp {
     /// Undecided projects whose trust prompt was shown this run.
     trust_asked: std::collections::HashSet<PathBuf>,
     palette_state: Entity<CommandState>,
+    switcher_state: Entity<CommandState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -87,6 +88,7 @@ impl TreehouseApp {
             chats: HashMap::new(),
             trust_asked: Default::default(),
             palette_state: cx.new(|cx| CommandState::new(window, cx)),
+            switcher_state: cx.new(|cx| CommandState::new(window, cx)),
             _subscriptions: subscriptions,
         };
         let first = this
@@ -680,27 +682,6 @@ impl TreehouseApp {
         self.main.as_ref().map(|chat| chat.read(cx).session.clone())
     }
 
-    fn switch_worktree(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        // Cycle to the next worktree; the palette lists them by name too.
-        let sessions: Vec<Entity<Session>> = self
-            .workspace
-            .read(cx)
-            .projects
-            .iter()
-            .flat_map(|p| p.worktrees.iter().map(|w| w.session.clone()))
-            .collect();
-        if sessions.is_empty() {
-            return;
-        }
-        let current = self.main_session_id(cx);
-        let ix = sessions
-            .iter()
-            .position(|s| Some(s.entity_id()) == current)
-            .map(|i| i + 1)
-            .unwrap_or(0);
-        self.open_session(sessions[ix % sessions.len()].clone(), false, window, cx);
-    }
-
     fn render_empty(
         &self,
         sidebar_lead: Option<Pixels>,
@@ -787,7 +768,13 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
         app.prompt_new_worktree(None, window, cx)
     });
     route::<SwitchWorktree>(window, app.clone(), cx, |app, window, cx| {
-        app.switch_worktree(window, cx)
+        command_palette::open_switcher(
+            &app.switcher_state,
+            app.workspace.clone(),
+            cx.entity().downgrade(),
+            window,
+            cx,
+        )
     });
     route::<ShowDiff>(window, app.clone(), cx, |app, window, cx| {
         app.show_diff(window, cx)

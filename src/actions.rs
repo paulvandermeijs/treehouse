@@ -41,7 +41,7 @@ pub const SHORTCUTS: [(&str, &str); 9] = [
     ("Toggle sidebar", "secondary-b"),
     ("Full-screen right dock", "secondary-shift-f"),
     ("Stop agent", "secondary-."),
-    ("Switch worktree", "secondary-p"),
+    ("Go to worktree or sub-agent", "secondary-p"),
 ];
 
 pub fn init(cx: &mut App) {
@@ -108,7 +108,7 @@ fn menus() -> Vec<Menu> {
         Menu::new("File").items([
             MenuItem::action("Open Project…", OpenProject),
             MenuItem::action("New Worktree", NewWorktree),
-            MenuItem::action("Switch Worktree…", SwitchWorktree),
+            MenuItem::action("Go to Worktree or Sub-agent…", SwitchWorktree),
         ]),
         Menu::new("Edit").items([
             MenuItem::os_action("Undo", Undo, OsAction::Undo),

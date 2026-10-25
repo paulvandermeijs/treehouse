@@ -39,6 +39,7 @@ gpui_kit::assets::icon_assets!(
         Lock,
         ShieldAlert,
         TriangleAlert,
+        Expand,
     ]
 );
 
