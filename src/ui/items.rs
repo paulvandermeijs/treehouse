@@ -111,6 +111,19 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
     }
 }
 
+/// A command's exit code: green when it succeeded, red when it didn't.
+fn exit_pill(ok: bool, label: String, p: &Palette) -> Div {
+    div()
+        .flex_none()
+        .px(px(6.))
+        .rounded(px(4.))
+        .text_size(px(11.5))
+        .font_family(MONO)
+        .bg(mix(if ok { p.green } else { p.red }, p.base, 0.16))
+        .text_color(if ok { p.add } else { p.delete })
+        .child(label)
+}
+
 /// The badge that stands in for the avatar on `!` commands.
 pub fn shell_badge(p: &Palette) -> Div {
     div()
@@ -135,8 +148,6 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
     let mut meta = Vec::new();
     if run.cancelled {
         meta.push("stopped".to_string());
-    } else if let Some(code) = run.exit_code {
-        meta.push(format!("exit {code}"));
     }
     if !run.running {
         meta.push(format_duration(duration));
@@ -149,7 +160,6 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
             .to_string(),
         );
     }
-    let failed = run.exit_code.is_some_and(|code| code != 0);
     let session = view.session.clone();
     h_flex()
         .id(("shell", run.id.0))
@@ -185,12 +195,14 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                 .text_ellipsis()
                                 .whitespace_nowrap(),
                         )
+                        .when_some(run.exit_code.filter(|_| !run.cancelled), |this, code| {
+                            this.child(exit_pill(code == 0, format!("exit {code}"), &p))
+                        })
                         .when(!meta.is_empty(), |this| {
                             this.child(
                                 div()
                                     .flex_none()
-                                    .text_size(px(12.))
-                                    .when(failed, |this| this.text_color(p.delete))
+                                    .text_size(px(12.5))
                                     .child(meta.join(" · ")),
                             )
                         })
@@ -808,20 +820,15 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             Some(
                 h_flex()
                     .gap_2()
-                    .child(
-                        div()
-                            .px(px(6.))
-                            .rounded(px(4.))
-                            .text_size(px(11.5))
-                            .font_family(MONO)
-                            .bg(mix(if ok { p.green } else { p.red }, p.base, 0.16))
-                            .text_color(if ok { p.add } else { p.delete })
-                            .child(if timed_out {
-                                "timed out".to_string()
-                            } else {
-                                format!("exit {code}")
-                            }),
-                    )
+                    .child(exit_pill(
+                        ok,
+                        if timed_out {
+                            "timed out".to_string()
+                        } else {
+                            format!("exit {code}")
+                        },
+                        &p,
+                    ))
                     .when_some(tool.duration, |this, d| this.child(format_duration(d)))
                     .into_any_element(),
             )
