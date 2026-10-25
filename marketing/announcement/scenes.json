@@ -1,0 +1,56 @@
+{
+  "fps": 30,
+  "width": 1920,
+  "height": 1080,
+  "scenes": [
+    {
+      "id": "title",
+      "kind": "title",
+      "headline": "Every agent deserves its own branch.",
+      "hold": 3.5
+    },
+    {
+      "id": "worktrees",
+      "kind": "chapter",
+      "label": "01 Worktrees",
+      "headline": "One chat, one worktree.",
+      "sub": "Every branch gets its own folder and its own Pi agent."
+    },
+    {
+      "id": "approval",
+      "kind": "chapter",
+      "label": "02 Approvals",
+      "headline": "You decide what runs.",
+      "sub": "Commands wait for Run, Always allow or Deny."
+    },
+    {
+      "id": "subagents",
+      "kind": "chapter",
+      "label": "03 Sub-agents",
+      "headline": "Hand off the side quests.",
+      "sub": "Pi starts helpers you can open, steer and stop."
+    },
+    {
+      "id": "diff",
+      "kind": "chapter",
+      "label": "04 Diff",
+      "headline": "Review before you merge.",
+      "sub": "Each worktree's changes, unified or side by side."
+    },
+    {
+      "id": "trust",
+      "kind": "chapter",
+      "label": "05 Trust",
+      "headline": "New projects start read-only.",
+      "sub": "Trust a folder once. Pi in your terminal sees it too."
+    },
+    {
+      "id": "end",
+      "kind": "end",
+      "headline": "Treehouse",
+      "sub": "Run Pi coding agents in git worktrees.",
+      "foot": "Open source · Rust + GPUI",
+      "hold": 4
+    }
+  ]
+}
