@@ -17,8 +17,8 @@ use std::path::PathBuf;
 use super::items::{GUTTER, avatar, render_items};
 use super::{BAR_HEIGHT, icon};
 use crate::actions::{
-    FullScreenDock, ScrollHalfPageDown, ScrollHalfPageUp, ScrollPageDown, ScrollPageUp, ShowDiff,
-    SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
+    FullScreenDock, ScrollHalfPageDown, ScrollHalfPageUp, ScrollPageDown, ScrollPageUp,
+    ScrollToEnd, ShowDiff, SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
 };
 use crate::config::{Config, THINKING_LEVELS};
 use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
@@ -55,6 +55,12 @@ pub struct ChatView {
     toggled: HashSet<ItemId>,
     scroll: ScrollHandle,
     follow_tail: bool,
+    /// Where each history row was last painted, to count those below the
+    /// view for the jump-to-latest box.
+    row_bounds: std::rc::Rc<std::cell::RefCell<Vec<Bounds<Pixels>>>>,
+    /// How many transcript items there were when the chat stopped
+    /// following, to count what arrived since.
+    left_at: Option<usize>,
     pub in_dock: bool,
     /// Set when this pane sits beside the collapsed sidebar on macOS: the top
     /// bar then starts with the sidebar toggle, this far in.
@@ -144,6 +150,8 @@ impl ChatView {
             toggled: HashSet::new(),
             scroll,
             follow_tail: true,
+            row_bounds: Default::default(),
+            left_at: None,
             in_dock: false,
             sidebar_lead: None,
             docked_session: None,
@@ -179,6 +187,110 @@ impl ChatView {
     pub fn focus_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer
             .update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    /// Back to the end, following new output again.
+    fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
+        self.scroll.scroll_to_bottom();
+        self.follow_tail = true;
+        cx.notify();
+    }
+
+    /// The box over the history while it isn't following the end: what's
+    /// below, what's new since you scrolled away, and a way back.
+    fn render_jump(
+        &self,
+        items: usize,
+        rows_before: usize,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if self.follow_tail || self.scroll.max_offset().y <= px(1.) {
+            return None;
+        }
+        let p = palette(cx);
+        let bottom = self.scroll.bounds().bottom();
+        let below = self
+            .row_bounds
+            .borrow()
+            .iter()
+            .skip(rows_before)
+            .take(items)
+            .filter(|b| b.top() >= bottom)
+            .count();
+        let new = self
+            .left_at
+            .map(|at| self.session.read(cx).items().len().saturating_sub(at))
+            .unwrap_or(0);
+        let running = self.session.read(cx).is_running();
+        let sep = || div().w(px(1.)).h(px(14.)).bg(p.surface1);
+        let count = if new > 0 {
+            format!("{new} new below")
+        } else {
+            format!("{below} more below")
+        };
+        let pill = h_flex()
+            .id("jump-to-latest")
+            .h(px(28.))
+            .pl_3()
+            .pr(px(10.))
+            .gap_2()
+            .rounded_full()
+            .border_1()
+            .border_color(if new > 0 {
+                mix(p.blue, p.surface1, 0.6)
+            } else {
+                p.surface1
+            })
+            .bg(p.mantle)
+            .hover(|s| s.bg(p.surface0))
+            .shadow_lg()
+            .cursor_pointer()
+            .text_size(px(12.5))
+            .text_color(p.subtext1)
+            .when(running && new == 0, |this| {
+                this.child(
+                    gpui_kit::component::spinner::Spinner::new()
+                        .with_size(px(10.))
+                        .color(p.subtext1),
+                )
+                .child("Pi is working")
+                .child(sep())
+            })
+            .when(new > 0, |this| {
+                this.child(div().size(px(6.)).rounded_full().bg(p.blue))
+            })
+            .when(below > 0 || new > 0, |this| {
+                this.child(
+                    div()
+                        .font_medium()
+                        .text_color(if new > 0 { p.blue } else { p.text })
+                        .child(count),
+                )
+                .child(sep())
+            })
+            .child(
+                h_flex()
+                    .gap_1()
+                    .text_color(p.text)
+                    .child("Jump to latest")
+                    .child(icon(Lucide::ArrowDown).size(px(14.))),
+            )
+            .tooltip(|window, cx| {
+                gpui_kit::component::tooltip::Tooltip::new("Jump to latest")
+                    .action(&ScrollToEnd, None)
+                    .build(window, cx)
+            })
+            .on_click(cx.listener(|view, _, _, cx| view.jump_to_latest(cx)));
+        Some(
+            h_flex()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom(px(16.))
+                .justify_center()
+                .child(pill)
+                .into_any_element(),
+        )
     }
 
     /// Scrolls the chat by `pages` of its height, down when positive. A
@@ -978,6 +1090,13 @@ impl Render for ChatView {
         let p = palette(cx);
         let items = render_items(self, cx);
         let task = self.render_task(cx);
+        // What's new counts from when the chat stopped following.
+        if self.follow_tail {
+            self.left_at = None;
+        } else if self.left_at.is_none() {
+            self.left_at = Some(self.session.read(cx).items().len());
+        }
+        let jump = self.render_jump(items.len(), task.is_some() as usize, cx);
         let running = self.session.read(cx).is_running();
         let compacting = self.session.read(cx).is_compacting();
         let empty = items.is_empty() && task.is_none();
@@ -996,6 +1115,7 @@ impl Render for ChatView {
 
         v_flex()
             .key_context("ChatView")
+            .on_action(cx.listener(|view, _: &ScrollToEnd, _, cx| view.jump_to_latest(cx)))
             .on_action(cx.listener(|view, _: &ScrollPageUp, _, cx| view.scroll_by(-1.0, cx)))
             .on_action(cx.listener(|view, _: &ScrollPageDown, _, cx| view.scroll_by(1.0, cx)))
             .on_action(cx.listener(|view, _: &ScrollHalfPageUp, _, cx| view.scroll_by(-0.5, cx)))
@@ -1006,16 +1126,21 @@ impl Render for ChatView {
             .child(self.render_header(cx))
             .child(
                 div()
-                    .id("history")
+                    .relative()
                     .flex_1()
                     .min_h_0()
+                    .child(
+                div()
+                    .id("history")
+                    .size_full()
                     .track_scroll(&self.scroll)
                     .overflow_y_scroll()
                     .on_scroll_wheel(cx.listener(move |view, _, _, cx| {
                         let offset = view.scroll.offset().y;
                         let max = view.scroll.max_offset().y;
                         let at_bottom = (-offset - max).abs() < px(24.);
-                        if view.follow_tail != at_bottom {
+                        // While away from the end the box counts what's below.
+                        if view.follow_tail != at_bottom || !at_bottom {
                             view.follow_tail = at_bottom;
                             cx.notify();
                         }
@@ -1028,6 +1153,10 @@ impl Render for ChatView {
                             .max_w(px(780.))
                             .mx_auto()
                             .gap(px(14.))
+                            .on_children_prepainted({
+                                let rows = self.row_bounds.clone();
+                                move |bounds, _, _| *rows.borrow_mut() = bounds
+                            })
                             .children(task)
                             .children(items)
                             .when(running || compacting, |this| {
@@ -1097,6 +1226,24 @@ impl Render for ChatView {
                                 )
                             }),
                     ),
+                    )
+                    // A soft fade keeps the box readable over the history.
+                    .when(jump.is_some(), |this| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .left_0()
+                                .right_0()
+                                .bottom_0()
+                                .h(px(48.))
+                                .bg(linear_gradient(
+                                    180.,
+                                    linear_color_stop(p.base.opacity(0.), 0.),
+                                    linear_color_stop(p.base, 1.),
+                                )),
+                        )
+                    })
+                    .children(jump),
             )
             .child(self.render_composer(window, cx))
             .child(self.render_bar(cx))

@@ -41,6 +41,8 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 With the chat focused, Page Up and Page Down scroll it a page at a time, and Ctrl-U and Ctrl-D half a page, also while typing in the message box. Back at the end, the chat follows new output again.
 
+While you're scrolled up, a small box above the message box says how much is below ("14 more below"), and in Blue how much arrived since you scrolled away; with Pi still working it says so. Click it, or press ⌘↓ (Ctrl+End), to jump to the latest.
+
 ### Status cards
 
 Hovering a worktree or sub-agent, in the sidebar or the collapsed rail, opens a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or when it was last active, plus the worktree's diff stat or the sub-agent's tool calls.

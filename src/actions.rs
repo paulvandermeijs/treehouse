@@ -34,6 +34,7 @@ actions!(
         ScrollPageDown,
         ScrollHalfPageUp,
         ScrollHalfPageDown,
+        ScrollToEnd,
     ]
 );
 
@@ -49,6 +50,13 @@ pub const SHORTCUTS: [(&str, &str); 9] = [
     ("Stop agent", "secondary-."),
     ("Go to worktree or sub-agent", "secondary-p"),
 ];
+
+/// Jump to the end of the chat.
+const END: &str = if cfg!(target_os = "macos") {
+    "cmd-down"
+} else {
+    "ctrl-end"
+};
 
 pub fn init(cx: &mut App) {
     cx.bind_keys([
@@ -99,6 +107,8 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("pagedown", ScrollPageDown, Some("ChatView > Input")),
         KeyBinding::new("ctrl-u", ScrollHalfPageUp, Some("ChatView > Input")),
         KeyBinding::new("ctrl-d", ScrollHalfPageDown, Some("ChatView > Input")),
+        KeyBinding::new(END, ScrollToEnd, Some("ChatView > Input")),
+        KeyBinding::new(END, ScrollToEnd, Some("ChatView")),
         KeyBinding::new("pageup", ScrollPageUp, Some("ChatView")),
         KeyBinding::new("pagedown", ScrollPageDown, Some("ChatView")),
         KeyBinding::new("ctrl-u", ScrollHalfPageUp, Some("ChatView")),
