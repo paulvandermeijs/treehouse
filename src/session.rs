@@ -37,7 +37,12 @@ impl AgentStatus {
 #[derive(Clone, Debug)]
 pub enum SessionKind {
     Worktree,
-    SubAgent { title: SharedString, task: String },
+    SubAgent {
+        title: SharedString,
+        task: String,
+        /// The parent's `subagent` tool call that started it.
+        tool_call_id: String,
+    },
 }
 
 /// A tool call waiting for the user's decision.
@@ -134,10 +139,10 @@ impl Session {
             SessionKind::SubAgent { .. } => config.subagent_model.clone().or(config.model.clone()),
             SessionKind::Worktree => config.model.clone(),
         };
-        // A worktree's chat continues where it was left; sub-agents finished
-        // with the run that started them.
+        // A worktree's chat continues where it was left.
         let session_file = match &kind {
-            SessionKind::Worktree => crate::history::session_file(&cwd),
+            SessionKind::Worktree => crate::history::saved(&cwd).map(|saved| saved.file),
+            // Set by the workspace when it restores one.
             SessionKind::SubAgent { .. } => None,
         };
         Self {
@@ -241,6 +246,12 @@ impl Session {
     /// Shows the saved session's chat. Done when the chat is first opened or
     /// Pi starts, rather than for every worktree at launch, since session
     /// files can be large.
+    /// Continues a saved session: shown once the chat is opened, resumed
+    /// once Pi starts.
+    pub fn resume(&mut self, file: PathBuf) {
+        self.session_file = Some(file);
+    }
+
     pub fn restore_history(&mut self, cx: &mut Context<Self>) {
         if std::mem::replace(&mut self.restored, true) {
             return;
@@ -256,6 +267,17 @@ impl Session {
             .filter(|e| e["message"]["role"] == "assistant")
             .find_map(|e| e["message"]["usage"]["totalTokens"].as_u64())
             .filter(|tokens| *tokens > 0);
+        // "Task from Pi · 12m ago" and sub-agent cards count from the start.
+        if let Some(first) = entries
+            .iter()
+            .find_map(|e| e["message"]["timestamp"].as_u64())
+        {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let ago = now.saturating_sub(std::time::Duration::from_millis(first));
+            self.started = Instant::now().checked_sub(ago).unwrap_or(self.started);
+        }
         // Until Pi starts, show the model the chat last used rather than the
         // default: a default like `z-ai/glm-5.3-flash` can resolve to another
         // provider in Pi, which only the session records.
@@ -677,8 +699,21 @@ impl Session {
             "get_state" => {
                 if let Some(file) = data.get("sessionFile").and_then(Value::as_str) {
                     let file = PathBuf::from(file);
-                    if matches!(self.kind, SessionKind::Worktree) {
-                        crate::history::remember(&self.cwd, &file);
+                    match &self.kind {
+                        SessionKind::Worktree => crate::history::remember(&self.cwd, &file),
+                        SessionKind::SubAgent {
+                            title,
+                            task,
+                            tool_call_id,
+                        } => crate::history::remember_subagent(
+                            &self.cwd,
+                            crate::history::SavedSubAgent {
+                                tool_call_id: tool_call_id.clone(),
+                                file: file.clone(),
+                                title: title.to_string(),
+                                task: task.clone(),
+                            },
+                        ),
                     }
                     self.session_file = Some(file);
                 }

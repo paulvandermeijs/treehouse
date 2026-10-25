@@ -85,7 +85,7 @@ class Recorder:
             elif ev["type"] == "thinking_end":
                 self.content.append({"type": "thinking", "thinking": ev["content"]})
             elif ev["type"] == "toolcall_end":
-                self.content.append(ev["toolCall"])
+                self.content.append({"type": "toolCall", **ev["toolCall"]})
         elif kind == "message_end":
             message = dict(obj["message"])
             if message.get("role") == "assistant":

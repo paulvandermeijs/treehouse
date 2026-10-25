@@ -39,7 +39,7 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ### Chat history
 
-Each worktree's chat comes back when you restart Treehouse. Pi saves every session as a file in Treehouse's data folder; Treehouse remembers which file belongs to which worktree (`sessions.json` there) and shows the chat again when you open the worktree. Your next message continues the same Pi session, so Pi has the whole conversation. `/new` starts a new session, which is the one that comes back from then on. Sub-agents from before the restart show as finished cards with their report.
+Each worktree's chat comes back when you restart Treehouse. Pi saves every session as a file in Treehouse's data folder; Treehouse remembers which file belongs to which worktree (`sessions.json` there, with its sub-agents) and shows the chat again when you open the worktree. Your next message continues the same Pi session, so Pi has the whole conversation. `/new` starts a new session, which is the one that comes back from then on. Sub-agents come back too, under their worktree in the sidebar and as cards in the chat, with their own chat; you can keep talking to one, though its parent already has its report. Only the sub-agents of the worktree's current session come back. A chat with nothing but `!` commands isn't saved: Pi writes a session file once it has a message.
 
 ### Slash commands
 

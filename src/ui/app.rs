@@ -170,7 +170,23 @@ impl TreehouseApp {
         if let Some(chat) = self.chats.get(&session.entity_id()) {
             return chat.clone();
         }
-        session.update(cx, |session, cx| session.restore_history(cx));
+        // A restored sub-agent's card counts its tool calls, so its chat comes
+        // back with its parent's.
+        let children: Vec<Entity<Session>> = self
+            .workspace
+            .read(cx)
+            .worktree_of(session.entity_id())
+            .map(|w| {
+                w.subagents
+                    .iter()
+                    .filter(|s| s.parent == session)
+                    .map(|s| s.session.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for session in children.iter().chain([&session]) {
+            session.update(cx, |session, cx| session.restore_history(cx));
+        }
         let workspace = self.workspace.clone();
         let chat = cx.new(|cx| ChatView::new(session.clone(), workspace, window, cx));
         self._subscriptions

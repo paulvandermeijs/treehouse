@@ -166,16 +166,57 @@ impl Workspace {
             session
         });
         let subscription = cx.subscribe(&session, Self::on_session_event);
+        let subagents = Self::restore_subagents(&session, &path, project, trusted, cx);
         Worktree {
             path,
             branch: branch.into(),
             base,
             is_main,
             session,
-            subagents: Vec::new(),
+            subagents,
             stat: DiffStat::default(),
             _subscription: subscription,
         }
+    }
+
+    /// The sub-agents the worktree's saved session started, back as they
+    /// were once finished: their own chat, with nothing left to report.
+    fn restore_subagents(
+        parent: &Entity<Session>,
+        worktree: &Path,
+        project: &Path,
+        trusted: bool,
+        cx: &mut Context<Self>,
+    ) -> Vec<SubAgent> {
+        let Some(saved) = crate::history::saved(worktree) else {
+            return Vec::new();
+        };
+        saved
+            .subagents
+            .into_iter()
+            .map(|saved| {
+                let kind = SessionKind::SubAgent {
+                    title: saved.title.into(),
+                    task: saved.task,
+                    tool_call_id: saved.tool_call_id.clone(),
+                };
+                let session = cx.new(|cx| {
+                    let mut session =
+                        Session::new(kind, worktree.to_path_buf(), project.to_path_buf(), cx);
+                    session.trusted = trusted;
+                    session.resume(saved.file);
+                    session
+                });
+                SubAgent {
+                    _subscription: cx.subscribe(&session, Self::on_session_event),
+                    session,
+                    parent: parent.clone(),
+                    request_id: String::new(),
+                    tool_call_id: saved.tool_call_id,
+                    reported: true,
+                }
+            })
+            .collect()
     }
 
     /// Creates a worktree with a new branch and runs the setup command.
@@ -349,6 +390,7 @@ impl Workspace {
                 let kind = SessionKind::SubAgent {
                     title: title.clone().into(),
                     task: task.clone(),
+                    tool_call_id: tool_call_id.clone(),
                 };
                 // Without a sub-agent model setting, a sub-agent uses whatever
                 // its parent runs on, including a model picked in the chat.
