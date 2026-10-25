@@ -470,7 +470,7 @@ pub fn render_rail(
                             .absolute()
                             // As far from the dots as the space allows; full
                             // height, like the expanded sidebar's guide.
-                            .left(px(3.))
+                            .left(px(4.))
                             .top_0()
                             .bottom_0()
                             .w(px(1.))
