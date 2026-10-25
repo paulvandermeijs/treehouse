@@ -410,7 +410,13 @@ impl ChatView {
             .h(px(BAR_HEIGHT))
             .flex_none()
             .gap_2()
-            .pl(px(if self.in_dock || is_subagent { 8. } else { 16. }))
+            // The read-only button sits as close to the edge as the diff button
+            // on the right.
+            .pl(px(if self.in_dock || is_subagent || untrusted {
+                8.
+            } else {
+                16.
+            }))
             .pr_2()
             .border_b_1()
             .border_color(p.surface0)
@@ -442,6 +448,7 @@ impl ChatView {
                     h_flex()
                         .id("not-trusted")
                         .flex_none()
+                        .mr(px(6.))
                         .h(px(26.))
                         .gap(px(6.))
                         .pl_2()
