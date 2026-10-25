@@ -37,6 +37,10 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 
 ⌘K (Ctrl+K) opens the command palette. ⌘P (Ctrl+P) opens a switcher with every worktree and sub-agent: type a few letters of a branch, sub-agent or project ("fdv" finds feat/diff-view) and press Enter to open it, or ⌘Enter (Ctrl+Enter) to open it in the right dock. In the palette, the switcher and the slash menu, Ctrl-N and Ctrl-P move down and up as the arrow keys do.
 
+### Scrolling the chat
+
+With the chat focused, Page Up and Page Down scroll it a page at a time, and Ctrl-U and Ctrl-D half a page, also while typing in the message box. Back at the end, the chat follows new output again.
+
 ### Status cards
 
 Hovering a worktree or sub-agent, in the sidebar or the collapsed rail, opens a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or when it was last active, plus the worktree's diff stat or the sub-agent's tool calls.

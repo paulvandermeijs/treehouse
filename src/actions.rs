@@ -30,6 +30,10 @@ actions!(
         SlashAccept,
         SlashDismiss,
         OpenInDock,
+        ScrollPageUp,
+        ScrollPageDown,
+        ScrollHalfPageUp,
+        ScrollHalfPageDown,
     ]
 );
 
@@ -89,6 +93,16 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("ctrl-n", SelectDown, Some("Command > Input")),
         KeyBinding::new("ctrl-p", SelectUp, Some("Command")),
         KeyBinding::new("ctrl-n", SelectDown, Some("Command")),
+        // The chat scrolls from the keyboard while its message box has focus:
+        // the box's own Page Up/Down and Ctrl-D give way.
+        KeyBinding::new("pageup", ScrollPageUp, Some("ChatView > Input")),
+        KeyBinding::new("pagedown", ScrollPageDown, Some("ChatView > Input")),
+        KeyBinding::new("ctrl-u", ScrollHalfPageUp, Some("ChatView > Input")),
+        KeyBinding::new("ctrl-d", ScrollHalfPageDown, Some("ChatView > Input")),
+        KeyBinding::new("pageup", ScrollPageUp, Some("ChatView")),
+        KeyBinding::new("pagedown", ScrollPageDown, Some("ChatView")),
+        KeyBinding::new("ctrl-u", ScrollHalfPageUp, Some("ChatView")),
+        KeyBinding::new("ctrl-d", ScrollHalfPageDown, Some("ChatView")),
         // ⌘⏎ in the switcher opens the pick in the right dock, as ⌘-click
         // does in the sidebar. More specific than the search field's own.
         KeyBinding::new("secondary-enter", OpenInDock, Some("Command > Input")),

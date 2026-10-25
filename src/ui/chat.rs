@@ -17,7 +17,8 @@ use std::path::PathBuf;
 use super::items::{GUTTER, avatar, render_items};
 use super::{BAR_HEIGHT, icon};
 use crate::actions::{
-    FullScreenDock, ShowDiff, SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
+    FullScreenDock, ScrollHalfPageDown, ScrollHalfPageUp, ScrollPageDown, ScrollPageUp, ShowDiff,
+    SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
 };
 use crate::config::{Config, THINKING_LEVELS};
 use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
@@ -178,6 +179,28 @@ impl ChatView {
     pub fn focus_composer(&self, window: &mut Window, cx: &mut Context<Self>) {
         self.composer
             .update(cx, |state, cx| state.focus(window, cx));
+    }
+
+    /// Scrolls the chat by `pages` of its height, down when positive. A
+    /// whole page keeps a line of the old one in view.
+    fn scroll_by(&mut self, pages: f32, cx: &mut Context<Self>) {
+        let height = self.scroll.bounds().size.height;
+        let step = if pages.abs() >= 1.0 {
+            (height - px(48.)).max(px(48.)) * pages.abs()
+        } else {
+            height * pages.abs()
+        };
+        let max = self.scroll.max_offset().y;
+        let offset = self.scroll.offset();
+        let y = if pages > 0. {
+            (offset.y - step).max(-max)
+        } else {
+            (offset.y + step).min(px(0.))
+        };
+        self.scroll.set_offset(point(offset.x, y));
+        // Paging back down to the end follows new output again.
+        self.follow_tail = (y + max).abs() < px(24.);
+        cx.notify();
     }
 
     pub fn is_expanded(&self, id: ItemId, default: bool) -> bool {
@@ -972,6 +995,11 @@ impl Render for ChatView {
         }
 
         v_flex()
+            .key_context("ChatView")
+            .on_action(cx.listener(|view, _: &ScrollPageUp, _, cx| view.scroll_by(-1.0, cx)))
+            .on_action(cx.listener(|view, _: &ScrollPageDown, _, cx| view.scroll_by(1.0, cx)))
+            .on_action(cx.listener(|view, _: &ScrollHalfPageUp, _, cx| view.scroll_by(-0.5, cx)))
+            .on_action(cx.listener(|view, _: &ScrollHalfPageDown, _, cx| view.scroll_by(0.5, cx)))
             .size_full()
             .min_w_0()
             .bg(p.base)
