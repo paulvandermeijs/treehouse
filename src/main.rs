@@ -53,10 +53,20 @@ fn main() {
                 icon: window_icon(),
                 ..Default::default()
             };
-            gpui_kit::open_window(options, cx, |window, cx| {
+            let (main, _) = gpui_kit::open_window(options, cx, |window, cx| {
                 cx.new(|cx| ui::TreehouseApp::new(window, cx))
             })
             .expect("failed to open the Treehouse window");
+            // GPUI keeps the app running without windows, and Treehouse has
+            // no way to open its window again, so closing it quits. The
+            // About window can close on its own.
+            let main = main.window_id();
+            cx.on_window_closed(move |cx, closed| {
+                if closed == main {
+                    cx.quit();
+                }
+            })
+            .detach();
             cx.activate(true);
         });
 }
