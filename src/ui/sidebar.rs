@@ -143,53 +143,58 @@ pub fn render(
             let has_kids = !worktree.subagents.is_empty();
             let expanded = has_kids && !app.is_collapsed(Fold::Worktree, &worktree.path);
             let path = worktree.path.clone();
+            let trigger = row(
+                SharedString::from(format!("worktree:{}", path.display())),
+                open_state(&session, main, docked),
+                &p,
+            )
+            .child(
+                div()
+                    .id(SharedString::from(format!("chevron:{}", path.display())))
+                    .size(px(16.))
+                    .flex_none()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_color(p.subtext0)
+                    .when(has_kids, |this| {
+                        let path = path.clone();
+                        this.child(
+                            icon(if expanded {
+                                IconName::ChevronDown
+                            } else {
+                                IconName::ChevronRight
+                            })
+                            .size(px(14.)),
+                        )
+                        .on_click(cx.listener(move |app, _, _, cx| {
+                            cx.stop_propagation();
+                            app.toggle_collapsed(Fold::Worktree, path.clone(), cx);
+                        }))
+                    }),
+            )
+            .child(label(worktree.branch.clone()))
+            .child(status_dot(worktree.status(cx), cx))
+            .on_click(cx.listener({
+                let session = session.clone();
+                move |app, event: &ClickEvent, window, cx| {
+                    app.open_session(session.clone(), event.modifiers().secondary(), window, cx)
+                }
+            }))
+            .context_menu(worktree_menu(
+                weak.clone(),
+                session.clone(),
+                path.clone(),
+                worktree.is_main,
+            ));
             rows.push(
-                row(
-                    SharedString::from(format!("worktree:{}", path.display())),
-                    open_state(&session, main, docked),
-                    &p,
-                )
-                .child(
-                    div()
-                        .id(SharedString::from(format!("chevron:{}", path.display())))
-                        .size(px(16.))
-                        .flex_none()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_color(p.subtext0)
-                        .when(has_kids, |this| {
-                            let path = path.clone();
-                            this.child(
-                                icon(if expanded {
-                                    IconName::ChevronDown
-                                } else {
-                                    IconName::ChevronRight
-                                })
-                                .size(px(14.)),
-                            )
-                            .on_click(cx.listener(
-                                move |app, _, _, cx| {
-                                    cx.stop_propagation();
-                                    app.toggle_collapsed(Fold::Worktree, path.clone(), cx);
-                                },
-                            ))
-                        }),
-                )
-                .child(label(worktree.branch.clone()))
-                .child(status_dot(worktree.status(cx), cx))
-                .on_click(cx.listener({
-                    let session = session.clone();
-                    move |app, event: &ClickEvent, window, cx| {
-                        app.open_session(session.clone(), event.modifiers().secondary(), window, cx)
-                    }
-                }))
-                .context_menu(worktree_menu(
-                    weak.clone(),
+                super::status_card::wrap(
+                    SharedString::from(format!("card:{}", path.display())),
+                    trigger,
                     session.clone(),
-                    path.clone(),
-                    worktree.is_main,
-                ))
+                    app.workspace.clone(),
+                    weak.clone(),
+                )
                 .into_any_element(),
             );
             if !expanded {
@@ -199,7 +204,7 @@ pub fn render(
             let kids = worktree.subagents.iter().map(|subagent| {
                 let child = subagent.session.clone();
                 let status = child.read(cx).status();
-                row(
+                let trigger = row(
                     ("subagent", child.entity_id().as_u64()),
                     open_state(&child, main, docked),
                     &p,
@@ -214,7 +219,14 @@ pub fn render(
                         app.open_session(child.clone(), event.modifiers().secondary(), window, cx)
                     }
                 }))
-                .context_menu(subagent_menu(weak.clone(), child))
+                .context_menu(subagent_menu(weak.clone(), child.clone()));
+                super::status_card::wrap(
+                    ("card", child.entity_id().as_u64()),
+                    trigger,
+                    child,
+                    app.workspace.clone(),
+                    weak.clone(),
+                )
             });
             rows.push(
                 v_flex()

@@ -287,6 +287,17 @@ impl Session {
             let ago = now.saturating_sub(std::time::Duration::from_millis(first));
             self.started = Instant::now().checked_sub(ago).unwrap_or(self.started);
         }
+        if let Some(last) = entries
+            .iter()
+            .rev()
+            .find_map(|e| e["message"]["timestamp"].as_u64())
+        {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            let ago = now.saturating_sub(std::time::Duration::from_millis(last));
+            self.transcript.settled_at = Instant::now().checked_sub(ago);
+        }
         // Until Pi starts, show the model the chat last used rather than the
         // default: a default like `z-ai/glm-5.3-flash` can resolve to another
         // provider in Pi, which only the session records.

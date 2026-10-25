@@ -48,7 +48,7 @@ fn plain(markdown: &str) -> String {
     text.replace(['*', '`', '|'], "")
 }
 
-/// Wraps a rail row so hovering it opens the agent's status card.
+/// Wraps a sidebar or rail row so hovering it opens the agent's status card.
 pub fn wrap(
     id: impl Into<ElementId>,
     trigger: impl IntoElement + 'static,
@@ -61,6 +61,16 @@ pub fn wrap(
         .appearance(false)
         .open_delay(Duration::from_millis(400))
         .trigger(trigger)
+        .on_open_change({
+            // A chat restored after a restart is read in when it's first
+            // needed; the card needs it too.
+            let session = session.clone();
+            move |open, _, cx| {
+                if *open {
+                    session.update(cx, |session, cx| session.restore_history(cx));
+                }
+            }
+        })
         .content(move |_, _, cx| render(&session, &workspace, app.clone(), cx))
 }
 
@@ -96,7 +106,10 @@ fn render(
             Some(at) => format!("Finished {}", ago(at)),
             None => "Finished".into(),
         },
-        AgentStatus::Idle => "Idle".into(),
+        AgentStatus::Idle => match s.transcript_settled_at() {
+            Some(at) => format!("Last active {}", ago(at)),
+            None => "Idle".into(),
+        },
     };
 
     let running_tool = s.items().iter().rev().find_map(|item| match item {
@@ -276,7 +289,8 @@ fn render(
 
     v_flex()
         .id("status-card")
-        .ml(px(6.))
+        // Clear of the sidebar's border: rows end 6px inside it.
+        .ml(px(14.))
         .w(px(300.))
         .rounded(px(8.))
         .border_1()

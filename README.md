@@ -33,9 +33,13 @@ The icon is `assets/icon/treehouse.svg`, from the design. `cargo run --example r
 - **Linux:** X11 windows get the icon directly. Wayland docks look it up through the desktop file: copy `assets/linux/treehouse.desktop` to `~/.local/share/applications/` and `assets/icon/png/256x256.png` to `~/.local/share/icons/hicolor/256x256/apps/treehouse.png`. `cargo bundle --release` also builds a `.deb` with both.
 - **Windows:** `build.rs` embeds `treehouse.ico` in the executable.
 
+### Status cards
+
+Hovering a worktree or sub-agent, in the sidebar or the collapsed rail, opens a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or when it was last active, plus the worktree's diff stat or the sub-agent's tool calls.
+
 ### Collapsed sidebar
 
-⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows a name, or for a worktree or sub-agent a card with what it's doing: the running tool and the latest reply, what it's waiting for (with a Review button), the error, or how long ago it finished, plus the worktree's diff stat. Clicks and right-click menus work as in the full sidebar. The footer keeps only Settings; a red dot on it means the provider has no key. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
+⌘B (Ctrl+B) collapses the sidebar to a 48px rail. Each row stays where it is in the full sidebar: a project shows its folder, a worktree or sub-agent its status dot, and hovering shows the name, or for a worktree or sub-agent its status card. Clicks and right-click menus work as in the full sidebar. The footer keeps only Settings; a red dot on it means the provider has no key. On macOS, outside full screen, the traffic lights don't fit in the rail, so the toggle moves to the top bar beside it.
 
 ### Chat history
 
