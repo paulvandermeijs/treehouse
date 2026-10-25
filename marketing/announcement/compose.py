@@ -9,6 +9,10 @@ end card last their "hold" from scenes.json. A scene whose narration line
 (voice/<id>.mp3, made by narrate.py) runs longer is stretched by holding its
 last frame. Scenes cross-fade into each other; the voice and quiet background
 music are mixed under them.
+
+There's one video per theme in scenes.json: Mocha's is
+treehouse-announcement.mp4, the others add their name, such as
+treehouse-announcement-latte.mp4.
 """
 
 import json
@@ -23,7 +27,6 @@ FPS, W, H = SPEC["fps"], SPEC["width"], SPEC["height"]
 INTRO = 1.6  # matches INTRO_SECONDS in render.mjs
 FADE = 0.4
 WIN = SPEC["window"]
-BASE = "0x1e1e2e"
 VOICE = HERE / "voice"
 NARRATION = SPEC["narration"]
 
@@ -56,16 +59,16 @@ def needed(scene):
     return NARRATION["lead"] + duration(line) + NARRATION["tail"] if line else 0.0
 
 
-def scene_video(scene):
-    frames = OUT / "frames" / scene["id"] / "%03d.png"
-    target = OUT / "scenes" / f"{scene['id']}.mp4"
+def scene_video(scene, theme, base):
+    frames = OUT / "frames" / theme / scene["id"] / "%03d.png"
+    target = OUT / "scenes" / theme / f"{scene['id']}.mp4"
     target.parent.mkdir(parents=True, exist_ok=True)
     if scene["kind"] == "chapter":
         clip = OUT / "clips" / f"{scene['id']}.mp4"
         recorded = duration(clip)
         length = max(recorded, needed(scene))
         ffmpeg(
-            "-f", "lavfi", "-i", f"color=c={BASE}:s={W}x{H}:r={FPS}:d={length}",
+            "-f", "lavfi", "-i", f"color=c={base}:s={W}x{H}:r={FPS}:d={length}",
             "-i", str(clip),
             "-framerate", str(FPS), "-i", str(frames),
             "-filter_complex",
@@ -83,7 +86,7 @@ def scene_video(scene):
         ffmpeg(
             "-framerate", str(FPS), "-i", str(frames),
             "-filter_complex",
-            f"color=c={BASE}:s={W}x{H}:r={FPS}[bg];"
+            f"color=c={base}:s={W}x{H}:r={FPS}[bg];"
             f"[0]tpad=stop_mode=clone:stop_duration={length}[fg];"
             f"[bg][fg]overlay=shortest=1,trim=duration={length}",
             *encode(), "-an", str(target),
@@ -91,8 +94,9 @@ def scene_video(scene):
     return target, length
 
 
-def main():
-    parts = [scene_video(s) for s in SPEC["scenes"]]
+def make(theme):
+    base = SPEC["themes"][theme]["base"].replace("#", "0x")
+    parts = [scene_video(s, theme, base) for s in SPEC["scenes"]]
     inputs, chain, offset, starts = [], "", 0.0, [0.0]
     for i, (path, _) in enumerate(parts):
         inputs += ["-i", str(path)]
@@ -103,7 +107,7 @@ def main():
         label = f"[x{i}]"
         chain += f"{last}[{i}]xfade=transition=fade:duration={FADE}:offset={offset:.3f}{label};"
         last = label
-    chain += f"{last}fade=in:d=0.4,format=yuv420p[v];"
+    chain += f"{last}fade=in:d=0.4:c={base},format=yuv420p[v];"
     total = offset + parts[-1][1]
 
     # Each line starts "lead" into its scene; the music runs under all of it
@@ -136,20 +140,22 @@ def main():
     else:
         chain = chain.rstrip(";")
         audio = []
-    video = OUT / "treehouse-announcement.mp4"
+    suffix = "" if theme == "mocha" else f"-{theme}"
+    video = OUT / f"treehouse-announcement{suffix}.mp4"
     ffmpeg(*inputs, "-filter_complex", chain, "-map", "[v]", *audio, *encode(), "-movflags", "+faststart", str(video))
 
     # A small looping GIF for the README, and the end card as a poster.
-    gif = OUT / "treehouse-announcement.gif"
+    gif = OUT / f"treehouse-announcement{suffix}.gif"
     ffmpeg(
         "-i", str(video), "-filter_complex",
         "fps=12,scale=960:-1:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer",
         str(gif),
     )
-    poster = OUT / "treehouse-poster.png"
+    poster = OUT / f"treehouse-poster{suffix}.png"
     ffmpeg("-sseof", "-1", "-i", str(video), "-frames:v", "1", str(poster))
     print(f"{video} ({duration(video):.1f}s)\n{gif}\n{poster}")
 
 
 if __name__ == "__main__":
-    main()
+    for theme in SPEC["themes"]:
+        make(theme)

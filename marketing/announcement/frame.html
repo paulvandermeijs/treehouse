@@ -12,12 +12,19 @@
   @font-face { font-family: Plex; src: url(../../assets/fonts/IBMPlexSans-Bold.ttf); font-weight: 700; }
   @font-face { font-family: PlexMono; src: url(../../assets/fonts/IBMPlexMono-Medium.ttf); font-weight: 500; }
 
-  /* Catppuccin Mocha, as in src/theme.rs. */
+  /* Catppuccin Mocha and Latte, as in src/theme.rs. The app recording is
+     Mocha either way; on Latte it stands out against the light page. */
   :root {
-    --crust: #11111b; --mantle: #181825; --base: #1e1e2e;
-    --surface0: #313244; --surface1: #45475a;
-    --text: #cdd6f4; --subtext: #a6adc8; --overlay: #7f849c;
-    --green: #a6e3a1;
+    --base: #1e1e2e; --text: #cdd6f4; --subtext: #a6adc8; --overlay: #7f849c; --green: #a6e3a1;
+    --grid: rgba(205, 214, 244, 0.035); --glow: rgba(166, 227, 161, 0.10);
+    --edge: rgba(205, 214, 244, 0.14); --shadow: rgba(0, 0, 0, 0.55); --outline: rgba(17, 17, 27, 0.8);
+    --icon-glow: rgba(166, 227, 161, 0.25);
+  }
+  :root.latte {
+    --base: #eff1f5; --text: #4c4f69; --subtext: #6c6f85; --overlay: #8c8fa1; --green: #40a02b;
+    --grid: rgba(76, 79, 105, 0.06); --glow: rgba(64, 160, 43, 0.12);
+    --edge: rgba(17, 17, 27, 0.5); --shadow: rgba(76, 79, 105, 0.45); --outline: rgba(17, 17, 27, 0.25);
+    --icon-glow: rgba(76, 79, 105, 0.28);
   }
   html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
   body { font-family: Plex, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; }
@@ -25,9 +32,9 @@
   .bg {
     position: absolute; inset: 0;
     background:
-      radial-gradient(900px 600px at 78% 52%, rgba(166, 227, 161, 0.10), transparent 70%),
-      linear-gradient(rgba(205, 214, 244, 0.035) 1px, transparent 1px) 0 0 / 48px 48px,
-      linear-gradient(90deg, rgba(205, 214, 244, 0.035) 1px, transparent 1px) 0 0 / 48px 48px,
+      radial-gradient(900px 600px at 78% 52%, var(--glow), transparent 70%),
+      linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 48px 48px,
       var(--base);
   }
   .chapter .bg { -webkit-mask-image: var(--hole); mask-image: var(--hole); }
@@ -35,8 +42,8 @@
   .window {
     position: absolute; left: var(--win-x); top: var(--win-y); width: var(--win-w); height: var(--win-h);
     border-radius: var(--win-r); box-sizing: border-box;
-    border: 1px solid rgba(205, 214, 244, 0.14);
-    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(17, 17, 27, 0.8);
+    border: 1px solid var(--edge);
+    box-shadow: 0 40px 120px var(--shadow), 0 0 0 1px var(--outline);
   }
   .copy { position: absolute; left: 100px; top: 0; bottom: 0; width: 450px; display: flex; flex-direction: column; justify-content: center; }
   .label { font-family: PlexMono, monospace; font-weight: 500; font-size: 22px; letter-spacing: 0.04em; color: var(--green); margin-bottom: 22px; }
@@ -45,7 +52,7 @@
   .sub { margin-top: 22px; font-size: 26px; line-height: 1.4; color: var(--subtext); }
 
   .centre { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  .icon { width: 168px; height: 168px; filter: drop-shadow(0 24px 60px rgba(166, 227, 161, 0.25)); }
+  .icon { width: 168px; height: 168px; filter: drop-shadow(0 24px 60px var(--icon-glow)); }
   .title .headline { margin-top: 56px; font-size: 72px; }
   .end .icon { width: 200px; height: 200px; }
   .end .headline { margin-top: 44px; font-size: 96px; font-weight: 700; letter-spacing: -0.02em; }
@@ -66,6 +73,8 @@
   const id = params.get('scene');
   const scenes = JSON.parse(params.get('scenes'));
   const scene = scenes.find(s => s.id === id);
+  const theme = params.get('theme') || 'mocha';
+  document.documentElement.className = theme;
   // The app window's place in a chapter scene, shared with compose.py.
   const { x, y, w, h, r } = JSON.parse(params.get('window'));
   for (const [k, v] of Object.entries({ x, y, w, h, r })) document.documentElement.style.setProperty(`--win-${k}`, v + 'px');
@@ -94,7 +103,7 @@
     document.body.innerHTML = `
       <div class="bg"></div>
       <div class="centre">
-        <img class="icon pop" src="../../assets/icon/treehouse.svg">
+        <img class="icon pop" src="../../assets/icon/${theme === 'latte' ? 'treehouse-latte' : 'treehouse'}.svg">
         <div class="headline anim">${esc(scene.headline)}</div>
         ${scene.sub ? `<div class="sub anim">${esc(scene.sub)}</div>` : ''}
         ${scene.foot ? `<div class="foot anim">${esc(scene.foot)}</div>` : ''}
