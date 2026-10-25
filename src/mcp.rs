@@ -49,6 +49,12 @@ pub fn parse_waiting(title: &str) -> Option<String> {
     Some(rest.split_once('"')?.0.to_string())
 }
 
+/// What a sign-in error means, where Pi's own message doesn't say.
+pub fn sign_in_hint(error: &str) -> Option<&'static str> {
+    (error.contains("dynamic client registration failed") && error.contains("403"))
+        .then_some("The server only accepts apps it has approved, and Pi isn't one of them")
+}
+
 /// The message that starts a sign-in.
 pub fn login_command(server: &str) -> String {
     format!("/mcp login {server}")
@@ -84,5 +90,6 @@ mod tests {
             Some("figma".into())
         );
         assert_eq!(parse_attention("Something else"), None);
+        assert!(sign_in_hint("Sign-in failed: OAuth dynamic client registration failed with status 403: Forbidden").is_some());
     }
 }

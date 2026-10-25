@@ -115,6 +115,9 @@ pub struct Session {
 
 impl EventEmitter<SessionEvent> for Session {}
 
+/// Pi's tools that reach MCP tools.
+const MCP_DISCOVERY: [&str; 2] = ["codemode", "tool_search"];
+
 /// Tells Pi why it can only read while the folder isn't trusted.
 const READ_ONLY_NOTE: &str = "This folder isn't trusted yet, so you only have the read tool: you can't create, edit or delete files or run commands. If the user asks for a change, don't attempt it or claim to have made it. Explain that they need to trust the folder first (the \"Read only\" button at the top of the chat), and say what you would change.";
 
@@ -244,12 +247,16 @@ impl Session {
             thinking: Some(self.thinking.clone()),
             // `--tools` replaces Pi's whole selection, so the bridge's own tool
             // has to be named. Sub-agents don't get it: no nested sub-agents.
+            // MCP tools are only reachable through `codemode` and
+            // `tool_search`; Pi activates them when a server needs them, and
+            // the tools a script calls still go through approval.
             tools: if self.trusted {
                 config
                     .tools
                     .iter()
                     .cloned()
                     .chain((!self.is_subagent()).then(|| "subagent".to_string()))
+                    .chain(MCP_DISCOVERY.iter().map(|t| t.to_string()))
                     .collect()
             } else {
                 vec!["read".to_string()]
@@ -260,6 +267,9 @@ impl Session {
             approve: Some(self.trusted),
             // Without this, a model asked to change something tends to try
             // tools it doesn't have and then report success anyway.
+            // Read-only means no MCP servers either: their tools can change
+            // things outside the folder.
+            mcp: self.trusted,
             system_note: (!self.trusted).then(|| READ_ONLY_NOTE.to_string()),
         };
         match PiClient::spawn(&options) {

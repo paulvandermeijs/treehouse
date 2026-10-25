@@ -243,7 +243,10 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
         SignInState::Failed(error) => outcome(
             Lucide::CircleAlert,
             p.red,
-            format!("Couldn't sign in to {server}: {error}"),
+            match crate::mcp::sign_in_hint(error) {
+                Some(hint) => format!("Couldn't sign in to {server}: {error}. {hint}"),
+                None => format!("Couldn't sign in to {server}: {error}"),
+            },
         )
         .child(retry)
         .into_any_element(),
@@ -530,6 +533,29 @@ fn describe(tool: &ToolCall) -> ToolText {
                 .or(tool.args["path"].as_str())
                 .unwrap_or("")
                 .to_string(),
+            result: None,
+        },
+        "codemode" => ToolText {
+            icon: Lucide::SquareTerminal,
+            running: "Running a script",
+            done: "Ran a script",
+            target: tool.args["code"]
+                .as_str()
+                .and_then(|code| {
+                    code.lines().find(|l| {
+                        !l.trim().is_empty() && !l.trim_start().starts_with("// @options")
+                    })
+                })
+                .unwrap_or("")
+                .trim()
+                .to_string(),
+            result: None,
+        },
+        "tool_search" => ToolText {
+            icon: Lucide::Search,
+            running: "Looking for tools",
+            done: "Looked for tools",
+            target: tool.args["query"].as_str().unwrap_or("").to_string(),
             result: None,
         },
         _ if tool.is_unknown_tool() => ToolText {

@@ -41,13 +41,17 @@ Pi only loads a project's own skills, templates and extensions (`.pi/` and `.age
 
 ### Project trust
 
-The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings, skills and MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Read only** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
+The first time you open a project's worktree, Treehouse asks whether you trust the folder. Until you do, Pi runs read-only: it gets only the `read` tool, skips the project's own settings and skills, connects no MCP servers, and Treehouse doesn't run the worktree setup command. An untrusted project shows a warning in the sidebar and a **Read only** button in the chat's top bar, which opens the dialog again. Trusting can cover every folder in the project's parent folder.
 
 Decisions are saved to Pi's own `~/.pi/agent/trust.json`, so `pi` in a terminal sees them too, and Treehouse passes them to Pi as `--approve` or `--no-approve`. Changing a decision restarts the worktree's Pi with the new tools, resuming the same Pi session.
 
 ### MCP sign-in
 
 Pi reads MCP servers from `~/.pi/agent/mcp.json` and, in trusted projects, `.pi/mcp.json`. When a server needs a sign-in, the chat shows it with a **Sign in** button. That runs Pi's `/mcp login <server>`: Pi opens the browser, and the card waits for it. If the browser can't reach this machine (a remote session, for example), paste the address it ended up on into the card.
+
+Pi reaches MCP tools through its `codemode` and `tool_search` tools, so Treehouse adds those to the tools it gives Pi. The tools a script calls still go through approval.
+
+Some servers only accept sign-ins from apps they have approved and refuse Pi with "dynamic client registration failed with status 403". Figma's remote server is one. For Figma, its desktop app's local MCP server (`http://127.0.0.1:3845/mcp`) needs no sign-in.
 
 ### Without a model
 
