@@ -48,7 +48,14 @@ pub fn status_dot(status: AgentStatus, cx: &App) -> gpui_kit::AnyElement {
 
 /// Room for macOS's traffic lights at the left of the first top bar. The
 /// windows hide the system title bar so the app's own bars run to the top.
-pub const TRAFFIC_LIGHTS: f32 = if cfg!(target_os = "macos") { 68. } else { 0. };
+/// In full screen macOS hides them, and the bar keeps its usual padding.
+pub fn traffic_lights(window: &gpui_kit::Window) -> f32 {
+    if cfg!(target_os = "macos") && !window.is_fullscreen() {
+        68.
+    } else {
+        0.
+    }
+}
 
 /// The title bar on macOS: hidden, with the traffic lights centred in the
 /// first 40px bar.

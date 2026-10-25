@@ -75,7 +75,11 @@ fn open_state(session: &Entity<Session>, main: Option<EntityId>, docked: Option<
     }
 }
 
-pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoElement {
+pub fn render(
+    app: &TreehouseApp,
+    window: &Window,
+    cx: &mut Context<TreehouseApp>,
+) -> impl IntoElement {
     let p = palette(cx);
     let main = app.main_session_id(cx);
     let docked = app.docked_session_id(cx);
@@ -241,7 +245,7 @@ pub fn render(app: &TreehouseApp, cx: &mut Context<TreehouseApp>) -> impl IntoEl
                 .h(px(BAR_HEIGHT))
                 .flex_none()
                 .px_2()
-                .pl(px(8. + super::TRAFFIC_LIGHTS))
+                .pl(px(8. + super::traffic_lights(window)))
                 .gap(px(2.))
                 .border_b_1()
                 .border_color(p.surface0)

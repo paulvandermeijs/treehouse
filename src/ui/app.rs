@@ -56,6 +56,9 @@ impl TreehouseApp {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let workspace = cx.new(Workspace::new);
         let subscriptions = vec![
+            // Entering or leaving full screen changes the room the traffic
+            // lights need.
+            cx.observe_window_bounds(window, |_, _, cx| cx.notify()),
             cx.observe(&workspace, |_, _, cx| cx.notify()),
             cx.subscribe_in(
                 &workspace,
@@ -799,7 +802,7 @@ impl Render for TreehouseApp {
             .text_color(p.text)
             .font_family("IBM Plex Sans")
             .when(self.sidebar_open, |this| {
-                this.child(sidebar::render(self, cx))
+                this.child(sidebar::render(self, window, cx))
             })
             .when(!self.sidebar_open, |this| {
                 this.child(
@@ -816,7 +819,7 @@ impl Render for TreehouseApp {
                                 .h(px(super::BAR_HEIGHT))
                                 .flex_none()
                                 .px_2()
-                                .pl(px(8. + super::TRAFFIC_LIGHTS))
+                                .pl(px(8. + super::traffic_lights(window)))
                                 .border_b_1()
                                 .border_color(p.surface0)
                                 .child(
