@@ -16,6 +16,8 @@ use crate::theme::{MONO, palette};
 
 pub enum DiffPanelEvent {
     Close,
+    /// Commit with Pi or Finish branch, sent to the worktree's chat.
+    Run(crate::slash::Lifecycle),
 }
 
 pub struct DiffPanel {
@@ -30,6 +32,8 @@ pub struct DiffPanel {
     revision: u64,
     pending_scroll: Option<String>,
     pub full_screen: bool,
+    /// The main worktree has nothing to finish.
+    pub is_main: bool,
     /// See `ChatView::sidebar_lead`.
     pub sidebar_lead: Option<Pixels>,
     /// The panel's width when last painted; see `render`.
@@ -58,6 +62,7 @@ impl DiffPanel {
             revision: 0,
             pending_scroll: None,
             full_screen: false,
+            is_main: false,
             sidebar_lead: None,
             width: Default::default(),
         };
@@ -206,6 +211,26 @@ impl Render for DiffPanel {
                             .text_ellipsis()
                             .child(format!("{} since {}", self.branch, self.base)),
                     )
+                    .child(
+                        Button::new("commit-with-pi")
+                            .small()
+                            .label("Commit with Pi")
+                            .on_click(cx.listener(|_, _, _, cx| {
+                                cx.emit(DiffPanelEvent::Run(crate::slash::Lifecycle::Commit))
+                            })),
+                    )
+                    .when(!self.is_main, |this| {
+                        this.child(
+                            Button::new("finish-branch")
+                                .small()
+                                .label("Finish branch")
+                                .on_click(cx.listener(|_, _, _, cx| {
+                                    cx.emit(DiffPanelEvent::Run(
+                                        crate::slash::Lifecycle::FinishBranch,
+                                    ))
+                                })),
+                        )
+                    })
                     .child(
                         Button::new("refresh")
                             .ghost()

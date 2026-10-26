@@ -78,6 +78,12 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
                 entry("Change model…", Lucide::Sparkles, ChangeModel),
                 entry("Set thinking level…", Lucide::Lightbulb, SetThinkingLevel),
                 entry("Stop agent", Lucide::Square, StopAgent),
+                entry("Commit with Pi", Lucide::GitCommitHorizontal, CommitWithPi)
+                    .keywords(&["commit", "git"]),
+                entry("Sync with base branch", Lucide::RefreshCw, SyncWithBase)
+                    .keywords(&["sync", "merge", "main", "git"]),
+                entry("Finish branch", Lucide::Flag, FinishBranch)
+                    .keywords(&["merge", "finish", "git"]),
             ],
         ),
         (

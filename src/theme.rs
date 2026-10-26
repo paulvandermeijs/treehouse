@@ -104,6 +104,8 @@ pub struct Palette {
     pub green: Hsla,
     pub red: Hsla,
     pub yellow: Hsla,
+    /// Uncommitted changes in the sidebar.
+    pub peach: Hsla,
     /// Text on a yellow tint; darker than Yellow in Latte for contrast.
     pub yellow_text: Hsla,
     /// Commands you run with `!`: Catppuccin Yellow, a note to take care
@@ -134,6 +136,7 @@ pub fn palette(cx: &App) -> Palette {
             green: c(0xa6e3a1),
             red: c(0xf38ba8),
             yellow: c(0xf9e2af),
+            peach: c(0xfab387),
             yellow_text: c(0xf9e2af),
             shell: c(0xf9e2af),
             shell_text: c(0xf9e2af),
@@ -155,6 +158,7 @@ pub fn palette(cx: &App) -> Palette {
             green: c(0x40a02b),
             red: c(0xd20f39),
             yellow: c(0xdf8e1d),
+            peach: c(0xfe640b),
             yellow_text: c(0x8a5a10),
             shell: c(0xdf8e1d),
             shell_text: c(0x8a5a10),

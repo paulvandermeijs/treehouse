@@ -28,6 +28,7 @@ pub struct Worktree {
     pub session: Entity<Session>,
     pub subagents: Vec<SubAgent>,
     pub stat: DiffStat,
+    pub state: git::BranchState,
     _subscription: Subscription,
 }
 
@@ -200,6 +201,7 @@ impl Workspace {
             session,
             subagents,
             stat: DiffStat::default(),
+            state: git::BranchState::default(),
             _subscription: subscription,
         }
     }
@@ -623,20 +625,37 @@ impl Workspace {
         }
     }
 
+    /// Undoes a merge Pi left halfway: the one lifecycle step done by
+    /// button, since it only undoes.
+    pub fn abort_sync(&mut self, worktree: &Path, cx: &mut Context<Self>) -> Result<()> {
+        git::abort_merge(worktree)?;
+        self.refresh_stat(worktree.to_path_buf(), cx);
+        Ok(())
+    }
+
+    /// Reads the worktree's diff stat and branch state again.
     pub fn refresh_stat(&mut self, worktree: PathBuf, cx: &mut Context<Self>) {
-        let Some(base) = self.worktree(&worktree).map(|w| w.base.clone()) else {
+        let Some((base, branch, is_main)) = self
+            .worktree(&worktree)
+            .map(|w| (w.base.clone(), w.branch.to_string(), w.is_main))
+        else {
             return;
         };
         cx.spawn(async move |this, cx| {
             let path = worktree.clone();
-            let stat = cx
+            let (stat, state) = cx
                 .background_spawn(async move {
-                    git::diff_since(&path, &base).map(|patch| git::diff_stat(&patch))
+                    let stat = git::diff_since(&path, &base).map(|patch| git::diff_stat(&patch));
+                    let base = (!is_main).then_some(base.as_str());
+                    (stat, git::branch_state(&path, &branch, base))
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if let (Some(worktree), Ok(stat)) = (this.worktree_mut(&worktree), stat) {
-                    worktree.stat = stat;
+                if let Some(worktree) = this.worktree_mut(&worktree) {
+                    if let Ok(stat) = stat {
+                        worktree.stat = stat;
+                    }
+                    worktree.state = state;
                 }
                 cx.emit(WorkspaceEvent::DiffChanged(worktree));
                 cx.notify();

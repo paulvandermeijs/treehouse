@@ -351,13 +351,25 @@ impl TreehouseApp {
                 .worktree(&worktree)
                 .map(|w| (w.branch.clone(), w.base.clone()))
                 .unwrap_or_default();
-            let panel = cx.new(|cx| DiffPanel::new(worktree.clone(), branch, base, cx));
+            let is_main = self
+                .workspace
+                .read(cx)
+                .worktree(&worktree)
+                .is_some_and(|w| w.is_main);
+            let panel = cx.new(|cx| {
+                let mut panel = DiffPanel::new(worktree.clone(), branch, base, cx);
+                panel.is_main = is_main;
+                panel
+            });
             self._subscriptions.push(cx.subscribe_in(
                 &panel,
                 window,
-                |app, _, event: &DiffPanelEvent, _, cx| {
-                    let DiffPanelEvent::Close = event;
-                    app.close_dock(cx);
+                |app, panel: &Entity<DiffPanel>, event: &DiffPanelEvent, window, cx| match event {
+                    DiffPanelEvent::Close => app.close_dock(cx),
+                    DiffPanelEvent::Run(command) => {
+                        let worktree = panel.read(cx).worktree.clone();
+                        app.run_lifecycle_in(&worktree, *command, window, cx);
+                    }
                 },
             ));
             panel
@@ -555,6 +567,55 @@ impl TreehouseApp {
                     true
                 })
         });
+    }
+
+    /// Why the worktree's agent can't take a lifecycle command now.
+    pub fn lifecycle_blocked(&self, worktree: &std::path::Path, cx: &App) -> Option<&'static str> {
+        let worktree = self.workspace.read(cx).worktree(worktree)?;
+        if !worktree.session.read(cx).trusted {
+            Some("This folder is read only, so Pi can't commit or merge.")
+        } else if matches!(
+            worktree.status(cx),
+            crate::session::AgentStatus::Working | crate::session::AgentStatus::NeedsInput
+        ) {
+            Some("Pi is busy in this worktree. Try again when it's done.")
+        } else {
+            None
+        }
+    }
+
+    /// Runs a lifecycle command in a worktree's chat, or says why it can't.
+    pub fn run_lifecycle_in(
+        &mut self,
+        worktree: &std::path::Path,
+        command: crate::slash::Lifecycle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(why) = self.lifecycle_blocked(worktree, cx) {
+            return window.push_notification(why, cx);
+        }
+        let session = self
+            .workspace
+            .read(cx)
+            .worktree(worktree)
+            .map(|w| w.session.clone());
+        if let Some(session) = session {
+            self.run_lifecycle(session, command, window, cx);
+        }
+    }
+
+    /// Sends a lifecycle command to a worktree's chat and opens it, so the
+    /// user can watch.
+    pub fn run_lifecycle(
+        &mut self,
+        session: Entity<Session>,
+        command: crate::slash::Lifecycle,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_session(session.clone(), false, window, cx);
+        session.update(cx, |s, cx| s.send(&format!("/{}", command.name()), cx));
     }
 
     pub fn confirm_delete_worktree(
@@ -803,6 +864,30 @@ fn route<A: Action>(
     });
 }
 
+/// Runs a lifecycle command in the worktree of the chat on the main screen.
+fn lifecycle_handler(
+    command: crate::slash::Lifecycle,
+) -> impl Fn(&mut TreehouseApp, &mut Window, &mut Context<TreehouseApp>) + Clone + 'static {
+    move |app, window, cx| {
+        let Some(session) = app.main_session(cx) else {
+            return;
+        };
+        let worktree = app
+            .workspace
+            .read(cx)
+            .worktree_of(session.entity_id())
+            .map(|w| (w.path.clone(), w.is_main));
+        match worktree {
+            Some((_, true)) if command.needs_base() => window.push_notification(
+                "This is the base branch, so there's nothing to sync or finish.",
+                cx,
+            ),
+            Some((worktree, _)) => app.run_lifecycle_in(&worktree, command, window, cx),
+            None => {}
+        }
+    }
+}
+
 fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: &mut App) {
     route::<CommandPalette>(window, app.clone(), cx, |app, window, cx| {
         command_palette::open(&app.palette_state, window, cx)
@@ -859,6 +944,20 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
             session.update(cx, |s, cx| s.stop(cx));
         }
     });
+    use crate::slash::Lifecycle;
+    route::<CommitWithPi>(
+        window,
+        app.clone(),
+        cx,
+        lifecycle_handler(Lifecycle::Commit),
+    );
+    route::<SyncWithBase>(window, app.clone(), cx, lifecycle_handler(Lifecycle::Sync));
+    route::<FinishBranch>(
+        window,
+        app.clone(),
+        cx,
+        lifecycle_handler(Lifecycle::FinishBranch),
+    );
     route::<ChangeModel>(window, app.clone(), cx, |_, window, cx| {
         window.push_notification(
             "Pick a model from the model button under the message box.",

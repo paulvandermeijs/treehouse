@@ -430,6 +430,53 @@ pub fn uncommitted(repo: &Path) -> usize {
         .unwrap_or(0)
 }
 
+/// Where a worktree's branch stands, for the sidebar's markers and menus.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BranchState {
+    pub uncommitted: usize,
+    pub ahead: usize,
+    pub behind: usize,
+    /// Its work has landed in the base.
+    pub merged: bool,
+    /// Stopped halfway through merging the base in, with this many files
+    /// still in conflict.
+    pub merging: Option<usize>,
+}
+
+/// The branch state of a worktree. `base` is `None` for the main worktree,
+/// which only has changes.
+pub fn branch_state(worktree: &Path, branch: &str, base: Option<&str>) -> BranchState {
+    let mut state = BranchState {
+        uncommitted: uncommitted(worktree),
+        ..Default::default()
+    };
+    let Some(base) = base else {
+        return state;
+    };
+    if let Some((ahead, behind)) = ahead_behind(worktree, base) {
+        state.ahead = ahead;
+        state.behind = behind;
+    }
+    state.merged = landed(worktree, branch, base);
+    if git(
+        worktree,
+        &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
+    )
+    .is_ok()
+    {
+        let conflicts = git(worktree, &["diff", "--name-only", "--diff-filter=U"])
+            .map(|out| out.lines().count())
+            .unwrap_or(0);
+        state.merging = Some(conflicts);
+    }
+    state
+}
+
+/// Stops a merge left halfway, back to before it started.
+pub fn abort_merge(worktree: &Path) -> Result<()> {
+    git(worktree, &["merge", "--abort"]).map(|_| ())
+}
+
 /// Splits a Conventional Commit subject into its `type(scope): ` prefix and
 /// the rest.
 pub fn conventional(subject: &str) -> (Option<&str>, &str) {
@@ -796,5 +843,37 @@ mod tests {
         assert!(commits[1].subject.starts_with("Merge branch"));
         assert_eq!(ahead_behind(&feat, "main"), Some((2, 0)));
         assert_eq!(uncommitted(&feat), 1);
+    }
+
+    #[test]
+    fn reads_a_branch_mid_merge() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        assert_eq!(
+            branch_state(&feat, "feat", Some("main")),
+            BranchState::default()
+        );
+
+        std::fs::write(feat.join("a.txt"), "feat\n").unwrap();
+        run(&feat, &["commit", "-am", "feat"]);
+        std::fs::write(repo.join("a.txt"), "main\n").unwrap();
+        run(repo, &["commit", "-am", "main"]);
+        assert!(git(&feat, &["merge", "main"]).is_err());
+        let state = branch_state(&feat, "feat", Some("main"));
+        assert_eq!((state.ahead, state.behind, state.merging), (1, 1, Some(1)));
+        assert!(!state.merged);
+
+        abort_merge(&feat).unwrap();
+        assert_eq!(branch_state(&feat, "feat", Some("main")).merging, None);
     }
 }

@@ -62,6 +62,78 @@ fn label(text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+/// Where the branch stands, before the status dot: changes, ahead, behind,
+/// or merged. Each sits in its own slot, so they line up from row to row.
+fn markers(
+    id: SharedString,
+    worktree: &crate::workspace::Worktree,
+    p: &Palette,
+) -> Option<impl IntoElement> {
+    let state = &worktree.state;
+    let base = &worktree.base;
+    let mut parts = Vec::new();
+    if state.merged {
+        parts.push(format!("Merged into {base}"));
+    } else {
+        if state.ahead > 0 {
+            parts.push(format!("{} ahead", state.ahead));
+        }
+        if state.behind > 0 {
+            parts.push(format!("{} behind", state.behind));
+        }
+        if let Some(last) = parts.last_mut().filter(|_| !worktree.is_main) {
+            last.push_str(&format!(" {base}"));
+        }
+    }
+    let branch = parts.join(", ");
+    let files = match state.uncommitted {
+        0 => None,
+        1 => Some("1 uncommitted file".to_string()),
+        n => Some(format!("{n} uncommitted files")),
+    };
+    let tip: Vec<String> = [Some(branch).filter(|b| !b.is_empty()), files]
+        .into_iter()
+        .flatten()
+        .collect();
+    if tip.is_empty() {
+        return None;
+    }
+    let slot = || {
+        div()
+            .w(px(24.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .justify_center()
+    };
+    Some(
+        h_flex()
+            .id(id)
+            .flex_none()
+            .gap(px(2.))
+            .font_family(crate::theme::MONO)
+            .text_size(px(11.5))
+            .text_color(p.subtext0)
+            .when(state.uncommitted > 0, |this| {
+                this.child(slot().child(div().size(px(6.)).rounded_full().bg(p.peach)))
+            })
+            .when(!state.merged && state.ahead > 0, |this| {
+                this.child(slot().child(format!("↑{}", state.ahead)))
+            })
+            .when(!state.merged && state.behind > 0, |this| {
+                this.child(
+                    slot()
+                        .text_color(p.yellow_text)
+                        .child(format!("↓{}", state.behind)),
+                )
+            })
+            .when(state.merged, |this| {
+                this.child(slot().child(icon(Lucide::Check).size(px(14.)).text_color(p.green)))
+            })
+            .tooltip(tooltip(tip.join(" · ").into())),
+    )
+}
+
 fn open_state(session: &Entity<Session>, main: Option<EntityId>, docked: Option<EntityId>) -> Open {
     let id = Some(session.entity_id());
     if main == id {
@@ -181,7 +253,15 @@ pub fn render(
                         }))
                     }),
             )
-            .child(label(worktree.branch.clone()))
+            .child(
+                label(worktree.branch.clone())
+                    .when(worktree.state.merged, |this| this.text_color(p.subtext0)),
+            )
+            .children(markers(
+                SharedString::from(format!("markers:{}", path.display())),
+                worktree,
+                &p,
+            ))
             .child(right_dot(status_dot(worktree.status(cx), cx)))
             .on_click(cx.listener({
                 let session = session.clone();
@@ -766,6 +846,126 @@ fn project_menu(
     }
 }
 
+/// A lifecycle menu item: an icon, its label, and a hint on the right that
+/// says what it runs or why it can't.
+fn lifecycle_item(
+    name: Lucide,
+    text: impl Into<SharedString>,
+    hint: impl Into<SharedString>,
+    disabled: bool,
+) -> PopupMenuItem {
+    let (text, hint) = (text.into(), hint.into());
+    PopupMenuItem::element(move |_, cx| {
+        let p = palette(cx);
+        h_flex()
+            .w_full()
+            .gap_3()
+            .child(
+                div()
+                    .flex_1()
+                    .when(disabled, |this| this.text_color(p.subtext0))
+                    .child(text.clone()),
+            )
+            .child(
+                div()
+                    .text_size(px(11.5))
+                    .text_color(p.subtext0)
+                    .child(hint.clone()),
+            )
+    })
+    .icon(name)
+    .disabled(disabled)
+}
+
+/// What can be done with the worktree's branch: commit, sync and finish,
+/// each run by Pi in the worktree's chat.
+fn lifecycle_items(
+    menu: PopupMenu,
+    app: &WeakEntity<TreehouseApp>,
+    session: &Entity<Session>,
+    path: &std::path::Path,
+    cx: &App,
+) -> PopupMenu {
+    use crate::slash::Lifecycle;
+    let Some(app_entity) = app.upgrade() else {
+        return menu;
+    };
+    let workspace = app_entity.read(cx).workspace.read(cx);
+    let Some(worktree) = workspace.worktree(path) else {
+        return menu;
+    };
+    let (state, base, is_main) = (
+        worktree.state.clone(),
+        worktree.base.clone(),
+        worktree.is_main,
+    );
+    let busy = matches!(
+        worktree.status(cx),
+        crate::session::AgentStatus::Working | crate::session::AgentStatus::NeedsInput
+    );
+    let trusted = session.read(cx).trusted;
+    // Why nothing can run right now, whatever the branch's state.
+    let blocked = if !trusted {
+        Some("read only")
+    } else if busy {
+        Some("Pi is busy")
+    } else {
+        None
+    };
+    let item = |command: Lifecycle, name: Lucide, text: String, hint: String, off: bool| {
+        let (app, session) = (app.clone(), session.clone());
+        lifecycle_item(
+            name,
+            text,
+            blocked.map(str::to_string).unwrap_or(hint),
+            blocked.is_some() || off,
+        )
+        .on_click(move |_, window, cx| {
+            let _ = app.update(cx, |app, cx| {
+                app.run_lifecycle(session.clone(), command, window, cx)
+            });
+        })
+    };
+    let nothing = state.uncommitted == 0;
+    let menu = menu.item(item(
+        Lifecycle::Commit,
+        Lucide::Sparkles,
+        "Commit with Pi".into(),
+        if nothing {
+            "nothing to commit"
+        } else {
+            "/commit"
+        }
+        .into(),
+        nothing,
+    ));
+    if is_main {
+        return menu;
+    }
+    menu.item(item(
+        Lifecycle::Sync,
+        Lucide::RefreshCw,
+        format!("Sync with {base}"),
+        match state.behind {
+            0 => "up to date".to_string(),
+            n => format!("{n} behind"),
+        },
+        state.behind == 0,
+    ))
+    .item(item(
+        Lifecycle::FinishBranch,
+        Lucide::Flag,
+        "Finish branch".into(),
+        if state.merged {
+            "merged"
+        } else {
+            "/finish-branch"
+        }
+        .into(),
+        state.merged,
+    ))
+}
+
 fn worktree_menu(
     app: WeakEntity<TreehouseApp>,
     session: Entity<Session>,
@@ -799,6 +999,8 @@ fn worktree_menu(
                         });
                     }),
             )
+            .separator();
+        let menu = lifecycle_items(menu, &app, &session, &path, cx)
             .when(has_setup, |menu| {
                 menu.item(
                     PopupMenuItem::new("Run setup again")
@@ -813,17 +1015,30 @@ fn worktree_menu(
                     });
                 }),
             );
+        // A merged worktree is cleaned up; the same dialog says so.
+        let merged = app.upgrade().is_some_and(|app| {
+            app.read(cx)
+                .workspace
+                .read(cx)
+                .worktree(&path)
+                .is_some_and(|w| w.state.merged)
+        });
         if is_main {
             menu
         } else {
-            menu.separator()
-                .item(
-                    PopupMenuItem::new("Delete worktree…").on_click(move |_, window, cx| {
-                        let _ = a4.update(cx, |app, cx| {
-                            app.confirm_delete_worktree(p4.clone(), window, cx)
-                        });
-                    }),
-                )
+            menu.separator().item(
+                PopupMenuItem::new(if merged {
+                    "Clean up…"
+                } else {
+                    "Delete worktree…"
+                })
+                .when(merged, |item| item.icon(Lucide::Check))
+                .on_click(move |_, window, cx| {
+                    let _ = a4.update(cx, |app, cx| {
+                        app.confirm_delete_worktree(p4.clone(), window, cx)
+                    });
+                }),
+            )
         }
     })
 }

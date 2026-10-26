@@ -196,6 +196,69 @@ impl ChatView {
 
     /// Around the worktree's setup: what waits for it to finish, or for the
     /// project to be trusted.
+    /// A sync Pi left halfway: the worktree is mid-merge until it's
+    /// finished or aborted.
+    fn render_sync_stopped(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        if self.session.read(cx).is_subagent() {
+            return None;
+        }
+        let workspace = self.workspace.read(cx);
+        let worktree = workspace.worktree_of(self.session.entity_id())?;
+        let conflicts = worktree.state.merging?;
+        let path = worktree.path.clone();
+        let p = palette(cx);
+        let detail = match conflicts {
+            0 => "The worktree is mid-merge with every conflict resolved. Ask Pi to commit the merge, or abort it.".to_string(),
+            1 => "The worktree is mid-merge with 1 conflict left. Ask Pi to finish it, or abort the merge.".to_string(),
+            n => format!("The worktree is mid-merge with {n} conflicts left. Ask Pi to finish it, or abort the merge."),
+        };
+        let workspace = self.workspace.clone();
+        Some(
+            h_flex()
+                .ml(px(crate::ui::items::GUTTER))
+                .gap_3()
+                .p_3()
+                .rounded(px(8.))
+                .border_1()
+                .border_color(mix(p.yellow, p.surface0, 0.45))
+                .bg(p.mantle)
+                .child(icon(Lucide::TriangleAlert).text_color(p.yellow_text))
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(13.5))
+                                .font_medium()
+                                .child("Sync stopped halfway"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(p.subtext0)
+                                .child(detail),
+                        ),
+                )
+                .child(
+                    Button::new("abort-sync")
+                        .small()
+                        .label("Abort sync")
+                        .on_click(move |_, window, cx| {
+                            if let Err(err) = workspace.update(cx, |w, cx| w.abort_sync(&path, cx))
+                            {
+                                gpui_kit::component::WindowExt::push_notification(
+                                    window,
+                                    format!("Couldn't abort the sync: {err:#}"),
+                                    cx,
+                                );
+                            }
+                        }),
+                )
+                .into_any_element(),
+        )
+    }
+
     fn render_setup_extras(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let p = palette(cx);
         let session = self.session.read(cx);
@@ -1267,6 +1330,7 @@ impl Render for ChatView {
                             .children(task)
                             .children(items)
                             .children(self.render_setup_extras(cx))
+                            .children((!running).then(|| self.render_sync_stopped(cx)).flatten())
                             .when(running || compacting, |this| {
                                 this.child(
                                     h_flex()
