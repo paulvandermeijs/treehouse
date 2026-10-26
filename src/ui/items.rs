@@ -336,7 +336,7 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                             "Ran".into_any_element()
                         }))
                         .child(
-                            mono(run.command.clone(), accent)
+                            mono(one_line(&run.command), accent)
                                 .flex_1()
                                 .min_w_0()
                                 .overflow_hidden()
@@ -901,7 +901,7 @@ pub(super) fn describe(tool: &ToolCall) -> ToolText {
             icon: Lucide::Terminal,
             running: "Running",
             done: "Ran",
-            target: tool.command().unwrap_or("").to_string(),
+            target: one_line(tool.command().unwrap_or("")),
             result: None,
         },
         "grep" | "find" | "ls" => ToolText {
@@ -1196,6 +1196,18 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             _ => this.child(render_tool_output(tool, &p)),
         })
         .into_any_element()
+}
+
+/// A command as a heading shows it: its first line, with an ellipsis when
+/// more follow. A heading keeps to one line, but a newline in its text,
+/// such as in a multi-line commit message, would still break it.
+pub(super) fn one_line(command: &str) -> String {
+    let mut lines = command.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or("").to_string();
+    match lines.next() {
+        Some(_) => format!("{first} …"),
+        None => first,
+    }
 }
 
 fn first_line(text: &str) -> &str {
@@ -2287,5 +2299,18 @@ mod tests {
         let numbers: Vec<_> = hunks[0].lines.iter().map(|l| l.number.unwrap()).collect();
         assert_eq!(numbers, [12, 13, 13, 14, 15]);
         assert_eq!(hunks[0].changed(), 3);
+    }
+
+    #[test]
+    fn headings_show_a_commands_first_line() {
+        use super::one_line;
+        assert_eq!(one_line("cargo test"), "cargo test");
+        assert_eq!(
+            one_line(
+                "git add .agents/ && git commit -m \"chore: add setup\n\nTreehouse runs these\""
+            ),
+            "git add .agents/ && git commit -m \"chore: add setup …"
+        );
+        assert_eq!(one_line("\n  ls  \n"), "ls");
     }
 }

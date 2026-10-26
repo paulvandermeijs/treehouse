@@ -177,8 +177,8 @@ fn render(
             let wants: SharedString = match approval {
                 Some(a) if a.tool_name == "bash" => a.input["command"]
                     .as_str()
-                    .unwrap_or("a command")
-                    .to_string()
+                    .map(super::items::one_line)
+                    .unwrap_or_else(|| "a command".to_string())
                     .into(),
                 Some(a) => a.tool_name.clone().into(),
                 None => "Pi is waiting for you".into(),
