@@ -19,7 +19,7 @@ The base branch is the one the worktree was created from (or `origin/main`, depe
 You can start the same commands without typing:
 
 - Right-click a worktree for **Commit with Pi**, **Sync with main** and **Finish branch**. Each shows what it'll do, or why it can't: nothing to commit, up to date, merged, or Pi is busy.
-- The diff dock has **Commit with Pi** and **Finish branch** buttons.
+- The diff dock has **Commit with Pi** and **Finish branch** icon buttons, next to Refresh.
 - The command palette has all three for the chat on screen.
 
 ### Your own skills

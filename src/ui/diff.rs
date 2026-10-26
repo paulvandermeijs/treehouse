@@ -213,8 +213,10 @@ impl Render for DiffPanel {
                     )
                     .child(
                         Button::new("commit-with-pi")
+                            .ghost()
                             .small()
-                            .label("Commit with Pi")
+                            .icon(icon(Lucide::GitCommitHorizontal))
+                            .tooltip("Commit with Pi · /commit")
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(DiffPanelEvent::Run(crate::slash::Lifecycle::Commit))
                             })),
@@ -222,8 +224,10 @@ impl Render for DiffPanel {
                     .when(!self.is_main, |this| {
                         this.child(
                             Button::new("finish-branch")
+                                .ghost()
                                 .small()
-                                .label("Finish branch")
+                                .icon(icon(Lucide::GitMerge))
+                                .tooltip("Finish branch · /finish-branch")
                                 .on_click(cx.listener(|_, _, _, cx| {
                                     cx.emit(DiffPanelEvent::Run(
                                         crate::slash::Lifecycle::FinishBranch,
