@@ -133,9 +133,9 @@ pub struct Session {
     texts: HashMap<ItemId, (Entity<TextViewState>, usize)>,
     pub approvals: Vec<PendingApproval>,
     pub merge: Option<PendingMerge>,
-    /// The worktree's HEAD when the current run started, for the card
-    /// listing the commits it made.
-    head_before: Option<String>,
+    /// The worktree's HEAD and the time (Unix seconds) when the current run
+    /// started, for the card listing the commits it made.
+    head_before: Option<(String, u64)>,
     /// Sub-agent requests waiting on a child session's report.
     pub subagent_requests: HashMap<String, String>,
     /// Set once the user has opened a finished turn.
@@ -549,7 +549,11 @@ impl Session {
             None => message.to_string(),
         };
         if !streaming && !self.is_subagent() {
-            self.head_before = crate::git::head(&self.cwd);
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            self.head_before = crate::git::head(&self.cwd).map(|head| (head, now));
         }
         if let Some(client) = &self.client {
             // `/mcp …` is an extension command: Pi runs it without a message.
@@ -1100,14 +1104,15 @@ impl Session {
     /// Adds a card for the commits the run made, read from git rather than
     /// from Pi's reply.
     fn show_commits(&mut self, cx: &mut Context<Self>) {
-        let Some(before) = self.head_before.take() else {
+        let Some((before, started)) = self.head_before.take() else {
             return;
         };
         let (cwd, base) = (self.cwd.clone(), self.base.clone());
         cx.spawn(async move |this, cx| {
             let card = cx
                 .background_spawn(async move {
-                    let commits = crate::git::commits_since(&cwd, &before);
+                    let commits =
+                        crate::git::commits_since(&cwd, &before, base.as_deref(), started);
                     let ahead = base
                         .as_deref()
                         .and_then(|base| crate::git::ahead_behind(&cwd, base))

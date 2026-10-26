@@ -209,7 +209,12 @@ impl Render for DiffPanel {
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(format!("{} since {}", self.branch, self.base)),
+                            // The main worktree is on the base: only what's uncommitted.
+                            .child(if self.is_main {
+                                "Uncommitted changes".to_string()
+                            } else {
+                                format!("{} since {}", self.branch, self.base)
+                            }),
                     )
                     .child(
                         Button::new("commit-with-pi")
@@ -338,7 +343,11 @@ impl Render for DiffPanel {
                                 .gap_2()
                                 .text_color(p.subtext0)
                                 .child(icon(Lucide::GitBranch).size(px(24.)))
-                                .child(format!("No changes since {}", self.base)),
+                                .child(if self.is_main {
+                                    "Nothing uncommitted".to_string()
+                                } else {
+                                    format!("No changes since {}", self.base)
+                                }),
                         )
                     })
                     .when(!empty && self.error.is_none(), |this| {

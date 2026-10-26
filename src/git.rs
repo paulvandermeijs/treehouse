@@ -376,27 +376,49 @@ pub fn head(repo: &Path) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
-/// The commits on the current branch since `since`, oldest first. A merge
-/// of the base counts as one commit, without the base's own.
-pub fn commits_since(repo: &Path, since: &str) -> Vec<Commit> {
-    let range = format!("{since}..HEAD");
-    let Ok(log) = git(
-        repo,
-        &[
-            "log",
-            "--first-parent",
-            "--reverse",
-            "--format=%h%x1f%s%x1f%b%x1e",
-            &range,
-        ],
-    ) else {
+/// The commits made on the current branch since `since`, at `started` (Unix
+/// seconds) or later, oldest first. Commits brought in by a pull keep their
+/// own time, so they don't count. A merge of the base counts as one commit,
+/// without the base's own, and after a rebase onto `base` commits that were
+/// only replayed don't count.
+pub fn commits_since(repo: &Path, since: &str, base: Option<&str>, started: u64) -> Vec<Commit> {
+    const FORMAT: &str = "--format=%h%x1f%ct%x1f%s%x1f%b%x1e";
+    let log = if git(repo, &["merge-base", "--is-ancestor", since, "HEAD"]).is_ok() {
+        let range = format!("{since}..HEAD");
+        git(
+            repo,
+            &["log", "--first-parent", "--reverse", FORMAT, &range],
+        )
+    } else if let Some(base) = base {
+        // The history was rewritten: keep the commits whose changes `since`
+        // didn't have, leaving out the base's own.
+        let range = format!("{since}...HEAD");
+        let not_base = format!("^{base}");
+        git(
+            repo,
+            &[
+                "log",
+                "--reverse",
+                "--right-only",
+                "--cherry-pick",
+                "--no-merges",
+                FORMAT,
+                &range,
+                &not_base,
+            ],
+        )
+    } else {
+        return Vec::new();
+    };
+    let Ok(log) = log else {
         return Vec::new();
     };
     log.split('\x1e')
         .filter_map(|entry| {
-            let mut fields = entry.trim_start_matches('\n').splitn(3, '\x1f');
+            let mut fields = entry.trim_start_matches('\n').splitn(4, '\x1f');
             let hash = fields.next()?.to_string();
-            if hash.is_empty() {
+            let time: u64 = fields.next()?.parse().ok()?;
+            if hash.is_empty() || time < started {
                 return None;
             }
             let parent = format!("{hash}^1");
@@ -438,8 +460,8 @@ pub struct BranchState {
     pub behind: usize,
     /// Its work has landed in the base.
     pub merged: bool,
-    /// Stopped halfway through merging the base in, with this many files
-    /// still in conflict.
+    /// Stopped halfway through a sync (a rebase onto the base, or a merge of
+    /// it), with this many files still in conflict.
     pub merging: Option<usize>,
 }
 
@@ -458,12 +480,12 @@ pub fn branch_state(worktree: &Path, branch: &str, base: Option<&str>) -> Branch
         state.behind = behind;
     }
     state.merged = landed(worktree, branch, base);
-    if git(
+    let merging = git(
         worktree,
         &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
     )
-    .is_ok()
-    {
+    .is_ok();
+    if merging || rebasing(worktree) {
         let conflicts = git(worktree, &["diff", "--name-only", "--diff-filter=U"])
             .map(|out| out.lines().count())
             .unwrap_or(0);
@@ -472,9 +494,21 @@ pub fn branch_state(worktree: &Path, branch: &str, base: Option<&str>) -> Branch
     state
 }
 
-/// Stops a merge left halfway, back to before it started.
-pub fn abort_merge(worktree: &Path) -> Result<()> {
-    git(worktree, &["merge", "--abort"]).map(|_| ())
+fn rebasing(worktree: &Path) -> bool {
+    ["rebase-merge", "rebase-apply"].iter().any(|dir| {
+        git(worktree, &["rev-parse", "--git-path", dir])
+            .is_ok_and(|path| worktree.join(path.trim()).exists())
+    })
+}
+
+/// Stops a sync left halfway, back to before it started.
+pub fn abort_sync(worktree: &Path) -> Result<()> {
+    let command = if rebasing(worktree) {
+        "rebase"
+    } else {
+        "merge"
+    };
+    git(worktree, &[command, "--abort"]).map(|_| ())
 }
 
 /// Splits a Conventional Commit subject into its `type(scope): ` prefix and
@@ -835,7 +869,7 @@ mod tests {
         run(&feat, &["merge", "main", "--no-edit"]);
         std::fs::write(feat.join("d.txt"), "d\n").unwrap();
 
-        let commits = commits_since(&feat, &before);
+        let commits = commits_since(&feat, &before, Some("main"), 0);
         assert_eq!(commits.len(), 2, "{commits:?}");
         assert_eq!(commits[0].subject, "feat: add b and c");
         assert_eq!(commits[0].body, "Both at once.");
@@ -873,7 +907,82 @@ mod tests {
         assert_eq!((state.ahead, state.behind, state.merging), (1, 1, Some(1)));
         assert!(!state.merged);
 
-        abort_merge(&feat).unwrap();
+        abort_sync(&feat).unwrap();
         assert_eq!(branch_state(&feat, "feat", Some("main")).merging, None);
+    }
+
+    #[test]
+    fn a_rebase_is_a_sync_and_makes_no_new_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        std::fs::write(feat.join("b.txt"), "b\n").unwrap();
+        run(&feat, &["add", "."]);
+        run(&feat, &["commit", "-m", "feat: b"]);
+        std::fs::write(repo.join("m.txt"), "m\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "main: m"]);
+
+        // A turn that only rebases made no commits; one that also commits made one.
+        let before = head(&feat).unwrap();
+        run(&feat, &["rebase", "main"]);
+        assert!(commits_since(&feat, &before, Some("main"), 0).is_empty());
+        std::fs::write(feat.join("c.txt"), "c\n").unwrap();
+        run(&feat, &["add", "."]);
+        run(&feat, &["commit", "-m", "feat: c"]);
+        let made = commits_since(&feat, &before, Some("main"), 0);
+        assert_eq!(
+            made.iter().map(|c| c.subject.as_str()).collect::<Vec<_>>(),
+            ["feat: c"]
+        );
+        assert_eq!(ahead_behind(&feat, "main"), Some((2, 0)));
+
+        // A rebase stopped on a conflict is a sync halfway; aborting undoes it.
+        std::fs::write(feat.join("a.txt"), "feat\n").unwrap();
+        run(&feat, &["commit", "-am", "feat: a"]);
+        std::fs::write(repo.join("a.txt"), "main\n").unwrap();
+        run(repo, &["commit", "-am", "main: a"]);
+        assert!(git(&feat, &["rebase", "main"]).is_err());
+        assert_eq!(branch_state(&feat, "feat", Some("main")).merging, Some(1));
+        abort_sync(&feat).unwrap();
+        assert_eq!(branch_state(&feat, "feat", Some("main")).merging, None);
+        assert_eq!(run(&feat, &["log", "-1", "--format=%s"]).trim(), "feat: a");
+    }
+
+    #[test]
+    fn pulled_commits_were_not_made_in_the_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        let before = head(repo).unwrap();
+        let started = 1_700_000_000;
+        // Committed elsewhere an hour before the turn, then pulled in.
+        std::fs::write(repo.join("b.txt"), "b\n").unwrap();
+        run(repo, &["add", "."]);
+        let status = Command::new("git")
+            .args(["commit", "-q", "-m", "fix: pulled"])
+            .env("GIT_COMMITTER_DATE", format!("{} +0000", started - 3600))
+            .current_dir(repo)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        assert!(commits_since(repo, &before, None, started).is_empty());
+        assert_eq!(commits_since(repo, &before, None, 0).len(), 1);
     }
 }

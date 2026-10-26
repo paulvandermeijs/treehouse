@@ -196,8 +196,8 @@ impl ChatView {
 
     /// Around the worktree's setup: what waits for it to finish, or for the
     /// project to be trusted.
-    /// A sync Pi left halfway: the worktree is mid-merge until it's
-    /// finished or aborted.
+    /// A sync Pi left halfway: the worktree is mid-rebase (or mid-merge)
+    /// until it's finished or aborted.
     fn render_sync_stopped(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         if self.session.read(cx).is_subagent() {
             return None;
@@ -208,9 +208,9 @@ impl ChatView {
         let path = worktree.path.clone();
         let p = palette(cx);
         let detail = match conflicts {
-            0 => "The worktree is mid-merge with every conflict resolved. Ask Pi to commit the merge, or abort it.".to_string(),
-            1 => "The worktree is mid-merge with 1 conflict left. Ask Pi to finish it, or abort the merge.".to_string(),
-            n => format!("The worktree is mid-merge with {n} conflicts left. Ask Pi to finish it, or abort the merge."),
+            0 => "Every conflict is resolved. Ask Pi to finish the sync, or abort it.".to_string(),
+            1 => "1 conflict is left. Ask Pi to finish the sync, or abort it.".to_string(),
+            n => format!("{n} conflicts are left. Ask Pi to finish the sync, or abort it."),
         };
         let workspace = self.workspace.clone();
         Some(

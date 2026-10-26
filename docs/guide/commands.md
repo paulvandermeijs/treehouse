@@ -9,7 +9,7 @@ The menu lists:
 | Command | What it does |
 | --- | --- |
 | `/commit [instructions]` | Pi commits the work so far ([Committing and merging](./lifecycle)) |
-| `/sync [instructions]` | Pi merges the latest base branch into this one |
+| `/sync [instructions]` | Pi rebases this branch onto the latest base branch |
 | `/finish-branch [instructions]` | Pi commits, syncs and tests, then asks to merge into the base |
 | `/skill:name` | Pi's skills for this worktree |
 | `/template` | Pi's prompt templates |

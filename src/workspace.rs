@@ -457,7 +457,7 @@ impl Workspace {
             }
             SessionEvent::TurnEnded => {
                 let cwd = session.read(cx).cwd.clone();
-                self.refresh_stat(cwd, cx);
+                self.refresh_project(&cwd, cx);
             }
             SessionEvent::StatusChanged => self.report_finished_subagents(cx),
         }
@@ -574,16 +574,8 @@ impl Workspace {
                 })
                 .await;
             session.update(cx, |s, cx| s.finish_merge(&merge.request_id, outcome, cx));
-            let _ = this.update(cx, |this, cx| {
-                // The base's folder changed too.
-                let paths: Vec<PathBuf> = this
-                    .project_of(&path)
-                    .map(|p| p.worktrees.iter().map(|w| w.path.clone()).collect())
-                    .unwrap_or_default();
-                for path in paths {
-                    this.refresh_stat(path, cx);
-                }
-            });
+            // The base's folder changed too.
+            let _ = this.update(cx, |this, cx| this.refresh_project(&path, cx));
         })
         .detach();
     }
@@ -625,12 +617,24 @@ impl Workspace {
         }
     }
 
-    /// Undoes a merge Pi left halfway: the one lifecycle step done by
+    /// Undoes a sync Pi left halfway: the one lifecycle step done by
     /// button, since it only undoes.
     pub fn abort_sync(&mut self, worktree: &Path, cx: &mut Context<Self>) -> Result<()> {
-        git::abort_merge(worktree)?;
+        git::abort_sync(worktree)?;
         self.refresh_stat(worktree.to_path_buf(), cx);
         Ok(())
+    }
+
+    /// Refreshes every worktree in the project of `worktree`: a commit on
+    /// the base branch changes how far behind each of the others is.
+    pub fn refresh_project(&mut self, worktree: &Path, cx: &mut Context<Self>) {
+        let paths: Vec<PathBuf> = self
+            .project_of(worktree)
+            .map(|p| p.worktrees.iter().map(|w| w.path.clone()).collect())
+            .unwrap_or_default();
+        for path in paths {
+            self.refresh_stat(path, cx);
+        }
     }
 
     /// Reads the worktree's diff stat and branch state again.

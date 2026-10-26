@@ -9,7 +9,7 @@ Three commands at the top of the slash menu. Anything you type after one goes to
 | Command | What Pi does |
 | --- | --- |
 | `/commit` | Commits the work so far as one or more logical [Conventional Commits](https://www.conventionalcommits.org/), leaving out scratch files and saying so |
-| `/sync` | Merges the latest base branch into the worktree's branch, resolves conflicts, runs the tests and commits the merge |
+| `/sync` | Rebases the worktree's branch onto the latest base branch, resolves conflicts and runs the tests |
 | `/finish-branch` | Commits anything left, syncs, runs the tests, then asks Treehouse to merge the branch into the base |
 
 They're ordinary turns: the chat shows Pi's git commands, your approval settings apply, and you can steer or stop them. Pi never pushes unless you ask it to.
@@ -35,7 +35,7 @@ After a turn that made commits, the chat shows a card listing them, read from gi
 `/finish-branch` ends with Pi calling Treehouse's merge tool. The base branch is usually checked out in the main worktree, often with your own work in it, so Treehouse does the merge, not Pi. First it checks that:
 
 - the worktree has no uncommitted changes,
-- the branch contains the latest base (it's synced),
+- the branch contains the latest base (it's synced, so the merge is a fast-forward),
 - the base is a local branch and its folder has no uncommitted changes,
 - no agent is working in the base's worktree.
 
@@ -57,7 +57,9 @@ For abandoned work, **Delete worktree…** still warns about anything that would
 
 ## When a sync stops halfway
 
-When Pi can't resolve a conflict on its own, it stops and asks you how. Until the merge is finished or undone, the chat shows **Sync stopped halfway** with the number of conflicts left. Answer Pi to finish it, or click **Abort sync** to put the branch back as it was before the sync (`git merge --abort`).
+`/sync` rebases rather than merging, so the branch's history stays linear and the final merge is a fast-forward. If the branch has already been pushed, Pi asks before rewriting it.
+
+When Pi can't resolve a conflict on its own, it stops and asks you how. Until the rebase is finished or undone, the chat shows **Sync stopped halfway** with the number of conflicts left. Answer Pi to finish it, or click **Abort sync** to put the branch back as it was before the sync (`git rebase --abort`).
 
 ## Where each branch stands
 
@@ -70,7 +72,7 @@ Worktree rows in the sidebar show small markers before the status dot:
 | `↓5` | 5 commits on the base that this branch lacks |
 | ✓ | Merged into the base; the name dims |
 
-Hover them for the full story, such as "1 ahead, 3 behind main · 1 uncommitted file". A branch level with its base shows nothing, and the main worktree only shows changes. They're refreshed after each turn and after a merge.
+Hover them for the full story, such as "1 ahead, 3 behind main · 1 uncommitted file". A branch level with its base shows nothing, and the main worktree only shows changes. They're refreshed after a turn in any of the project's worktrees, and after a merge.
 
 ## Read-only projects
 
