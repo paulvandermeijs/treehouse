@@ -40,7 +40,7 @@ Data flows one way: **Pi process → `PiClient` → `Session` → `Transcript` i
 
 ### The bridge extension
 
-Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extension that Treehouse writes to its data folder and loads with `-e`. It sends every tool call to Treehouse as an `extension_ui_request` input titled `treehouse:approval`, registers a `subagent` tool that asks Treehouse (title `treehouse:subagent`) to run another Session, and a `treehouse_merge` tool (title `treehouse:merge`) that the workspace checks, asks the user about every time, and carries out. `src/approval.rs` decides allow or ask from the user's settings.
+Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extension that Treehouse writes to its data folder and loads with `-e`. It sends every tool call to Treehouse as an `extension_ui_request` input titled `treehouse:approval`, registers a `subagent` tool that asks Treehouse (title `treehouse:subagent`) to run another Session, and a `treehouse_merge` tool (title `treehouse:merge`) that the workspace checks, asks the user about every time, and carries out. Its `/treehouse-save` command stores what the chat shows but Pi's messages don't hold (commit cards, `treehouse:commits`) as a custom entry in the session file, which `Transcript::restore` reads back. `src/approval.rs` decides allow or ask from the user's settings.
 
 The worktree lifecycle commands (`/commit`, `/sync`, `/finish-branch`) run skills from `assets/pi/skills/`, written to the data folder and loaded with `--skill` in trusted worktree chats. They're named `treehouse-*` because Pi keeps the first skill of a name; `/commit` runs a project's own `commit` skill when Pi lists one.
 

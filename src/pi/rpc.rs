@@ -291,6 +291,12 @@ pub mod command {
     pub fn bash(command: &str, exclude_from_context: bool) -> Value {
         json!({"type": "bash", "command": command, "excludeFromContext": exclude_from_context})
     }
+    /// Has the bridge extension save `data` in the session file, out of the
+    /// model's context.
+    pub fn save(custom_type: &str, data: &Value) -> Value {
+        let args = json!({"customType": custom_type, "data": data});
+        json!({"type": "prompt", "message": format!("/treehouse-save {args}")})
+    }
     pub fn abort_bash() -> Value {
         json!({"type": "abort_bash"})
     }

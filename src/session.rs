@@ -1125,6 +1125,14 @@ impl Session {
                 if !commits.is_empty() {
                     this.transcript
                         .push_commits(commits, base, ahead, uncommitted);
+                    // Pi's messages don't hold the card; save it so a restart
+                    // shows it again.
+                    if let (Some(Item::Commits(card)), Some(client)) =
+                        (this.transcript.items().last(), &this.client)
+                        && let Ok(data) = serde_json::to_value(card)
+                    {
+                        client.send(command::save(crate::transcript::COMMITS_ENTRY, &data));
+                    }
                     cx.notify();
                 }
             });

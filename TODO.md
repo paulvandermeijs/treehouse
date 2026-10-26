@@ -22,7 +22,6 @@ Now that the worktree lifecycle is in, this can be picked up.
 
 ## Small fixes
 
-- Commit cards don't come back after a restart, since Pi's session file doesn't hold them.
 - Clicking a commit in a commit card should open its diff in the right dock.
 - After a squash merge the worktree's diff stat still counts the branch's changes, since it compares with the merge base.
 - The sidebar's branch markers refresh after each turn and merge, not yet when the window gets focus.
@@ -31,5 +30,5 @@ Now that the worktree lifecycle is in, this can be picked up.
 - In the collapsed rail, project tooltips open below the pointer rather than to the right.
 - Restored sub-agents can come back in a different order in the sidebar than in the chat.
 - A worktree setup script still running when Treehouse quits is left running; stop its process group on quit (`setup::stop`).
-- The setup row doesn't come back after a restart, since Pi's session file doesn't hold it.
+- The setup row doesn't come back after a restart, since Pi's session file doesn't hold it. Save it through the bridge's `/treehouse-save`, as commit cards are.
 - "Ask Pi to fix it" sends the setup output in a code fence, which shows as literal backticks because the user's own messages aren't rendered as Markdown.

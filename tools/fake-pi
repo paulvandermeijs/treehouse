@@ -80,6 +80,16 @@ class Recorder:
                                 "message": message}) + "\n")
         self.last_id = entry_id
 
+    def custom(self, custom_type, data):
+        """Pi's `appendEntry`: extension state, out of the model's context."""
+        if not self.path:
+            return
+        entry_id = uuid.uuid4().hex[:8]
+        with open(self.path, "a") as f:
+            f.write(json.dumps({"type": "custom", "id": entry_id, "parentId": self.last_id,
+                                "customType": custom_type, "data": data}) + "\n")
+        self.last_id = entry_id
+
     def saw(self, obj):
         kind = obj.get("type")
         if kind == "message_update":
@@ -503,6 +513,12 @@ for line in sys.stdin:
     elif kind == "get_session_stats":
         respond(req, {"contextUsage": {"tokens": 48200 if state["tokens"] > 4000 else 21700,
                                        "contextWindow": 200000, "percent": 24}})
+    elif kind == "prompt" and req.get("message", "").startswith("/treehouse-save "):
+        # The bridge extension's command: saves what Treehouse shows.
+        saved = json.loads(req["message"].split(" ", 1)[1])
+        with out_lock:
+            recorder.custom(saved["customType"], saved.get("data"))
+        respond(req, {"disposition": "handled"})
     elif kind == "prompt" and req.get("message", "").startswith("/mcp login "):
         respond(req, {"disposition": "handled"})
         threading.Thread(target=mcp_login, args=(req["message"].split()[2],), daemon=True).start()

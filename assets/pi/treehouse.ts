@@ -15,6 +15,10 @@
  *   branch into its base branch, which is checked out in another folder.
  *   Treehouse checks it's safe, asks the user every time, merges, and answers
  *   with what happened.
+ * - Saving. Treehouse shows some things Pi's own messages don't hold, such
+ *   as the commits a turn made. It sends `/treehouse-save {customType, data}`
+ *   and the extension appends that to the session file, out of the model's
+ *   context, so the chat can show it again after a restart.
  *
  * Requests use the `input` dialog with a `treehouse:` title and a JSON payload
  * in the placeholder, so they need nothing beyond the RPC protocol.
@@ -95,6 +99,16 @@ export default function (pi: any) {
 				throw new Error(outcome.text);
 			}
 			return { content: [{ type: "text", text: outcome.text }], details: { merged: outcome.merged } };
+		},
+	});
+
+	pi.registerCommand("treehouse-save", {
+		description: "Used by Treehouse to save what its chat shows",
+		handler: async (args: string) => {
+			const { customType, data } = JSON.parse(args);
+			if (typeof customType === "string" && customType.startsWith("treehouse:")) {
+				pi.appendEntry(customType, data);
+			}
 		},
 	});
 }

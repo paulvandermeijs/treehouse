@@ -13,6 +13,13 @@ use crate::pi::rpc::str_field;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ItemId(pub u64);
 
+impl ItemId {
+    /// A placeholder until the transcript gives the item its id.
+    pub fn none() -> Self {
+        ItemId(0)
+    }
+}
+
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum Item {
@@ -57,8 +64,12 @@ pub enum Item {
     Commits(CommitCard),
 }
 
-#[derive(Clone, Debug)]
+/// The session entry a commit card is saved as.
+pub const COMMITS_ENTRY: &str = "treehouse:commits";
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CommitCard {
+    #[serde(skip, default = "ItemId::none")]
     pub id: ItemId,
     pub commits: Vec<crate::git::Commit>,
     pub base: Option<String>,
@@ -319,6 +330,15 @@ impl Transcript {
                         }
                         None => "Context compacted".to_string(),
                     });
+                    continue;
+                }
+                Some("custom") if entry["customType"] == COMMITS_ENTRY => {
+                    if let Ok(mut card) =
+                        serde_json::from_value::<CommitCard>(entry["data"].clone())
+                    {
+                        card.id = self.alloc();
+                        self.items.push(Item::Commits(card));
+                    }
                     continue;
                 }
                 Some("message") => {}
@@ -1320,5 +1340,38 @@ mod tests {
         let plain = "<skill name=\"pdf-tools\" location=\"/p/SKILL.md\">\nbody\n</skill>";
         assert_eq!(skill_command(plain).as_deref(), Some("/skill:pdf-tools"));
         assert_eq!(skill_command("Fix the test"), None);
+    }
+
+    #[test]
+    fn restores_saved_commit_cards() {
+        let mut t = Transcript::new("/tmp");
+        let card = CommitCard {
+            id: ItemId::none(),
+            commits: vec![crate::git::Commit {
+                hash: "029031c".into(),
+                subject: "docs: add a cat fact to the README".into(),
+                body: String::new(),
+                files: 1,
+            }],
+            base: Some("master".into()),
+            ahead: Some(1),
+            uncommitted: 0,
+        };
+        let entries = [
+            json!({"type": "message", "message": {"role": "user", "content": "/commit"}}),
+            json!({"type": "custom", "customType": COMMITS_ENTRY, "data": serde_json::to_value(&card).unwrap()}),
+            json!({"type": "custom", "customType": "someone-else", "data": {}}),
+        ];
+        t.restore(&entries);
+        assert_eq!(t.items().len(), 2);
+        let Item::Commits(restored) = &t.items()[1] else {
+            panic!("expected a commit card");
+        };
+        assert_eq!(restored.commits, card.commits);
+        assert_eq!(
+            (restored.ahead, restored.base.as_deref()),
+            (Some(1), Some("master"))
+        );
+        assert_ne!(restored.id, ItemId::none());
     }
 }

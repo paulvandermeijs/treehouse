@@ -362,7 +362,7 @@ pub fn landed(repo: &Path, branch: &str, base: &str) -> bool {
 }
 
 /// One commit, as the chat's commit card shows it.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Commit {
     pub hash: String,
     pub subject: String,

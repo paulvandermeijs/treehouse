@@ -28,7 +28,7 @@ Each command runs a skill that ships with Treehouse: `treehouse-commit`, `treeho
 
 ## The commit card
 
-After a turn that made commits, the chat shows a card listing them, read from git rather than from Pi's reply: each commit's type, subject, body, short hash and number of files, and how far the branch is now ahead of the base, with anything left uncommitted.
+After a turn that made commits, the chat shows a card listing them, read from git rather than from Pi's reply, and saved with the chat so it's still there after a restart: each commit's type, subject, body, short hash and number of files, and how far the branch is now ahead of the base, with anything left uncommitted.
 
 ## Merging
 
