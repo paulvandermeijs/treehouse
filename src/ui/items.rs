@@ -24,7 +24,7 @@ use crate::session::{
 use crate::setup::LinkOutcome;
 use crate::theme::{MONO, Palette, mix, palette};
 use crate::transcript::{
-    Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
+    CommitCard, Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
 };
 
 pub const GUTTER: f32 = 34.;
@@ -119,6 +119,7 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
         Item::McpAttention { id, servers } => render_mcp_attention(view, *id, servers, cx),
         Item::SignIn(sign_in) => render_sign_in(view, sign_in, cx),
         Item::Shell(run) => render_shell(view, run, cx),
+        Item::Commits(card) => render_commits(view, card, cx),
     }
 }
 
@@ -1323,7 +1324,7 @@ fn render_merged(
         .border_1()
         .border_color(p.surface0)
         .bg(p.mantle)
-        .child(icon(Lucide::Check).text_color(p.green))
+        .child(card_lead(Lucide::Check, p.green, &p))
         .child(
             v_flex()
                 .flex_1()
@@ -1362,6 +1363,118 @@ fn render_merged(
                     })),
             )
         })
+        .into_any_element()
+}
+
+/// The icon tile that leads a lifecycle card.
+fn card_lead(name: Lucide, color: Hsla, p: &Palette) -> Div {
+    div()
+        .flex_none()
+        .size(px(28.))
+        .rounded(px(6.))
+        .bg(p.surface0)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(icon(name).text_color(color))
+}
+
+/// The commits a turn made: conventional type in Blue, subject, body, short
+/// hash and file count, under where the branch now stands.
+fn render_commits(view: &ChatView, card: &CommitCard, cx: &mut Context<ChatView>) -> AnyElement {
+    let p = palette(cx);
+    let count = match card.commits.len() {
+        1 => "1 commit".to_string(),
+        n => format!("{n} commits"),
+    };
+    let mut meta = Vec::new();
+    if let (Some(base), Some(ahead)) = (&card.base, card.ahead) {
+        meta.push(format!("{ahead} ahead of {base}"));
+    }
+    meta.push(match card.uncommitted {
+        0 => "nothing left uncommitted".to_string(),
+        1 => "1 file left uncommitted".to_string(),
+        n => format!("{n} files left uncommitted"),
+    });
+    v_flex()
+        .id(("commits", card.id.0))
+        .mt_1()
+        .ml(px(GUTTER))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .overflow_hidden()
+        .child(
+            h_flex()
+                .gap_3()
+                .px_3()
+                .py(px(10.))
+                .child(card_lead(Lucide::GitCommitHorizontal, p.green, &p))
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .text_size(px(13.5))
+                                .font_medium()
+                                .child(format!("{count} on {}", view.branch)),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.5))
+                                .text_color(p.subtext0)
+                                .child(meta.join(" · ")),
+                        ),
+                ),
+        )
+        .child(
+            v_flex()
+                .gap(px(10.))
+                .px_3()
+                .py(px(10.))
+                .border_t_1()
+                .border_color(p.surface0)
+                .children(card.commits.iter().map(|commit| {
+                    let (kind, subject) = crate::git::conventional(&commit.subject);
+                    let files = match commit.files {
+                        1 => "1 file".to_string(),
+                        n => format!("{n} files"),
+                    };
+                    v_flex()
+                        .gap(px(2.))
+                        .min_w_0()
+                        .child(
+                            h_flex()
+                                .font_family(MONO)
+                                .text_size(px(12.5))
+                                .when_some(kind, |this, kind| {
+                                    this.child(
+                                        div()
+                                            .flex_none()
+                                            .text_color(p.blue)
+                                            .child(SharedString::from(kind.to_string())),
+                                    )
+                                })
+                                .child(SharedString::from(subject.to_string())),
+                        )
+                        .when(!commit.body.is_empty(), |this| {
+                            this.child(
+                                div()
+                                    .text_size(px(12.5))
+                                    .text_color(p.subtext0)
+                                    .child(SharedString::from(commit.body.clone())),
+                            )
+                        })
+                        .child(
+                            div()
+                                .font_family(MONO)
+                                .text_size(px(11.5))
+                                .text_color(p.subtext0)
+                                .child(format!("{} · {files}", commit.hash)),
+                        )
+                })),
+        )
         .into_any_element()
 }
 

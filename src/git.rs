@@ -361,6 +361,92 @@ pub fn landed(repo: &Path, branch: &str, base: &str) -> bool {
     matches!((created, tip), (Some(created), Some(tip)) if created != tip.trim())
 }
 
+/// One commit, as the chat's commit card shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Commit {
+    pub hash: String,
+    pub subject: String,
+    pub body: String,
+    pub files: usize,
+}
+
+pub fn head(repo: &Path) -> Option<String> {
+    git(repo, &["rev-parse", "HEAD"])
+        .ok()
+        .map(|s| s.trim().to_string())
+}
+
+/// The commits on the current branch since `since`, oldest first. A merge
+/// of the base counts as one commit, without the base's own.
+pub fn commits_since(repo: &Path, since: &str) -> Vec<Commit> {
+    let range = format!("{since}..HEAD");
+    let Ok(log) = git(
+        repo,
+        &[
+            "log",
+            "--first-parent",
+            "--reverse",
+            "--format=%h%x1f%s%x1f%b%x1e",
+            &range,
+        ],
+    ) else {
+        return Vec::new();
+    };
+    log.split('\x1e')
+        .filter_map(|entry| {
+            let mut fields = entry.trim_start_matches('\n').splitn(3, '\x1f');
+            let hash = fields.next()?.to_string();
+            if hash.is_empty() {
+                return None;
+            }
+            let parent = format!("{hash}^1");
+            let files = git(repo, &["diff", "--name-only", &parent, &hash])
+                .map(|out| out.lines().count())
+                .unwrap_or(0);
+            Some(Commit {
+                hash,
+                subject: fields.next().unwrap_or_default().to_string(),
+                body: fields.next().unwrap_or_default().trim().to_string(),
+                files,
+            })
+        })
+        .collect()
+}
+
+/// How many commits `HEAD` has that `base` lacks, and the other way round.
+pub fn ahead_behind(repo: &Path, base: &str) -> Option<(usize, usize)> {
+    let range = format!("{base}...HEAD");
+    let out = git(repo, &["rev-list", "--left-right", "--count", &range]).ok()?;
+    let mut counts = out.split_whitespace().map(|n| n.parse().ok());
+    let behind = counts.next()??;
+    let ahead = counts.next()??;
+    Some((ahead, behind))
+}
+
+/// Changed and untracked files.
+pub fn uncommitted(repo: &Path) -> usize {
+    git(repo, &["status", "--porcelain"])
+        .map(|out| out.lines().count())
+        .unwrap_or(0)
+}
+
+/// Splits a Conventional Commit subject into its `type(scope): ` prefix and
+/// the rest.
+pub fn conventional(subject: &str) -> (Option<&str>, &str) {
+    let Some(end) = subject.find(": ") else {
+        return (None, subject);
+    };
+    let kind = &subject[..end];
+    let name = kind.split(['(', '!']).next().unwrap_or("");
+    let ok =
+        !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase()) && !kind.contains(' ');
+    if ok {
+        (Some(&subject[..end + 2]), &subject[end + 2..])
+    } else {
+        (None, subject)
+    }
+}
+
 /// Keeps worktrees created inside the project out of its `git status`.
 fn exclude_from_project(project: &Path, location: &Path) {
     let Ok(relative) = location.strip_prefix(project) else {
@@ -657,5 +743,58 @@ mod tests {
             None
         );
         assert!(git(repo, &["rev-parse", "--verify", "feat"]).is_err());
+    }
+
+    #[test]
+    fn splits_conventional_subjects() {
+        assert_eq!(
+            conventional("feat(diff): show the dock"),
+            (Some("feat(diff): "), "show the dock")
+        );
+        assert_eq!(conventional("fix!: drop it"), (Some("fix!: "), "drop it"));
+        assert_eq!(
+            conventional("Update README: typo"),
+            (None, "Update README: typo")
+        );
+        assert_eq!(conventional("wip"), (None, "wip"));
+    }
+
+    #[test]
+    fn lists_the_commits_a_turn_made() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        let before = head(&feat).unwrap();
+
+        std::fs::write(feat.join("b.txt"), "b\n").unwrap();
+        std::fs::write(feat.join("c.txt"), "c\n").unwrap();
+        run(&feat, &["add", "."]);
+        run(
+            &feat,
+            &["commit", "-m", "feat: add b and c", "-m", "Both at once."],
+        );
+        std::fs::write(repo.join("m.txt"), "m\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "main: more"]);
+        run(&feat, &["merge", "main", "--no-edit"]);
+        std::fs::write(feat.join("d.txt"), "d\n").unwrap();
+
+        let commits = commits_since(&feat, &before);
+        assert_eq!(commits.len(), 2, "{commits:?}");
+        assert_eq!(commits[0].subject, "feat: add b and c");
+        assert_eq!(commits[0].body, "Both at once.");
+        assert_eq!(commits[0].files, 2);
+        assert!(commits[1].subject.starts_with("Merge branch"));
+        assert_eq!(ahead_behind(&feat, "main"), Some((2, 0)));
+        assert_eq!(uncommitted(&feat), 1);
     }
 }

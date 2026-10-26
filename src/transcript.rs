@@ -53,6 +53,18 @@ pub enum Item {
     SignIn(SignIn),
     /// A command the user ran with `!`.
     Shell(ShellRun),
+    /// The commits a turn made, read from git once it settled.
+    Commits(CommitCard),
+}
+
+#[derive(Clone, Debug)]
+pub struct CommitCard {
+    pub id: ItemId,
+    pub commits: Vec<crate::git::Commit>,
+    pub base: Option<String>,
+    /// Commits the base lacks, when there is a base.
+    pub ahead: Option<usize>,
+    pub uncommitted: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -111,6 +123,7 @@ impl Item {
             Item::SignIn(sign_in) => sign_in.id,
             Item::Shell(run) => run.id,
             Item::Tool(tool) => tool.id,
+            Item::Commits(card) => card.id,
         }
     }
 }
@@ -491,6 +504,23 @@ impl Transcript {
             }
             None => false,
         }
+    }
+
+    pub fn push_commits(
+        &mut self,
+        commits: Vec<crate::git::Commit>,
+        base: Option<String>,
+        ahead: Option<usize>,
+        uncommitted: usize,
+    ) {
+        let id = self.alloc();
+        self.items.push(Item::Commits(CommitCard {
+            id,
+            commits,
+            base,
+            ahead,
+            uncommitted,
+        }));
     }
 
     pub fn push_notice(&mut self, text: impl Into<String>) {
