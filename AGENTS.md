@@ -44,6 +44,14 @@ Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extensio
 
 The worktree lifecycle commands (`/commit`, `/sync`, `/finish-branch`) run skills from `assets/pi/skills/`, written to the data folder and loaded with `--skill` in trusted worktree chats. They're named `treehouse-*` because Pi keeps the first skill of a name; `/commit` runs a project's own `commit` skill when Pi lists one.
 
+### Chat history lives in Pi's session file
+
+Everything the chat shows as history must come back from Pi's session file after a restart. Either Pi stores it itself (messages, tool results, `bashExecution`, `compaction`, `model_change`, `thinking_level_change`), or Treehouse saves it with the bridge's `/treehouse-save` as a custom `treehouse:*` entry, and `Transcript::restore` reads it back. Don't add a transcript item that neither covers.
+
+- Live state isn't history: pending approvals, the merge card, "Sync stopped halfway" and the setup waiting for trust are drawn from the current state each time.
+- Pi must be running to save. Queue a save until it starts rather than skipping it; only when there's no Pi to save to at all (Pi failed to start) may the chat show something unsaved.
+- Pi keeps entries in memory and writes the file at the first assistant reply, with everything saved before it.
+
 ### Things that bite
 
 - `--tools` replaces Pi's whole tool selection: name the bridge's `subagent` and `treehouse_merge` tools, and `codemode` and `tool_search` (the only way MCP tools are reachable). Untrusted projects get `read` only, plus `--no-approve`, `--no-mcp` and a read-only note through `--append-system-prompt`.
