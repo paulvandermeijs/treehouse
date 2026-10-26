@@ -121,3 +121,50 @@ html:not(.dark) .dark-only {
   height: auto;
   border-radius: 12px;
 }
+
+/* The hero shows the app as a video rather than the logo: wider than the
+   logo's square, so the container follows the video's 16:10 shape. */
+.VPHero .image {
+  margin: 0 0 32px;
+}
+
+.VPHero .image-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 640px;
+  height: auto;
+  transform: none;
+}
+
+.VPHero .hero-video {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  border-radius: 10px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg);
+  box-shadow: 0 24px 64px rgba(17, 17, 27, 0.25);
+}
+
+.VPHero .hero-video video {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.dark .VPHero .hero-video {
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+}
+
+@media (min-width: 960px) {
+  .VPHero .image {
+    margin: 0 0 0 32px;
+  }
+
+  .VPHero .image-container {
+    height: 100%;
+  }
+}

@@ -16,6 +16,8 @@ node render.mjs out      # draws the captions and cards, out/frames/<scene>/
 ./compose.py out         # out/treehouse-announcement.mp4, .gif and a poster, and the -latte variants
 ```
 
+The docs home page shows the app on its own instead, as a silent loop in each theme. `./hero.py out` records the same session in Mocha and in Latte (`THEME=latte` for `record.py`) and writes `docs/public/hero-<theme>.mp4`, `.webm` and a `.jpg` poster.
+
 `render.mjs` needs Playwright with Chromium (`NODE_PATH` pointing at a global install is enough).
 
 | File | What it does |
@@ -27,6 +29,7 @@ node render.mjs out      # draws the captions and cards, out/frames/<scene>/
 | `frame.html`, `render.mjs` | One scene's overlay, rendered frame by frame |
 | `narrate.py` | Speaks each scene's `voice` line and makes the music with ElevenLabs, into `voice/` |
 | `voice/` | The generated narration and music, kept so the video builds without an API key |
+| `hero.py` | The looping hero videos for the docs home page |
 | `compose.py` | Puts the clips under the overlays, cross-fades the scenes and mixes in the audio |
 
 Captions, card text and the narration (`voice`) live in `scenes.json`; rerun `render.mjs` and `compose.py` after changing them, and `narrate.py` first for a changed line. After a UI change, rerun `record.py` too, and check the click positions in it.
