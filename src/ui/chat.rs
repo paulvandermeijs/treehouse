@@ -196,6 +196,18 @@ impl ChatView {
 
     /// Around the worktree's setup: what waits for it to finish, or for the
     /// project to be trusted.
+    /// Pi couldn't start or stopped unexpectedly. Live state, not history:
+    /// with no Pi there's nowhere to save it, and it goes once Pi runs again.
+    fn render_pi_stopped(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let session = self.session.read(cx);
+        let text = match (&session.start_error, &session.exited) {
+            (Some(error), _) => format!("Couldn't start Pi. {error}"),
+            (None, Some(exited)) => format!("{exited} Send a message to start it again."),
+            (None, None) => return None,
+        };
+        Some(crate::ui::items::error_card(&text, &palette(cx)).into_any_element())
+    }
+
     /// A sync Pi left halfway: the worktree is mid-rebase (or mid-merge)
     /// until it's finished or aborted.
     fn render_sync_stopped(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
@@ -684,6 +696,22 @@ impl ChatView {
                 });
             }
             return;
+        }
+        // A lifecycle command that can't run here says why and keeps the text.
+        {
+            let session = self.session.read(cx);
+            if let Some((command, _)) =
+                slash::parse_lifecycle(&message).filter(|_| !session.is_subagent())
+                && let Some(why) =
+                    slash::lifecycle_unavailable(command, session.trusted, session.base.as_deref())
+            {
+                let text = format!(
+                    "/{} can't run here: {}.",
+                    command.name(),
+                    why.to_lowercase()
+                );
+                return gpui_kit::component::WindowExt::push_notification(window, text, cx);
+            }
         }
         self.composer
             .update(cx, |state, cx| state.set_value("", window, cx));
@@ -1331,6 +1359,7 @@ impl Render for ChatView {
                             .children(items)
                             .children(self.render_setup_extras(cx))
                             .children((!running).then(|| self.render_sync_stopped(cx)).flatten())
+                            .children(self.render_pi_stopped(cx))
                             .when(running || compacting, |this| {
                                 this.child(
                                     h_flex()

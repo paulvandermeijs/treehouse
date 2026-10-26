@@ -15,7 +15,7 @@ const PREPARE: &str = ".agents/prepare";
 /// Delta's docs define no variable of their own.
 pub const ROOT_ENV: &str = "ROOT_WORKTREE_PATH";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum LinkOutcome {
     /// Now a symlink to the main worktree's copy.
     Linked,
@@ -28,7 +28,7 @@ pub enum LinkOutcome {
     Failed(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Link {
     pub path: String,
     pub outcome: LinkOutcome,

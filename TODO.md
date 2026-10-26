@@ -20,17 +20,6 @@ Now that the worktree lifecycle is in, this can be picked up.
 - **Custom fonts** for the interface and code in Settings, plus the optional text-size stepper.
 - **Mermaid diagrams** in replies.
 
-## Chat history from Pi's session file
-
-What the chat shows but doesn't come back after a restart, per the rule in AGENTS.md:
-
-- **Setup row:** save it with `/treehouse-save` (queued until Pi starts after the setup), and restore it as the first row.
-- **Model and thinking changes:** Pi already stores `model_change` and `thinking_level_change` entries; restore the notices from those.
-- **Treehouse's notices:** "Pi restarted · settings, skills and MCP servers reloaded", "Folder trusted" and "Read-only" after a trust change, and "New session" (saved into the new session).
-- **MCP:** sign-in rows, the "needs attention" list and other extension notifications.
-- **Errors from Pi's RPC commands,** such as a model that can't be set. "Couldn't start Pi" and "Pi exited" have no Pi to save to; show them as live state instead.
-- "/commit can't run here" is feedback on what was just typed; a notification rather than a chat row.
-
 ## Small fixes
 
 - Clicking a commit in a commit card should open its diff in the right dock.

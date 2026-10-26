@@ -64,8 +64,26 @@ pub enum Item {
     Commits(CommitCard),
 }
 
-/// The session entry a commit card is saved as.
+/// The session entries Treehouse saves for what Pi's own messages don't
+/// hold, through the bridge's `/treehouse-save`.
 pub const COMMITS_ENTRY: &str = "treehouse:commits";
+pub const NOTICE_ENTRY: &str = "treehouse:notice";
+pub const ERROR_ENTRY: &str = "treehouse:error";
+pub const SETUP_ENTRY: &str = "treehouse:setup";
+pub const MCP_ATTENTION_ENTRY: &str = "treehouse:mcp-attention";
+pub const SIGN_IN_ENTRY: &str = "treehouse:sign-in";
+
+/// A finished setup row, as it's saved.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedSetup {
+    command: String,
+    output: String,
+    exit_code: Option<i64>,
+    cancelled: bool,
+    error: Option<String>,
+    links: Vec<crate::setup::Link>,
+    duration_ms: u64,
+}
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct CommitCard {
@@ -103,7 +121,7 @@ pub struct ShellRun {
 /// The request id of the worktree's setup run.
 pub const SETUP_ID: &str = "setup";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SignInState {
     /// Waiting for the browser.
     Waiting,
@@ -257,6 +275,9 @@ pub struct Transcript {
     pub settled_at: Option<Instant>,
     /// Set while Pi compacts the context.
     pub compacting: bool,
+    /// Entries to save in Pi's session file, for items Pi's own messages
+    /// don't hold; the session sends them once Pi runs.
+    saves: Vec<(&'static str, Value)>,
     /// What the user typed for messages Pi hasn't echoed yet. Pi echoes a
     /// skill or template command expanded, so the chat shows this instead.
     typed: VecDeque<String>,
@@ -273,6 +294,7 @@ impl Transcript {
             run_started: None,
             settled_at: None,
             compacting: false,
+            saves: Vec::new(),
             typed: VecDeque::new(),
             cwd: cwd.into(),
         }
@@ -311,6 +333,62 @@ impl Transcript {
         self.compacting = false;
     }
 
+    /// An item Treehouse saved with `/treehouse-save`, back from the
+    /// session file.
+    fn restore_saved(&mut self, kind: Option<&str>, data: &Value) {
+        let text = || str_field(data, "text");
+        match kind {
+            Some(COMMITS_ENTRY) => {
+                if let Ok(mut card) = serde_json::from_value::<CommitCard>(data.clone()) {
+                    card.id = self.alloc();
+                    self.items.push(Item::Commits(card));
+                }
+            }
+            Some(NOTICE_ENTRY) => self.push_notice(text()),
+            Some(ERROR_ENTRY) => self.push_error(text()),
+            Some(SETUP_ENTRY) => {
+                let Ok(saved) = serde_json::from_value::<SavedSetup>(data.clone()) else {
+                    return;
+                };
+                let id = self.alloc();
+                self.items.push(Item::Shell(ShellRun {
+                    id,
+                    request_id: SETUP_ID.to_string(),
+                    command: saved.command,
+                    excluded: true,
+                    output: saved.output,
+                    running: false,
+                    exit_code: saved.exit_code,
+                    cancelled: saved.cancelled,
+                    full_output: None,
+                    error: saved.error,
+                    started: Instant::now(),
+                    duration: Some(Duration::from_millis(saved.duration_ms)),
+                    setup: Some(saved.links),
+                }));
+            }
+            Some(MCP_ATTENTION_ENTRY) => {
+                if let Ok(servers) = serde_json::from_value(data["servers"].clone()) {
+                    let id = self.alloc();
+                    self.items.push(Item::McpAttention { id, servers });
+                }
+            }
+            Some(SIGN_IN_ENTRY) => {
+                if let Ok(state) = serde_json::from_value(data["state"].clone()) {
+                    let id = self.alloc();
+                    self.items.push(Item::SignIn(SignIn {
+                        id,
+                        server: str_field(data, "server"),
+                        url: data["url"].as_str().map(str::to_string),
+                        request_id: None,
+                        state,
+                    }));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Rebuilds the chat from the messages of a saved Pi session, as
     /// `crate::history::load` returns them. Pi's events never replay, so the
     /// items are built from the stored messages themselves.
@@ -332,13 +410,21 @@ impl Transcript {
                     });
                     continue;
                 }
-                Some("custom") if entry["customType"] == COMMITS_ENTRY => {
-                    if let Ok(mut card) =
-                        serde_json::from_value::<CommitCard>(entry["data"].clone())
-                    {
-                        card.id = self.alloc();
-                        self.items.push(Item::Commits(card));
-                    }
+                Some("custom") => {
+                    self.restore_saved(entry["customType"].as_str(), &entry["data"]);
+                    continue;
+                }
+                // Pi records the model and thinking level a session starts
+                // with too; only changes during the chat get a notice.
+                Some("model_change") if !self.items.is_empty() => {
+                    self.push_notice(format!("Model changed to {}", str_field(entry, "modelId")));
+                    continue;
+                }
+                Some("thinking_level_change") if !self.items.is_empty() => {
+                    self.push_notice(format!(
+                        "Thinking level changed to {}",
+                        str_field(entry, "thinkingLevel")
+                    ));
                     continue;
                 }
                 Some("message") => {}
@@ -468,6 +554,10 @@ impl Transcript {
     }
 
     pub fn push_mcp_attention(&mut self, servers: Vec<(String, String)>) {
+        self.saves.push((
+            MCP_ATTENTION_ENTRY,
+            serde_json::json!({ "servers": servers }),
+        ));
         let id = self.alloc();
         self.items.push(Item::McpAttention { id, servers });
     }
@@ -520,6 +610,12 @@ impl Transcript {
             Some(sign_in) => {
                 sign_in.state = state;
                 sign_in.request_id = None;
+                let saved = serde_json::json!({
+                    "server": sign_in.server,
+                    "url": sign_in.url,
+                    "state": sign_in.state,
+                });
+                self.saves.push((SIGN_IN_ENTRY, saved));
                 true
             }
             None => false,
@@ -533,14 +629,38 @@ impl Transcript {
         ahead: Option<usize>,
         uncommitted: usize,
     ) {
-        let id = self.alloc();
-        self.items.push(Item::Commits(CommitCard {
-            id,
+        let card = CommitCard {
+            id: self.alloc(),
             commits,
             base,
             ahead,
             uncommitted,
-        }));
+        };
+        if let Ok(saved) = serde_json::to_value(&card) {
+            self.saves.push((COMMITS_ENTRY, saved));
+        }
+        self.items.push(Item::Commits(card));
+    }
+
+    /// The entries to save since this was last called.
+    pub fn take_saves(&mut self) -> Vec<(&'static str, Value)> {
+        std::mem::take(&mut self.saves)
+    }
+
+    /// A notice Pi's history doesn't hold, saved so a restart shows it.
+    pub fn saved_notice(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.saves
+            .push((NOTICE_ENTRY, serde_json::json!({ "text": text })));
+        self.push_notice(text);
+    }
+
+    /// An error Pi's history doesn't hold, saved so a restart shows it.
+    pub fn saved_error(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        self.saves
+            .push((ERROR_ENTRY, serde_json::json!({ "text": text })));
+        self.push_error(text);
     }
 
     pub fn push_notice(&mut self, text: impl Into<String>) {
@@ -612,12 +732,25 @@ impl Transcript {
     /// The setup ended: with the script's exit code, stopped, or an error
     /// that kept it from running.
     pub fn finish_setup(&mut self, exit_code: Option<i64>, cancelled: bool, error: Option<String>) {
-        if let Some(run) = self.setup_run() {
-            run.running = false;
-            run.duration = Some(run.started.elapsed());
-            run.exit_code = exit_code;
-            run.cancelled = cancelled;
-            run.error = error;
+        let Some(run) = self.setup_run() else {
+            return;
+        };
+        run.running = false;
+        run.duration = Some(run.started.elapsed());
+        run.exit_code = exit_code;
+        run.cancelled = cancelled;
+        run.error = error;
+        let saved = SavedSetup {
+            command: run.command.clone(),
+            output: run.output.clone(),
+            exit_code: run.exit_code,
+            cancelled: run.cancelled,
+            error: run.error.clone(),
+            links: run.setup.clone().unwrap_or_default(),
+            duration_ms: run.duration.map(|d| d.as_millis() as u64).unwrap_or(0),
+        };
+        if let Ok(saved) = serde_json::to_value(saved) {
+            self.saves.push((SETUP_ENTRY, saved));
         }
     }
 
@@ -866,7 +999,7 @@ impl Transcript {
                     };
                     self.push_notice(text);
                 } else if let Some(error) = event.get("errorMessage").and_then(Value::as_str) {
-                    self.push_error(format!("Compaction failed: {error}"));
+                    self.saved_error(format!("Compaction failed: {error}"));
                 }
                 Effect::None
             }
@@ -1373,5 +1506,64 @@ mod tests {
             (Some(1), Some("master"))
         );
         assert_ne!(restored.id, ItemId::none());
+    }
+
+    #[test]
+    fn saves_what_pi_does_not_and_restores_it() {
+        let mut live = Transcript::new("/tmp");
+        live.start_setup(".agents/prepare");
+        live.setup_run().unwrap().output.push_str("npm ci\n");
+        live.finish_setup(Some(0), false, None);
+        live.saved_notice("Pi restarted · settings, skills and MCP servers reloaded");
+        live.saved_error("Model not found");
+        live.push_mcp_attention(vec![("figma".into(), "needs sign-in".into())]);
+        live.sign_in("figma").url = Some("https://figma.com/oauth".into());
+        live.finish_sign_in(Some("figma"), SignInState::Done("12 tools".into()));
+        // Pi's own notes aren't saved again.
+        live.push_notice("Context compacted");
+        let saves = live.take_saves();
+        assert_eq!(
+            saves.iter().map(|(kind, _)| *kind).collect::<Vec<_>>(),
+            [
+                SETUP_ENTRY,
+                NOTICE_ENTRY,
+                ERROR_ENTRY,
+                MCP_ATTENTION_ENTRY,
+                SIGN_IN_ENTRY
+            ]
+        );
+
+        // Back from the session file, with Pi's own model and thinking changes.
+        let mut entries = vec![
+            json!({"type": "model_change", "provider": "anthropic", "modelId": "claude-opus-4-5"}),
+            json!({"type": "thinking_level_change", "thinkingLevel": "high"}),
+        ];
+        entries.extend(
+            saves
+                .into_iter()
+                .map(|(kind, data)| json!({"type": "custom", "customType": kind, "data": data})),
+        );
+        entries.push(json!({"type": "model_change", "provider": "anthropic", "modelId": "claude-sonnet-4-5"}));
+        let mut restored = Transcript::new("/tmp");
+        restored.restore(&entries);
+        let kinds: Vec<&str> = restored
+            .items()
+            .iter()
+            .map(|item| match item {
+                Item::Shell(run) if run.setup.is_some() && run.output == "npm ci\n" => "setup",
+                Item::Notice { text, .. } if text.starts_with("Pi restarted") => "notice",
+                Item::Error { text, .. } if text == "Model not found" => "error",
+                Item::McpAttention { servers, .. } if servers[0].0 == "figma" => "attention",
+                Item::SignIn(s) if s.state == SignInState::Done("12 tools".into()) => "sign-in",
+                Item::Notice { text, .. } if text == "Model changed to claude-sonnet-4-5" => {
+                    "model"
+                }
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            ["setup", "notice", "error", "attention", "sign-in", "model"]
+        );
     }
 }

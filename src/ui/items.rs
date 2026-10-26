@@ -1478,7 +1478,7 @@ fn render_commits(view: &ChatView, card: &CommitCard, cx: &mut Context<ChatView>
         .into_any_element()
 }
 
-fn error_card(text: &str, p: &Palette) -> Div {
+pub(super) fn error_card(text: &str, p: &Palette) -> Div {
     div()
         .mt_1()
         .ml(px(GUTTER))

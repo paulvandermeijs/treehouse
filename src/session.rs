@@ -159,6 +159,11 @@ pub struct Session {
     restored: bool,
     pub started: Instant,
     pub start_error: Option<String>,
+    /// Why Pi stopped unexpectedly. Live state rather than history: there's
+    /// no Pi left to save it to.
+    pub exited: Option<String>,
+    /// Entries for Pi's session file waiting for Pi to run.
+    unsaved: Vec<(&'static str, Value)>,
     _reader: Option<Task<()>>,
     /// Messages sent while the worktree's setup runs. Pi starts once it
     /// ends, so it finds the worktree ready.
@@ -242,6 +247,8 @@ impl Session {
             restored: false,
             started: Instant::now(),
             start_error: None,
+            exited: None,
+            unsaved: Vec::new(),
             _reader: None,
             setup_queue: Vec::new(),
             setup_waiting: false,
@@ -471,6 +478,9 @@ impl Session {
                 client.send(command::get_commands());
                 self.client = Some(client);
                 self.start_error = None;
+                self.exited = None;
+                // Before any message, so they keep their place in the chat.
+                self.flush_saves();
                 self._reader = Some(cx.spawn(async move |this, cx| {
                     while let Ok(message) = messages.recv().await {
                         let alive = this.update(cx, |this, cx| this.handle(message, cx)).is_ok();
@@ -488,9 +498,8 @@ impl Session {
         }
     }
 
+    /// Shown as live state: with no Pi there's nowhere to save it.
     fn fail_to_start(&mut self, error: String, cx: &mut Context<Self>) {
-        self.transcript
-            .push_error(format!("Couldn't start Pi. {error}"));
         self.start_error = Some(error);
         cx.emit(SessionEvent::StatusChanged);
         cx.notify();
@@ -535,14 +544,15 @@ impl Session {
         let lifecycle = crate::slash::parse_lifecycle(message).filter(|_| !self.is_subagent());
         let prompt = match lifecycle {
             Some((lifecycle, instructions)) => {
-                if let Some(why) = crate::slash::lifecycle_unavailable(
+                // The chat says why before sending; see `ChatView::send`.
+                if crate::slash::lifecycle_unavailable(
                     lifecycle,
                     self.trusted,
                     self.base.as_deref(),
-                ) {
-                    self.transcript
-                        .push_notice(format!("/{} can't run here · {why}", lifecycle.name()));
-                    return cx.notify();
+                )
+                .is_some()
+                {
+                    return;
                 }
                 lifecycle.prompt(instructions, &self.commands)
             }
@@ -674,6 +684,7 @@ impl Session {
                 error,
             } => {
                 self.transcript.finish_setup(exit_code, cancelled, error);
+                self.flush_saves();
                 self.setup_stop = None;
                 cx.emit(SessionEvent::StatusChanged);
                 for message in std::mem::take(&mut self.setup_queue) {
@@ -753,7 +764,7 @@ impl Session {
         self.transcript.abandon_shells();
         self.transcript
             .apply(&serde_json::json!({"type": "agent_settled"}));
-        self.transcript.push_notice(notice);
+        self.transcript.saved_notice(notice);
         self.ensure_started(cx);
         cx.emit(SessionEvent::StatusChanged);
         cx.notify();
@@ -965,8 +976,8 @@ impl Session {
                         .rev()
                         .find(|l| !l.trim().is_empty())
                         .unwrap_or("");
-                    self.transcript
-                        .push_error(format!("Pi exited (code {}). {detail}", code.unwrap_or(-1)));
+                    self.exited =
+                        Some(format!("Pi exited (code {}). {detail}", code.unwrap_or(-1)));
                     self.transcript
                         .apply(&serde_json::json!({"type": "agent_settled"}));
                 }
@@ -977,8 +988,20 @@ impl Session {
                 cx.emit(SessionEvent::StatusChanged);
             }
         }
+        self.flush_saves();
         self.sync_texts(cx);
         cx.notify();
+    }
+
+    /// Sends what the transcript wants saved in Pi's session file, or keeps
+    /// it until Pi runs.
+    fn flush_saves(&mut self) {
+        self.unsaved.extend(self.transcript.take_saves());
+        if let Some(client) = &self.client {
+            for (kind, data) in self.unsaved.drain(..) {
+                client.send(command::save(kind, &data));
+            }
+        }
     }
 
     fn handle_response(&mut self, response: crate::pi::rpc::Response) {
@@ -997,7 +1020,7 @@ impl Session {
                 self.transcript.compacting = false;
             }
             if let Some(error) = response.error {
-                self.transcript.push_error(error);
+                self.transcript.saved_error(error);
             }
             return;
         }
@@ -1049,7 +1072,8 @@ impl Session {
                 self.approvals.clear();
                 self.context_tokens = None;
                 self.started = Instant::now();
-                self.transcript.push_notice("New session");
+                // Saved into the new session, which it opens.
+                self.transcript.saved_notice("New session");
                 // Pi starts a new file; ask for it so a restart resumes this one.
                 if let Some(client) = &self.client {
                     client.send(command::get_state());
@@ -1125,14 +1149,7 @@ impl Session {
                 if !commits.is_empty() {
                     this.transcript
                         .push_commits(commits, base, ahead, uncommitted);
-                    // Pi's messages don't hold the card; save it so a restart
-                    // shows it again.
-                    if let (Some(Item::Commits(card)), Some(client)) =
-                        (this.transcript.items().last(), &this.client)
-                        && let Ok(data) = serde_json::to_value(card)
-                    {
-                        client.send(command::save(crate::transcript::COMMITS_ENTRY, &data));
-                    }
+                    this.flush_saves();
                     cx.notify();
                 }
             });
@@ -1222,10 +1239,10 @@ impl Session {
                         .transcript
                         .finish_sign_in(None, SignInState::Failed(message.clone()))
                     {
-                        self.transcript.push_error(message);
+                        self.transcript.saved_error(message);
                     }
                 } else {
-                    self.transcript.push_notice(message);
+                    self.transcript.saved_notice(message);
                 }
             }
             ("input", title) if crate::mcp::parse_waiting(title).is_some() => {
