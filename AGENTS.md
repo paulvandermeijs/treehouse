@@ -57,5 +57,6 @@ Pi has no tool approval or sub-agents. `assets/pi/treehouse.ts` is a Pi extensio
 - The UI follows a Treehouse design canvas (Catppuccin Mocha/Latte, IBM Plex Sans and Mono). Colours come from `theme::Palette` (`src/theme.rs`); add a token there rather than hard-coding a colour. Icons beyond gpui-kit's defaults are added to `ExtraIcons` in `src/assets.rs`.
 - Use gpui-kit components where they fit. Layouts the kit doesn't provide, such as the sidebar, are built by hand from `div`/`h_flex`/`v_flex` to the design.
 - Follow existing standards (Pi's own files, `.agents/` conventions such as `.agents/prepare`, skills, `AGENTS.md`) rather than inventing Treehouse-specific files or formats; only add our own when no standard exists.
+- `TODO.md` is the list of what's left to build, with open questions. Mark items done by removing them, and add new ones as they come up.
 - Comments explain why, not what. User-facing text is short and plain.
 - Keep the manual in `docs/` up to date with user-visible behaviour: `docs/guide/` documents each feature and `docs/development/` is for contributors. Check the site still builds with `npm run build` in `docs/`. `README.md` stays minimal (intro, installing, development, licences); change it only when those change.
