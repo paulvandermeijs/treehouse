@@ -15,10 +15,11 @@ pub fn extension_path() -> std::io::Result<std::path::PathBuf> {
     Ok(path)
 }
 
-/// The built-in skills behind `/commit`, `/sync` and `/finish-branch`. The
+/// The built-in skills behind `/commit`, `/sync`, `/finish-branch` and
+/// `/setup-worktrees`. The
 /// `treehouse-` prefix keeps them from hiding a project's own skill of the
 /// same name, since Pi keeps the first one it finds.
-pub const SKILLS: [(&str, &str); 3] = [
+pub const SKILLS: [(&str, &str); 4] = [
     (
         "treehouse-commit",
         include_str!("../../assets/pi/skills/treehouse-commit/SKILL.md"),
@@ -30,6 +31,10 @@ pub const SKILLS: [(&str, &str); 3] = [
     (
         "treehouse-finish-branch",
         include_str!("../../assets/pi/skills/treehouse-finish-branch/SKILL.md"),
+    ),
+    (
+        "treehouse-setup-worktrees",
+        include_str!("../../assets/pi/skills/treehouse-setup-worktrees/SKILL.md"),
     ),
 ];
 

@@ -16,6 +16,7 @@ the number of seconds the sub-agent keeps working before it reports back.
 Like Pi it saves the chat to a session file (`--session-dir`), and
 `--session <file>` continues one, so restoring a chat can be tried.
 
+`/setup-worktrees` writes a sample `.agents/linked` and `.agents/prepare`.
 The lifecycle skills (`/commit`, `/sync`, `/finish-branch`) run real git in
 the worktree: commit everything, rebase onto the base branch named in
 `--append-system-prompt`, and call `treehouse_merge`.
@@ -341,6 +342,14 @@ def lifecycle_turn(skill):
         elif skill == "sync":
             say(index, f"Already up to date with {base}.")
             index += 1
+    if skill == "setup-worktrees":
+        shell_tool(index, f"lc-ignored-{run_id}", "git status --ignored --short")
+        shell_tool(index + 1, f"lc-write-{run_id}",
+                   "mkdir -p .agents && printf '# Secrets and local settings, the same in every worktree\\n.env\\n' > .agents/linked"
+                   " && printf '#!/bin/sh\\nset -e\\necho \"Preparing $(basename \"$PWD\")\"\\n' > .agents/prepare"
+                   " && chmod +x .agents/prepare && sh -n .agents/prepare")
+        say(index + 2, "New worktrees now share `.env` with the main worktree, and `.agents/prepare` runs in each. Commit both to the main branch for them to apply.")
+        index += 3
     if skill == "finish-branch":
         call_id = f"lc-finish-{run_id}"
         args = {"squash_message": "feat: finish the branch"}

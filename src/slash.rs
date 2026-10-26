@@ -33,16 +33,24 @@ pub enum Lifecycle {
     Commit,
     Sync,
     FinishBranch,
+    /// Writes `.agents/linked` and `.agents/prepare` for new worktrees.
+    SetupWorktrees,
 }
 
 impl Lifecycle {
-    pub const ALL: [Lifecycle; 3] = [Lifecycle::Commit, Lifecycle::Sync, Lifecycle::FinishBranch];
+    pub const ALL: [Lifecycle; 4] = [
+        Lifecycle::Commit,
+        Lifecycle::Sync,
+        Lifecycle::FinishBranch,
+        Lifecycle::SetupWorktrees,
+    ];
 
     pub fn name(self) -> &'static str {
         match self {
             Lifecycle::Commit => "commit",
             Lifecycle::Sync => "sync",
             Lifecycle::FinishBranch => "finish-branch",
+            Lifecycle::SetupWorktrees => "setup-worktrees",
         }
     }
 
@@ -51,13 +59,16 @@ impl Lifecycle {
             Lifecycle::Commit => "Commit the work so far, split into logical commits".into(),
             Lifecycle::Sync => format!("Bring in the latest {base}; Pi resolves conflicts"),
             Lifecycle::FinishBranch => format!("Commit, sync, test and merge into {base}"),
+            Lifecycle::SetupWorktrees => {
+                "Have Pi write .agents/linked and .agents/prepare for new worktrees".into()
+            }
         }
     }
 
     /// Whether the command only makes sense on a branch with a base to
     /// sync with or merge into.
     pub fn needs_base(self) -> bool {
-        !matches!(self, Lifecycle::Commit)
+        matches!(self, Lifecycle::Sync | Lifecycle::FinishBranch)
     }
 
     /// The message Pi gets: the skill to run, with the user's instructions.
@@ -374,6 +385,15 @@ mod tests {
         );
         assert_eq!(lifecycle_unavailable(Lifecycle::Commit, true, None), None);
         assert!(lifecycle_unavailable(Lifecycle::FinishBranch, true, None).is_some());
+        // The main worktree is where new worktrees start from.
+        assert_eq!(
+            lifecycle_unavailable(Lifecycle::SetupWorktrees, true, None),
+            None
+        );
+        assert_eq!(
+            Lifecycle::SetupWorktrees.prompt("", &[]),
+            "/skill:treehouse-setup-worktrees"
+        );
         assert_eq!(
             lifecycle_unavailable(Lifecycle::Sync, true, Some("main")),
             None

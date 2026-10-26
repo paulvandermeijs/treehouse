@@ -16,6 +16,8 @@ Right-click a project for **New worktree**, **Pin to top**, **Reveal in file man
 
 A new worktree is a fresh checkout: it has no `node_modules`, no `.env` and nothing else git ignores. A project can prepare its worktrees with two files of its own, as in [Delta](https://delta.dev/docs/concepts/worktrees#configuring-your-checkouts). Both are committed to the project.
 
+To have Pi write them, run `/setup-worktrees` in the project's main worktree. Pi reads the project's docs and tooling, sorts what git ignores into what to share and what to rebuild, writes both files and explains its choices; it asks when it can't tell. Commit them to the main branch for new worktrees to pick them up.
+
 ### `.agents/linked`
 
 Lists git-ignored paths, one per line, that every worktree shares with the main worktree:

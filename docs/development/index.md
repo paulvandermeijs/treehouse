@@ -30,7 +30,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
 | `src/history.rs` | Which Pi session file holds each worktree's chat, and reading one back |
-| `assets/pi/skills/` | The built-in skills behind `/commit`, `/sync` and `/finish-branch`, loaded with `--skill` |
+| `assets/pi/skills/` | The built-in skills behind `/commit`, `/sync`, `/finish-branch` and `/setup-worktrees`, loaded with `--skill` |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact`, `/new` and the lifecycle commands |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
 | `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |

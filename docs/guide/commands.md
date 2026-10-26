@@ -11,6 +11,7 @@ The menu lists:
 | `/commit [instructions]` | Pi commits the work so far ([Committing and merging](./lifecycle)) |
 | `/sync [instructions]` | Pi rebases this branch onto the latest base branch |
 | `/finish-branch [instructions]` | Pi commits, syncs and tests, then asks to merge into the base |
+| `/setup-worktrees [instructions]` | Pi writes `.agents/linked` and `.agents/prepare` so new worktrees are ready to use ([Preparing new worktrees](./worktrees#preparing-new-worktrees)) |
 | `/skill:name` | Pi's skills for this worktree |
 | `/template` | Pi's prompt templates |
 | `/compact [instructions]` | Summarises the conversation so far to free up context (Pi's `compact`) |
