@@ -41,4 +41,5 @@ Each worktree's chat comes back when you restart Treehouse. Pi saves every sessi
 
 - `/new` starts a new session, which is the one that comes back from then on.
 - Sub-agents of the current session come back too, under their worktree in the sidebar and as cards in the chat. You can keep talking to one, though its parent already has its report.
-- A chat with nothing but `!` commands isn't saved: Pi writes a session file once it has a message.
+- What Treehouse adds to the chat comes back as well: the worktree's setup row, commit cards, notes such as "Pi restarted" and "Model changed", and MCP sign-ins. Treehouse saves them in Pi's session file, where the model doesn't see them.
+- A chat with nothing but `!` commands isn't saved: Pi writes a session file once it has a reply. Until then, the setup row and notes wait with it.
