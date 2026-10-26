@@ -19,6 +19,8 @@ pub struct LaunchOptions {
     pub thinking: Option<String>,
     pub tools: Vec<String>,
     pub extensions: Vec<PathBuf>,
+    /// Skill folders loaded with `--skill`.
+    pub skills: Vec<PathBuf>,
     pub session_dir: Option<PathBuf>,
     /// Continue this saved session instead of starting a new one.
     pub session_file: Option<PathBuf>,
@@ -45,6 +47,9 @@ impl LaunchOptions {
         }
         for extension in &self.extensions {
             args.extend(["-e".to_string(), extension.display().to_string()]);
+        }
+        for skill in &self.skills {
+            args.extend(["--skill".to_string(), skill.display().to_string()]);
         }
         match &self.session_dir {
             Some(dir) => args.extend(["--session-dir".to_string(), dir.display().to_string()]),
@@ -349,6 +354,7 @@ mod tests {
             thinking: Some("high".into()),
             tools: vec!["read".into(), "bash".into()],
             extensions: vec!["/x/treehouse.ts".into()],
+            skills: vec!["/x/skills/treehouse-commit".into()],
             session_dir: None,
             session_file: None,
             approve: Some(false),
@@ -368,6 +374,8 @@ mod tests {
                 "read,bash",
                 "-e",
                 "/x/treehouse.ts",
+                "--skill",
+                "/x/skills/treehouse-commit",
                 "--no-session",
                 "--no-approve"
             ]

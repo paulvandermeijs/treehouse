@@ -439,10 +439,17 @@ impl ChatView {
         };
         let session = self.session.read(cx);
         // A sub-agent reports back from its session, so it can't start a new one.
-        let mut commands: Vec<SlashCommand> = slash::builtins()
-            .into_iter()
-            .filter(|c| !(session.is_subagent() && c.name == "new"))
-            .collect();
+        // Sub-agents share their parent's worktree, which commits and merges.
+        let mut commands: Vec<SlashCommand> = if session.is_subagent() {
+            Vec::new()
+        } else {
+            slash::lifecycle_commands(session.trusted, session.base.as_deref(), &session.commands)
+        };
+        commands.extend(
+            slash::builtins()
+                .into_iter()
+                .filter(|c| !(session.is_subagent() && c.name == "new")),
+        );
         commands.extend(session.commands.iter().cloned());
         slash::matches(&commands, query)
             .into_iter()
@@ -466,6 +473,9 @@ impl ChatView {
         let Some(command) = self.slash_matches(cx).into_iter().nth(ix) else {
             return;
         };
+        if command.disabled.is_some() {
+            return;
+        }
         let text = format!("/{} ", command.name);
         self.composer.update(cx, |state, cx| {
             state.set_value("", window, cx);
@@ -510,6 +520,11 @@ impl ChatView {
                             CommandKind::Skill => (icon(Lucide::Sparkles), "Skill"),
                             CommandKind::Template => (icon(IconName::File), "Template"),
                         };
+                        let disabled = command.disabled.clone();
+                        let kind_label: SharedString = match &disabled {
+                            Some(why) => why.clone().into(),
+                            None => kind_label.into(),
+                        };
                         h_flex()
                             .id(("slash", ix))
                             .h(px(34.))
@@ -517,7 +532,8 @@ impl ChatView {
                             .gap(px(10.))
                             .px(px(10.))
                             .rounded(px(6.))
-                            .cursor_pointer()
+                            .when(disabled.is_none(), |this| this.cursor_pointer())
+                            .when(disabled.is_some(), |this| this.opacity(0.5))
                             .text_size(px(13.5))
                             .when(ix == selected, |this| this.bg(p.surface0))
                             .when(ix != selected, |this| {

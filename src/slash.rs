@@ -1,6 +1,8 @@
 //! Slash commands in the message box: Pi's skills and prompt templates, plus
-//! `/compact` and `/new`, which Treehouse runs through RPC commands, and
-//! `/reload`, which restarts Pi because RPC mode has no reload.
+//! `/compact` and `/new`, which Treehouse runs through RPC commands,
+//! `/reload`, which restarts Pi because RPC mode has no reload, and the
+//! worktree lifecycle's `/commit`, `/sync` and `/finish-branch`, which run a
+//! skill.
 
 use serde_json::Value;
 
@@ -20,6 +22,112 @@ pub struct SlashCommand {
     pub kind: CommandKind,
     /// Shown after the name, such as `[instructions]`.
     pub argument_hint: Option<String>,
+    /// Why the command can't run here, shown in place of its kind.
+    pub disabled: Option<String>,
+}
+
+/// The worktree lifecycle commands. Each runs a skill: the project's or the
+/// user's own when Pi lists one by that name, else Treehouse's built-in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lifecycle {
+    Commit,
+    Sync,
+    FinishBranch,
+}
+
+impl Lifecycle {
+    pub const ALL: [Lifecycle; 3] = [Lifecycle::Commit, Lifecycle::Sync, Lifecycle::FinishBranch];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Lifecycle::Commit => "commit",
+            Lifecycle::Sync => "sync",
+            Lifecycle::FinishBranch => "finish-branch",
+        }
+    }
+
+    fn description(self, base: &str) -> String {
+        match self {
+            Lifecycle::Commit => "Commit the work so far, split into logical commits".into(),
+            Lifecycle::Sync => format!("Bring in the latest {base}; Pi resolves conflicts"),
+            Lifecycle::FinishBranch => format!("Commit, sync, test and merge into {base}"),
+        }
+    }
+
+    /// Whether the command only makes sense on a branch with a base to
+    /// sync with or merge into.
+    pub fn needs_base(self) -> bool {
+        !matches!(self, Lifecycle::Commit)
+    }
+
+    /// The message Pi gets: the skill to run, with the user's instructions.
+    pub fn prompt(self, instructions: &str, commands: &[SlashCommand]) -> String {
+        let own = format!("skill:{}", self.name());
+        let skill = if commands.iter().any(|c| c.name == own) {
+            own
+        } else {
+            format!("skill:treehouse-{}", self.name())
+        };
+        match instructions.trim() {
+            "" => format!("/{skill}"),
+            text => format!("/{skill} {text}"),
+        }
+    }
+}
+
+/// Why a lifecycle command can't run, or `None` when it can.
+pub fn lifecycle_unavailable(
+    command: Lifecycle,
+    trusted: bool,
+    base: Option<&str>,
+) -> Option<String> {
+    if !trusted {
+        Some("Read only".into())
+    } else if command.needs_base() && base.is_none() {
+        Some("On the base branch".into())
+    } else {
+        None
+    }
+}
+
+/// The lifecycle commands for the slash menu. `base` is the branch the
+/// worktree merges into; the main worktree has none. The kind says whether
+/// the project's own skill runs instead of the built-in one.
+pub fn lifecycle_commands(
+    trusted: bool,
+    base: Option<&str>,
+    commands: &[SlashCommand],
+) -> Vec<SlashCommand> {
+    Lifecycle::ALL
+        .iter()
+        .map(|&command| {
+            let own = format!("skill:{}", command.name());
+            SlashCommand {
+                name: command.name().into(),
+                description: command.description(base.unwrap_or("the base branch")),
+                kind: if commands.iter().any(|c| c.name == own) {
+                    CommandKind::Skill
+                } else {
+                    CommandKind::Builtin
+                },
+                argument_hint: Some("[instructions]".into()),
+                disabled: lifecycle_unavailable(command, trusted, base),
+            }
+        })
+        .collect()
+}
+
+pub fn parse_lifecycle(message: &str) -> Option<(Lifecycle, &str)> {
+    let message = message.trim();
+    let (name, args) = match message.split_once(char::is_whitespace) {
+        Some((name, args)) => (name, args.trim()),
+        None => (message, ""),
+    };
+    let name = name.strip_prefix('/')?;
+    Lifecycle::ALL
+        .into_iter()
+        .find(|c| c.name() == name)
+        .map(|c| (c, args))
 }
 
 pub fn builtins() -> Vec<SlashCommand> {
@@ -29,24 +137,28 @@ pub fn builtins() -> Vec<SlashCommand> {
             description: "Compact the context, optionally with instructions for the summary".into(),
             kind: CommandKind::Builtin,
             argument_hint: Some("[instructions]".into()),
+            disabled: None,
         },
         SlashCommand {
             name: "new".into(),
             description: "Start a new session in this worktree".into(),
             kind: CommandKind::Builtin,
             argument_hint: None,
+            disabled: None,
         },
         SlashCommand {
             name: "reload".into(),
             description: "Restart Pi to pick up changed settings and MCP servers".into(),
             kind: CommandKind::Builtin,
             argument_hint: None,
+            disabled: None,
         },
     ]
 }
 
 /// Reads the skills and templates from a `get_commands` response. Extension
-/// commands are left out.
+/// commands are left out, and so are Treehouse's built-in skills, which the
+/// lifecycle commands run.
 pub fn parse_commands(data: &Value) -> Vec<SlashCommand> {
     let Some(commands) = data["commands"].as_array() else {
         return Vec::new();
@@ -55,6 +167,13 @@ pub fn parse_commands(data: &Value) -> Vec<SlashCommand> {
         .iter()
         .filter_map(|command| {
             let kind = match command["source"].as_str()? {
+                "skill"
+                    if command["name"]
+                        .as_str()
+                        .is_some_and(|n| n.starts_with("skill:treehouse-")) =>
+                {
+                    return None;
+                }
                 "skill" => CommandKind::Skill,
                 "prompt" => CommandKind::Template,
                 _ => return None,
@@ -74,6 +193,7 @@ pub fn parse_commands(data: &Value) -> Vec<SlashCommand> {
                     CommandKind::Template => path.and_then(read_argument_hint),
                     _ => None,
                 },
+                disabled: None,
             })
         })
         .collect()
@@ -154,6 +274,7 @@ mod tests {
             description: description.into(),
             kind,
             argument_hint: None,
+            disabled: None,
         }
     }
 
@@ -163,6 +284,7 @@ mod tests {
             {"name": "review", "description": "Review staged changes", "source": "prompt", "sourceInfo": {}},
             {"name": "skill:pdf-tools", "description": "Work with PDFs", "source": "skill", "sourceInfo": {}},
             {"name": "deploy", "source": "extension", "sourceInfo": {}},
+            {"name": "skill:treehouse-commit", "description": "Commit", "source": "skill", "sourceInfo": {}},
         ]});
         let commands = parse_commands(&data);
         assert_eq!(commands.len(), 2);
@@ -217,5 +339,44 @@ mod tests {
         );
         assert_eq!(parse_builtin("/new thing"), None);
         assert_eq!(parse_builtin("/skill:pdf-tools x"), None);
+    }
+
+    #[test]
+    fn lifecycle_runs_the_projects_own_skill_first() {
+        assert_eq!(
+            parse_lifecycle("/commit  focus on the parser "),
+            Some((Lifecycle::Commit, "focus on the parser"))
+        );
+        assert_eq!(
+            parse_lifecycle("/finish-branch"),
+            Some((Lifecycle::FinishBranch, ""))
+        );
+        assert_eq!(parse_lifecycle("/committed"), None);
+
+        let none: Vec<SlashCommand> = Vec::new();
+        assert_eq!(Lifecycle::Sync.prompt("", &none), "/skill:treehouse-sync");
+        let own = vec![command("skill:commit", "Our commits", CommandKind::Skill)];
+        assert_eq!(
+            Lifecycle::Commit.prompt("only the parser", &own),
+            "/skill:commit only the parser"
+        );
+        let menu = lifecycle_commands(true, Some("main"), &own);
+        assert_eq!(menu[0].kind, CommandKind::Skill);
+        assert_eq!(menu[1].kind, CommandKind::Builtin);
+        assert!(menu[2].description.contains("main"));
+    }
+
+    #[test]
+    fn lifecycle_is_disabled_where_it_cant_run() {
+        assert_eq!(
+            lifecycle_unavailable(Lifecycle::Commit, false, Some("main")).as_deref(),
+            Some("Read only")
+        );
+        assert_eq!(lifecycle_unavailable(Lifecycle::Commit, true, None), None);
+        assert!(lifecycle_unavailable(Lifecycle::FinishBranch, true, None).is_some());
+        assert_eq!(
+            lifecycle_unavailable(Lifecycle::Sync, true, Some("main")),
+            None
+        );
     }
 }

@@ -115,6 +115,9 @@ pub struct Session {
     /// Whether the project is trusted. An untrusted project runs Pi
     /// read-only: the read tool only, without the project's own Pi resources.
     pub trusted: bool,
+    /// The branch this worktree syncs with and merges into. The main
+    /// worktree and sub-agents have none, so they get no lifecycle skills.
+    pub base: Option<String>,
     /// Pi's saved session, so a restart continues the same conversation.
     session_file: Option<PathBuf>,
     /// Whether the saved session's chat has been read back in; see
@@ -157,6 +160,11 @@ const MCP_DISCOVERY: [&str; 2] = ["codemode", "tool_search"];
 /// Tells Pi why it can only read while the folder isn't trusted.
 const READ_ONLY_NOTE: &str = "This folder isn't trusted yet, so you only have the read tool: you can't create, edit or delete files or run commands. If the user asks for a change, don't attempt it or claim to have made it. Explain that they need to trust the folder first (the \"Read only\" button at the top of the chat), and say what you would change.";
 
+/// Tells Pi which branch the lifecycle skills sync with and merge into.
+fn base_note(base: &str) -> String {
+    format!("This worktree's base branch is {base}.")
+}
+
 impl Session {
     pub fn new(kind: SessionKind, cwd: PathBuf, project: PathBuf, cx: &App) -> Self {
         let config = Config::global(cx);
@@ -193,6 +201,7 @@ impl Session {
             context_tokens: None,
             commands: Vec::new(),
             trusted: false,
+            base: None,
             session_file,
             restored: false,
             started: Instant::now(),
@@ -366,6 +375,21 @@ impl Session {
                 return false;
             }
         };
+        // Untrusted, Pi can only read, so the lifecycle commands can't run.
+        let skills = if self.trusted && !self.is_subagent() {
+            match crate::pi::skill_paths() {
+                Ok(paths) => paths,
+                Err(err) => {
+                    self.fail_to_start(
+                        format!("Couldn't write Treehouse's skills for Pi: {err}"),
+                        cx,
+                    );
+                    return false;
+                }
+            }
+        } else {
+            Vec::new()
+        };
         let options = LaunchOptions {
             program: config.pi_command.clone().into(),
             cwd: self.cwd.clone(),
@@ -388,6 +412,7 @@ impl Session {
                 vec!["read".to_string()]
             },
             extensions: vec![extension],
+            skills,
             session_dir: Some(Config::data_dir().join("sessions")),
             session_file: self.session_file.clone(),
             approve: Some(self.trusted),
@@ -396,7 +421,11 @@ impl Session {
             // Read-only means no MCP servers either: their tools can change
             // things outside the folder.
             mcp: self.trusted,
-            system_note: (!self.trusted).then(|| READ_ONLY_NOTE.to_string()),
+            system_note: if self.trusted {
+                self.base.as_ref().map(|base| base_note(base))
+            } else {
+                Some(READ_ONLY_NOTE.to_string())
+            },
         };
         match PiClient::spawn(&options) {
             Ok((client, messages)) => {
@@ -465,12 +494,29 @@ impl Session {
             None => {}
         }
         let streaming = self.is_running();
+        // A lifecycle command runs its skill; the chat still shows what was typed.
+        let lifecycle = crate::slash::parse_lifecycle(message).filter(|_| !self.is_subagent());
+        let prompt = match lifecycle {
+            Some((lifecycle, instructions)) => {
+                if let Some(why) = crate::slash::lifecycle_unavailable(
+                    lifecycle,
+                    self.trusted,
+                    self.base.as_deref(),
+                ) {
+                    self.transcript
+                        .push_notice(format!("/{} can't run here · {why}", lifecycle.name()));
+                    return cx.notify();
+                }
+                lifecycle.prompt(instructions, &self.commands)
+            }
+            None => message.to_string(),
+        };
         if let Some(client) = &self.client {
             // `/mcp …` is an extension command: Pi runs it without a message.
             if !message.starts_with("/mcp") {
                 self.transcript.expect_user_text(message);
             }
-            client.send(command::prompt(message, streaming));
+            client.send(command::prompt(&prompt, streaming));
         }
         self.viewed = true;
         cx.notify();

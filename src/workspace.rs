@@ -187,6 +187,7 @@ impl Workspace {
                 cx,
             );
             session.trusted = trusted;
+            session.base = (!is_main).then(|| base.clone());
             session
         });
         let subscription = cx.subscribe(&session, Self::on_session_event);

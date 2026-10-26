@@ -317,6 +317,7 @@ impl Transcript {
                 Some("user") => {
                     let id = self.alloc();
                     let text = user_text(&message["content"]);
+                    let text = skill_command(&text).unwrap_or(text);
                     self.items.push(Item::User { id, text });
                 }
                 Some("assistant") => {
@@ -990,6 +991,22 @@ fn resolve(cwd: &Path, path: &str) -> PathBuf {
 }
 
 /// The text of a user message's content, which is a string or blocks.
+/// The command behind a message Pi expanded from a skill, as the user typed
+/// it: `/skill:name …`, or `/commit …` for Treehouse's built-in skills.
+fn skill_command(text: &str) -> Option<String> {
+    let rest = text.strip_prefix("<skill name=\"")?;
+    let (name, rest) = rest.split_once('"')?;
+    let (_, after) = rest.split_once("\n</skill>")?;
+    let command = match name.strip_prefix("treehouse-") {
+        Some(lifecycle) => format!("/{lifecycle}"),
+        None => format!("/skill:{name}"),
+    };
+    Some(match after.strip_prefix("\n\n").map(str::trim) {
+        Some(args) if !args.is_empty() => format!("{command} {args}"),
+        _ => command,
+    })
+}
+
 fn user_text(content: &Value) -> String {
     match content {
         Value::String(text) => text.clone(),
@@ -1260,5 +1277,18 @@ mod tests {
         assert_eq!(format_tokens(950), "950");
         assert_eq!(format_duration(Duration::from_secs(102)), "1m 42s");
         assert_eq!(format_duration(Duration::from_millis(6400)), "6.4s");
+    }
+
+    #[test]
+    fn restores_skill_messages_as_commands() {
+        use super::skill_command;
+        let expanded = "<skill name=\"treehouse-commit\" location=\"/d/SKILL.md\">\nReferences are relative to /d.\n\n# Commit\n</skill>\n\nonly the parser";
+        assert_eq!(
+            skill_command(expanded).as_deref(),
+            Some("/commit only the parser")
+        );
+        let plain = "<skill name=\"pdf-tools\" location=\"/p/SKILL.md\">\nbody\n</skill>";
+        assert_eq!(skill_command(plain).as_deref(), Some("/skill:pdf-tools"));
+        assert_eq!(skill_command("Fix the test"), None);
     }
 }
