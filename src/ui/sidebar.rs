@@ -177,6 +177,7 @@ pub fn render(
             )
             .child(label(project.name.clone()))
             .group("project")
+            .child(new_worktree_button(&project_path, &p, cx))
             .child(pin_button(
                 &project_path,
                 pinned_set.contains(&project_path),
@@ -768,6 +769,40 @@ fn pin_button(
         }))
 }
 
+/// A project's New worktree button, shown on hover just left of the pin,
+/// which keeps its place so nothing on the row moves.
+fn new_worktree_button(
+    path: &std::path::Path,
+    p: &Palette,
+    cx: &Context<TreehouseApp>,
+) -> impl IntoElement {
+    let path = path.to_path_buf();
+    div()
+        .id(SharedString::from(format!(
+            "new-worktree:{}",
+            path.display()
+        )))
+        .flex_none()
+        .size(px(22.))
+        // 2px from the pin button, inside the row's 8px gap.
+        .mr(px(-6.))
+        .rounded(px(5.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(p.subtext0)
+        .hover(|s| s.bg(p.surface0).text_color(p.text))
+        .invisible()
+        .group_hover("project", |s| s.visible())
+        .child(icon(Lucide::GitBranchPlus).size(px(14.)))
+        .tooltip(tooltip("New worktree".into()))
+        .on_click(cx.listener(move |app, _, window, cx| {
+            // Like the pin, it doesn't fold or unfold the project.
+            cx.stop_propagation();
+            app.prompt_new_worktree(Some(path.clone()), window, cx);
+        }))
+}
+
 /// The design's 28px icon-only button.
 fn icon_button(id: impl Into<ElementId>, name: impl Into<gpui_kit::component::Icon>) -> Button {
     Button::new(id).ghost().small().icon(icon(name))
@@ -813,11 +848,13 @@ fn project_menu(
         let p3 = path.clone();
         let (a4, p4) = (app.clone(), path.clone());
         menu.item(
-            PopupMenuItem::new("New worktree").on_click(move |_, window, cx| {
-                let _ = a1.update(cx, |app, cx| {
-                    app.prompt_new_worktree(Some(p1.clone()), window, cx)
-                });
-            }),
+            PopupMenuItem::new("New worktree")
+                .icon(icon(Lucide::GitBranchPlus))
+                .on_click(move |_, window, cx| {
+                    let _ = a1.update(cx, |app, cx| {
+                        app.prompt_new_worktree(Some(p1.clone()), window, cx)
+                    });
+                }),
         )
         .item(
             PopupMenuItem::new("Reveal in file manager")
@@ -837,13 +874,19 @@ fn project_menu(
         )
         .separator()
         .item(
-            PopupMenuItem::new("Remove project").on_click(move |_, window, cx| {
+            danger_item("Remove project").on_click(move |_, window, cx| {
                 let _ = a4.update(cx, |app, cx| {
                     app.confirm_remove_project(p4.clone(), window, cx)
                 });
             }),
         )
     }
+}
+
+/// A menu item that throws something away, in red as the design has it.
+/// The kit's items take no text colour, so the label is drawn here.
+fn danger_item(text: &'static str) -> PopupMenuItem {
+    PopupMenuItem::element(move |_, cx| div().text_color(palette(cx).red).child(text))
 }
 
 /// A lifecycle menu item: an icon, its label, and a hint on the right that
@@ -1027,12 +1070,12 @@ fn worktree_menu(
             menu
         } else {
             menu.separator().item(
-                PopupMenuItem::new(if merged {
-                    "Clean up…"
+                // Cleaning up a merged worktree loses nothing; deleting may.
+                if merged {
+                    PopupMenuItem::new("Clean up…").icon(Lucide::Check)
                 } else {
-                    "Delete worktree…"
-                })
-                .when(merged, |item| item.icon(Lucide::Check))
+                    danger_item("Delete worktree…")
+                }
                 .on_click(move |_, window, cx| {
                     let _ = a4.update(cx, |app, cx| {
                         app.confirm_delete_worktree(p4.clone(), window, cx)

@@ -44,7 +44,7 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
             "Workspace",
             vec![
                 entry("Open project…", IconName::FolderOpen, OpenProject),
-                entry("New worktree", Lucide::GitBranch, NewWorktree),
+                entry("New worktree", Lucide::GitBranchPlus, NewWorktree),
                 entry(
                     "Go to worktree or sub-agent…",
                     IconName::ChevronsUpDown,

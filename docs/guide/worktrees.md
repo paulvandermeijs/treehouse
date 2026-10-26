@@ -10,7 +10,7 @@ Right-click a project for **New worktree**, **Pin to top**, **Reveal in file man
 
 ## Creating a worktree
 
-**New worktree** (<kbd>⌘N</kbd>, or right-click a project) asks for a branch name, such as `feat/my-change`. Treehouse creates the branch from the project's current `HEAD` and checks it out in `{project}/.worktrees/{branch}`. You can change that location in **Settings › Worktrees**; `{project}` and `{branch}` are filled in.
+**New worktree** (<kbd>⌘N</kbd>, the branch button that shows when you hover a project, or right-click a project) asks for a branch name, such as `feat/my-change`. Treehouse creates the branch from the project's current `HEAD` and checks it out in `{project}/.worktrees/{branch}`. You can change that location in **Settings › Worktrees**; `{project}` and `{branch}` are filled in.
 
 ## Preparing new worktrees
 

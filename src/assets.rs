@@ -45,6 +45,7 @@ gpui_kit::assets::icon_assets!(
         Package,
         Link,
         GitMerge,
+        GitBranchPlus,
         GitCommitHorizontal,
         RefreshCw,
         Flag,
