@@ -51,13 +51,15 @@ Add `.worktrees/` to your project's `.gitignore`, or pick a location outside the
 
 ## Renaming and deleting
 
-Right-click a worktree for **Rename branch**, **Show diff**, **Open in right dock** and **Delete worktree…**.
+Right-click a worktree for **Rename branch**, **Show diff**, **Open in right dock** and **Delete worktree…**, and for **Commit with Pi**, **Sync with main** and **Finish branch** ([Committing and merging](./lifecycle)). Once a worktree is merged, **Clean up…** takes the place of **Delete worktree…**.
 
 Deleting removes the worktree's folder and stops its chat and sub-agents. The branch is kept unless **Also delete its folder and branch** is on in **Settings › Worktrees**. If the worktree has uncommitted changes, or commits that would be lost with the branch, the dialog lists them and asks you to **Delete anyway**.
 
 ## The sidebar
 
 Each worktree and sub-agent has a status dot: working, needs input, failed, finished or idle. A worktree shows its most urgent status, so a collapsed worktree still tells you a sub-agent is waiting.
+
+Before the dot, markers show where the worktree's branch stands: uncommitted changes, commits ahead of and behind the base, or merged. See [Where each branch stands](./lifecycle#where-each-branch-stands).
 
 ### Status cards
 

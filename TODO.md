@@ -4,20 +4,9 @@ What's left to build, most valuable first. Update it as items are finished or ad
 
 The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq7DKcbtZat4xzPXmefkk). New UI starts there: draw the boards, get them reviewed, then build.
 
-## Worktree lifecycle
-
-Commit, sync, merge and clean up from Treehouse, done by Pi rather than by hand. The boards are on the canvas (Lifecycle page).
-
-- `/commit`, `/sync` and `/finish-branch`, backed by three built-in skills: `treehouse-commit`, `treehouse-sync` and `treehouse-finish-branch`. They're shipped in Treehouse's data folder and loaded with `--skill`. The prefix is there because Pi keeps the first skill it finds with a name, so a built-in `commit` would hide a project's own. `/commit` runs the project's or the user's `commit` skill when Pi lists one, and the built-in otherwise.
-- Pi's git commands show as normal rows, followed by a card per conventional commit (type, subject, body, hash), built from `git log` rather than from Pi's reply.
-- "Commit with Pi" and "Finish branch" in the diff dock and the worktree's context menu send the same commands. There's no manual commit UI.
-- Finish branch: Pi commits, syncs with the base branch and runs the tests (how is left to Pi and the project's AGENTS.md), then calls a new merge tool in the bridge extension (`assets/pi/treehouse.ts`). Treehouse checks that the base is clean, never forces, and shows a merge approval card. It always asks, even with approvals set to "Don't ask", since it changes a branch outside the worktree. Fast-forward by default, with Squash into one as the other choice. After the merge, a card offers Clean up (safe worktree delete already exists).
-- `/sync` has Pi resolve conflicts. Refusals such as "main isn't clean" get their own states.
-- Untrusted projects show the commands and menu items disabled, with the read-only note.
-
 ## Sub-agent worktrees
 
-Only start this once the worktree lifecycle is fully in.
+Now that the worktree lifecycle is in, this can be picked up.
 
 - Sub-agents run in their parent's worktree, so two agents making changes can get in each other's way. Give each sub-agent its own worktree ("Every agent deserves its own space"), set up the same way as a new worktree, and merge or clean it up through the worktree lifecycle. Read-only sub-agents, such as research, should keep working.
 
@@ -33,6 +22,11 @@ Only start this once the worktree lifecycle is fully in.
 
 ## Small fixes
 
+- Commit cards don't come back after a restart, since Pi's session file doesn't hold them.
+- Clicking a commit in a commit card should open its diff in the right dock.
+- After a squash merge the worktree's diff stat still counts the branch's changes, since it compares with the merge base.
+- The sidebar's branch markers refresh after each turn and merge, not yet when the window gets focus.
+- With **Compare against** set to `origin/main` the merge is refused; offer push and a pull request instead.
 - "Jump to latest" flashes when scrolling past the end of the chat, probably the scroll bounce on macOS.
 - In the collapsed rail, project tooltips open below the pointer rather than to the right.
 - Restored sub-agents can come back in a different order in the sidebar than in the chat.

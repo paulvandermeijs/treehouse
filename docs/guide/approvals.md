@@ -30,6 +30,8 @@ Some calls ask first whatever the approval setting, even with **Don't ask** or a
 - **Pushing**: `git push`, `deploy`, and `npm`, `cargo`, `pnpm` or `yarn publish`.
 - **Touching files outside the worktree**: any tool whose `path` points outside the worktree's folder.
 
+Merging a branch into its base also always asks, and can't be turned off: it changes a branch outside the worktree. See [Merging](./lifecycle#merging).
+
 ## Always allowed patterns
 
 **Always allow** proposes a pattern from the command's first two words: `cargo add gpui-kit@0.4` becomes `cargo add *`. The second word only counts when it names a subcommand, so `ls /some/folder` becomes `ls *`. `*` matches any text, and `cargo test *` also matches a bare `cargo test`.

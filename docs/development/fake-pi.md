@@ -20,6 +20,8 @@ The first word of a message picks the script:
 | `Table` | A table |
 | anything else | A worktree turn with tools, an approval and a sub-agent |
 
+`/commit`, `/sync` and `/finish-branch` run real git in the worktree: they commit everything, merge the base branch named in `--append-system-prompt`, and call `treehouse_merge`, so the whole lifecycle can be tried on a scratch repository.
+
 It also handles `/mcp login`, and `!` shell commands, which it runs for real through Pi's `bash` RPC. Set `FAKE_PI_MCP=1` to make it report an MCP server that needs a sign-in.
 
 It saves the chat to a session file in Pi's format (`--session-dir`, `--session`), so restoring history can be tried too. Extend it when a feature needs a new Pi behaviour to test against.

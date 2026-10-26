@@ -37,6 +37,7 @@ export default defineConfig({
           { text: 'Slash and shell commands', link: '/guide/commands' },
           { text: 'Sub-agents', link: '/guide/sub-agents' },
           { text: 'Reviewing the diff', link: '/guide/diff' },
+          { text: 'Committing and merging', link: '/guide/lifecycle' },
         ],
       },
       {
