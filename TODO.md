@@ -21,8 +21,15 @@ Open questions:
 3. Should `/finish-branch` run the tests itself, and if so, how does it find the test command? Or leave it to Pi and the project's AGENTS.md?
 4. Hide these commands in untrusted projects, or show them disabled with the read-only note?
 
+## Sub-agent worktrees
+
+Only start this once the worktree lifecycle is fully in.
+
+- Sub-agents run in their parent's worktree, so two agents making changes can get in each other's way. Give each sub-agent its own worktree ("Every agent deserves its own space"), set up the same way as a new worktree, and merge or clean it up through the worktree lifecycle. Read-only sub-agents, such as research, should keep working.
+
 ## Next
 
+- **Remember UI state:** the project tree opens fully expanded every time; store which items are collapsed and restore them on start. Restoring whether the right dock is open is lower priority.
 - **Images:** paste or drop screenshots into the message box, and show thumbnails when Pi reads an image.
 - **Plan cards:** a built-in skill whose plan shows as a checklist card that updates as Pi works.
 - **MCP:** an approval option for MCP tool calls, and a `/mcp` command.
@@ -32,6 +39,7 @@ Open questions:
 
 ## Small fixes
 
+- "Jump to latest" flashes when scrolling past the end of the chat, probably the scroll bounce on macOS.
 - In the collapsed rail, project tooltips open below the pointer rather than to the right.
 - Restored sub-agents can come back in a different order in the sidebar than in the chat.
 - A worktree setup script still running when Treehouse quits is left running; stop its process group on quit (`setup::stop`).
