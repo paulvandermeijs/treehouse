@@ -57,6 +57,27 @@ pub struct PendingApproval {
     pub asked: Instant,
 }
 
+/// A merge into the base branch that passed its checks and waits for the
+/// user. It always asks, whatever the approval setting: it changes a branch
+/// outside the worktree.
+#[derive(Clone, Debug)]
+pub struct PendingMerge {
+    pub request_id: String,
+    pub tool_call_id: String,
+    pub branch: String,
+    pub base: String,
+    pub plan: crate::git::MergePlan,
+    /// Pi's message for the commit if the user squashes the branch.
+    pub squash_message: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MergeChoice {
+    FastForward,
+    Squash,
+    Deny,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct ModelInfo {
     pub provider: String,
@@ -86,6 +107,15 @@ pub enum SessionEvent {
         title: String,
         task: String,
     },
+    /// Pi's `treehouse_merge` tool wants the worktree merged into its base;
+    /// the workspace checks it's safe.
+    MergeRequested {
+        request_id: String,
+        tool_call_id: String,
+        squash_message: String,
+    },
+    /// The user approved a merge; the workspace carries it out.
+    MergeApproved(PendingMerge, MergeChoice),
     /// A turn ended; the worktree's diff may have changed.
     TurnEnded,
     StatusChanged,
@@ -102,6 +132,7 @@ pub struct Session {
     /// alignment, and the length is set to `usize::MAX` to mark that done.
     texts: HashMap<ItemId, (Entity<TextViewState>, usize)>,
     pub approvals: Vec<PendingApproval>,
+    pub merge: Option<PendingMerge>,
     /// Sub-agent requests waiting on a child session's report.
     pub subagent_requests: HashMap<String, String>,
     /// Set once the user has opened a finished turn.
@@ -186,6 +217,7 @@ impl Session {
             client: None,
             texts: HashMap::new(),
             approvals: Vec::new(),
+            merge: None,
             subagent_requests: HashMap::new(),
             viewed: true,
             model: model.and_then(|m| {
@@ -247,7 +279,7 @@ impl Session {
     }
 
     pub fn status(&self) -> AgentStatus {
-        if !self.approvals.is_empty() || self.waiting_sign_in().is_some() {
+        if !self.approvals.is_empty() || self.merge.is_some() || self.waiting_sign_in().is_some() {
             AgentStatus::NeedsInput
         } else if self.transcript.run == RunState::Running || self.transcript.shell_running() {
             AgentStatus::Working
@@ -406,6 +438,7 @@ impl Session {
                     .iter()
                     .cloned()
                     .chain((!self.is_subagent()).then(|| "subagent".to_string()))
+                    .chain(self.base.is_some().then(|| "treehouse_merge".to_string()))
                     .chain(MCP_DISCOVERY.iter().map(|t| t.to_string()))
                     .collect()
             } else {
@@ -705,6 +738,7 @@ impl Session {
         self._reader = None;
         self.client = None;
         self.approvals.clear();
+        self.merge = None;
         self.transcript.abandon_shells();
         self.transcript
             .apply(&serde_json::json!({"type": "agent_settled"}));
@@ -756,6 +790,9 @@ impl Session {
         }
         for approval in std::mem::take(&mut self.approvals) {
             self.answer(&approval.request_id, Some("deny:Stopped by the user"));
+        }
+        if let Some(merge) = self.merge.take() {
+            self.answer_merge(&merge.request_id, "Stopped by the user", None);
         }
         cx.notify();
     }
@@ -852,6 +889,58 @@ impl Session {
         cx.notify();
     }
 
+    /// Answers the merge tool. Without `merged` the tool fails with `text`.
+    fn answer_merge(&self, request_id: &str, text: &str, merged: Option<Value>) {
+        let outcome = serde_json::json!({"text": text, "merged": merged});
+        self.answer(request_id, Some(&outcome.to_string()));
+    }
+
+    /// The merge passed Treehouse's checks: show its approval card.
+    pub fn ask_merge(&mut self, merge: PendingMerge, cx: &mut Context<Self>) {
+        if let Some(tool) = self.transcript.tool_mut(&merge.tool_call_id) {
+            tool.status = ToolStatus::AwaitingApproval;
+        }
+        self.merge = Some(merge);
+        cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
+    }
+
+    /// The user decided on the waiting merge.
+    pub fn resolve_merge(&mut self, choice: MergeChoice, cx: &mut Context<Self>) {
+        let Some(merge) = self.merge.take() else {
+            return;
+        };
+        let denied = choice == MergeChoice::Deny;
+        if let Some(tool) = self.transcript.tool_mut(&merge.tool_call_id) {
+            tool.status = if denied {
+                ToolStatus::Denied
+            } else {
+                ToolStatus::Running
+            };
+        }
+        if denied {
+            self.answer_merge(&merge.request_id, "Denied by the user in Treehouse", None);
+        } else {
+            cx.emit(SessionEvent::MergeApproved(merge, choice));
+        }
+        cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
+    }
+
+    /// Reports the merge's outcome, or why it was refused, to Pi.
+    pub fn finish_merge(
+        &mut self,
+        request_id: &str,
+        outcome: Result<(String, Value), String>,
+        cx: &mut Context<Self>,
+    ) {
+        match outcome {
+            Ok((text, merged)) => self.answer_merge(request_id, &text, Some(merged)),
+            Err(reason) => self.answer_merge(request_id, &format!("Refused: {reason}"), None),
+        }
+        cx.notify();
+    }
+
     fn handle(&mut self, message: PiMessage, cx: &mut Context<Self>) {
         match message {
             PiMessage::Response(response) => self.handle_response(response),
@@ -872,6 +961,7 @@ impl Session {
                 }
                 self.subagent_requests.clear();
                 self.approvals.clear();
+                self.merge = None;
                 self.transcript.abandon_shells();
                 cx.emit(SessionEvent::StatusChanged);
             }
@@ -1058,6 +1148,11 @@ impl Session {
                     task: str_field(&payload, "task"),
                 });
             }
+            ("input", "treehouse:merge") => cx.emit(SessionEvent::MergeRequested {
+                request_id,
+                tool_call_id: str_field(&payload, "toolCallId"),
+                squash_message: str_field(&payload, "squashMessage"),
+            }),
             ("notify", _) => {
                 let message = str_field(event, "message");
                 let kind = str_field(event, "notifyType");

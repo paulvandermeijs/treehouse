@@ -162,6 +162,7 @@ pub fn remove_worktree(
     path: &Path,
     delete_branch: Option<&str>,
     force: bool,
+    merged_into: Option<&str>,
 ) -> Result<Option<String>> {
     let path = path.display().to_string();
     let mut args = vec!["worktree", "remove"];
@@ -173,7 +174,11 @@ pub fn remove_worktree(
     if let Some(branch) = delete_branch {
         // `branch -d` only checks the current branch and the upstream, which
         // misses work merged into some other branch; check that ourselves.
-        let merged = force || only_on_branch(project, branch, branch) == Some(0);
+        // A squash-merged branch keeps commits of its own, but its changes
+        // are all in the base.
+        let merged = force
+            || only_on_branch(project, branch, branch) == Some(0)
+            || merged_into.is_some_and(|base| is_merged(project, branch, base));
         if git(
             project,
             &["branch", if merged { "-D" } else { "-d" }, branch],
@@ -228,6 +233,132 @@ pub fn diff_since(worktree: &Path, base: &str) -> Result<String> {
         patch.push_str(&unified_patch(path, None, &content));
     }
     Ok(patch)
+}
+
+/// A merge into the base branch that passed its checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MergePlan {
+    /// Commits on the branch that the base lacks.
+    pub commits: usize,
+    /// The folder the base branch is checked out in, if any.
+    pub base_dir: Option<PathBuf>,
+}
+
+/// Checks that `branch`, checked out in `worktree`, can be merged into
+/// `base` without forcing anything. A refusal says why, in words Pi and the
+/// user can act on.
+pub fn check_merge(
+    project: &Path,
+    worktree: &Path,
+    branch: &str,
+    base: &str,
+) -> std::result::Result<MergePlan, String> {
+    let local = format!("refs/heads/{base}");
+    if git(worktree, &["rev-parse", "--verify", "--quiet", &local]).is_err() {
+        return Err(format!(
+            "{base} isn't a local branch, so Treehouse can't merge into it. Push the branch and open a pull request instead."
+        ));
+    }
+    match git(worktree, &["status", "--porcelain"]) {
+        Ok(status) if status.trim().is_empty() => {}
+        Ok(_) => return Err("The worktree has uncommitted changes. Commit them first.".into()),
+        Err(err) => return Err(format!("{err:#}")),
+    }
+    if git(worktree, &["merge-base", "--is-ancestor", base, "HEAD"]).is_err() {
+        return Err(format!(
+            "The branch is behind {base}. Sync with {base} first, then try again."
+        ));
+    }
+    let range = format!("{base}..HEAD");
+    let commits: usize = git(worktree, &["rev-list", "--count", &range])
+        .ok()
+        .and_then(|out| out.trim().parse().ok())
+        .unwrap_or(0);
+    if commits == 0 {
+        return Err(format!(
+            "Nothing to merge: {base} already has every commit on {branch}."
+        ));
+    }
+    let base_dir = list_worktrees(project)
+        .map_err(|err| format!("{err:#}"))?
+        .into_iter()
+        .find(|w| w.branch == base)
+        .map(|w| w.path);
+    if let Some(dir) = &base_dir {
+        // Untracked files don't block a fast-forward: git refuses to
+        // overwrite one rather than losing it.
+        let status = git(dir, &["status", "--porcelain", "--untracked-files=no"])
+            .map_err(|err| format!("{err:#}"))?;
+        if !status.trim().is_empty() {
+            return Err(format!(
+                "{base} has uncommitted changes in {}. Commit or stash them there first.",
+                dir.display()
+            ));
+        }
+    }
+    Ok(MergePlan { commits, base_dir })
+}
+
+/// Merges the worktree's branch into `base` after `check_merge`: a
+/// fast-forward, or one new commit on `base` with the branch's changes when
+/// `squash` gives its message. Returns the base's new short commit.
+pub fn merge_into(
+    worktree: &Path,
+    base: &str,
+    plan: &MergePlan,
+    squash: Option<&str>,
+) -> Result<String> {
+    let head = git(worktree, &["rev-parse", "HEAD"])?.trim().to_string();
+    let target = match squash {
+        None => head,
+        // The branch contains the base, so its tree on top of the base is
+        // exactly the branch's changes.
+        Some(message) => {
+            let tree = format!("{head}^{{tree}}");
+            git(worktree, &["commit-tree", &tree, "-p", base, "-m", message])?
+                .trim()
+                .to_string()
+        }
+    };
+    match &plan.base_dir {
+        Some(dir) => git(dir, &["merge", "--ff-only", "--quiet", &target]).map(|_| ())?,
+        None => {
+            let local = format!("refs/heads/{base}");
+            let old = git(worktree, &["rev-parse", &local])?.trim().to_string();
+            git(worktree, &["update-ref", &local, &target, &old]).map(|_| ())?
+        }
+    }
+    Ok(target.chars().take(7).collect())
+}
+
+/// Whether every change on `branch` is already in `base`: after a
+/// fast-forward, a merge, or a squash merge, which git alone doesn't see.
+pub fn is_merged(repo: &Path, branch: &str, base: &str) -> bool {
+    if git(repo, &["merge-base", "--is-ancestor", branch, base]).is_ok() {
+        return true;
+    }
+    // Merging a squash-merged branch again changes nothing.
+    let Ok(merged) = git(repo, &["merge-tree", "--write-tree", base, branch]) else {
+        return false;
+    };
+    let base_tree = format!("{base}^{{tree}}");
+    git(repo, &["rev-parse", &base_tree])
+        .is_ok_and(|tree| merged.lines().next() == Some(tree.trim()))
+}
+
+/// Whether `branch` has work that is now in `base`: merged, rather than
+/// level with it because nothing was ever committed on it.
+pub fn landed(repo: &Path, branch: &str, base: &str) -> bool {
+    if !is_merged(repo, branch, base) {
+        return false;
+    }
+    // The oldest reflog entry is where the branch started.
+    let local = format!("refs/heads/{branch}");
+    let created = git(repo, &["reflog", "show", "--format=%H", &local])
+        .ok()
+        .and_then(|log| log.lines().last().map(str::to_string));
+    let tip = git(repo, &["rev-parse", &local]).ok();
+    matches!((created, tip), (Some(created), Some(tip)) if created != tip.trim())
 }
 
 /// Keeps worktrees created inside the project out of its `git status`.
@@ -415,12 +546,12 @@ mod tests {
         assert_eq!((unsaved.files.len(), unsaved.commits), (1, 1));
 
         // Not forced: git keeps the worktree and its changes.
-        assert!(remove_worktree(repo, &location, Some("feat"), false).is_err());
+        assert!(remove_worktree(repo, &location, Some("feat"), false, None).is_err());
         assert!(location.join("a.txt").exists());
 
         // Committed but unmerged: the worktree goes, the branch stays.
         run(&location, &["checkout", "a.txt"]);
-        let kept = remove_worktree(repo, &location, Some("feat"), false).unwrap();
+        let kept = remove_worktree(repo, &location, Some("feat"), false, None).unwrap();
         assert!(kept.is_some_and(|note| note.contains("feat")));
         assert!(!location.exists());
         assert!(git(repo, &["rev-parse", "--verify", "feat"]).is_ok());
@@ -430,9 +561,101 @@ mod tests {
         let again = repo.join(".worktrees/feat2");
         add_worktree(repo, "feat2", &again).unwrap();
         assert_eq!(
-            remove_worktree(repo, &again, Some("feat2"), false).unwrap(),
+            remove_worktree(repo, &again, Some("feat2"), false, None).unwrap(),
             None
         );
         assert!(git(repo, &["rev-parse", "--verify", "feat2"]).is_err());
+    }
+
+    #[test]
+    fn merges_into_the_base_only_when_safe() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        let check = || check_merge(repo, &feat, "feat", "main");
+        assert!(check().unwrap_err().starts_with("Nothing to merge"));
+        // Level with main, but nothing landed.
+        assert!(is_merged(repo, "feat", "main") && !landed(repo, "feat", "main"));
+
+        std::fs::write(feat.join("b.txt"), "new\n").unwrap();
+        assert!(check().unwrap_err().contains("uncommitted"));
+        run(&feat, &["add", "."]);
+        run(&feat, &["commit", "-m", "feat: add b"]);
+
+        // main moves on: the branch has to sync first.
+        std::fs::write(repo.join("c.txt"), "main\n").unwrap();
+        run(repo, &["add", "c.txt"]);
+        run(repo, &["commit", "-m", "main work"]);
+        assert!(check().unwrap_err().contains("behind main"));
+        run(&feat, &["merge", "main", "--no-edit"]);
+
+        // Changes in main's own folder block it; untracked files don't.
+        std::fs::write(repo.join("a.txt"), "dirty\n").unwrap();
+        assert!(
+            check()
+                .unwrap_err()
+                .contains("main has uncommitted changes")
+        );
+        run(repo, &["checkout", "a.txt"]);
+        std::fs::write(repo.join("scratch.txt"), "mine\n").unwrap();
+        let plan = check().unwrap();
+        assert_eq!(plan.commits, 2);
+        assert_eq!(plan.base_dir.as_deref(), Some(repo));
+
+        let sha = merge_into(&feat, "main", &plan, None).unwrap();
+        assert_eq!(run(repo, &["rev-parse", "--short=7", "HEAD"]).trim(), sha);
+        assert!(repo.join("b.txt").exists());
+        assert!(is_merged(repo, "feat", "main"));
+    }
+
+    #[test]
+    fn squashes_into_one_commit() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        // main isn't checked out anywhere: the merge moves the ref.
+        run(repo, &["checkout", "--detach"]);
+
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        for name in ["b", "c"] {
+            std::fs::write(feat.join(name), "x\n").unwrap();
+            run(&feat, &["add", "."]);
+            run(&feat, &["commit", "-m", name]);
+        }
+        assert!(!is_merged(repo, "feat", "main"));
+        assert!(!landed(repo, "feat", "main"));
+        let plan = check_merge(repo, &feat, "feat", "main").unwrap();
+        assert_eq!(plan.base_dir, None);
+        merge_into(&feat, "main", &plan, Some("feat: add b and c")).unwrap();
+        assert_eq!(run(repo, &["rev-list", "--count", "main"]).trim(), "2");
+        assert_eq!(
+            run(repo, &["log", "-1", "--format=%s", "main"]).trim(),
+            "feat: add b and c"
+        );
+        assert!(landed(repo, "feat", "main"));
+        // Clean up deletes the squash-merged branch, though git sees it unmerged.
+        assert_eq!(
+            remove_worktree(repo, &feat, Some("feat"), false, Some("main")).unwrap(),
+            None
+        );
+        assert!(git(repo, &["rev-parse", "--verify", "feat"]).is_err());
     }
 }

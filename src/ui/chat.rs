@@ -40,6 +40,8 @@ pub enum ChatEvent {
     },
     /// Back from a sub-agent to its worktree chat.
     Back,
+    /// Remove a merged worktree, after asking.
+    CleanUp(PathBuf),
     Close,
 }
 
@@ -53,6 +55,8 @@ pub struct ChatView {
     pub redirect_input: Entity<gpui_kit::component::input::InputState>,
     /// Items the user expanded or collapsed against their default.
     toggled: HashSet<ItemId>,
+    /// Merged cards whose "Keep it" was clicked: no more clean-up offer.
+    pub kept: HashSet<ItemId>,
     scroll: ScrollHandle,
     follow_tail: bool,
     /// Where each history row was last painted, to count those below the
@@ -148,6 +152,7 @@ impl ChatView {
                     .placeholder("http://127.0.0.1:…/callback?code=…")
             }),
             toggled: HashSet::new(),
+            kept: HashSet::new(),
             scroll,
             follow_tail: true,
             row_bounds: Default::default(),
@@ -609,6 +614,10 @@ impl ChatView {
             if let Some(request_id) = waiting {
                 self.session.update(cx, |s, cx| {
                     s.resolve_approval(&request_id, crate::session::ApprovalChoice::Run, cx)
+                });
+            } else if self.session.read(cx).merge.is_some() {
+                self.session.update(cx, |s, cx| {
+                    s.resolve_merge(crate::session::MergeChoice::FastForward, cx)
                 });
             }
             return;

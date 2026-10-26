@@ -223,6 +223,9 @@ impl TreehouseApp {
                 }
             }
             ChatEvent::Close => self.close_dock(cx),
+            ChatEvent::CleanUp(worktree) => {
+                self.confirm_delete_worktree(worktree.clone(), window, cx)
+            }
         }
     }
 
@@ -560,14 +563,19 @@ impl TreehouseApp {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let branch = self
+        let (branch, base) = self
             .workspace
             .read(cx)
             .worktree(&worktree)
-            .map(|w| w.branch.to_string())
+            .map(|w| (w.branch.to_string(), w.base.clone()))
             .unwrap_or_default();
         let delete = Config::global(cx).delete_on_remove;
         let mut unsaved = crate::git::unsaved_work(&worktree, &branch);
+        // Merged and nothing left behind: a clean-up rather than a delete.
+        let clean_up = unsaved.files.is_empty() && crate::git::landed(&worktree, &branch, &base);
+        if clean_up {
+            return self.confirm_clean_up(worktree, branch, base, window, cx);
+        }
         if !delete {
             // The branch is kept, so its commits aren't lost.
             unsaved.commits = 0;
@@ -600,7 +608,7 @@ impl TreehouseApp {
                     let _ = app.update(cx, |app, cx| {
                         match app
                             .workspace
-                            .update(cx, |w, cx| w.delete_worktree(&worktree, force, cx))
+                            .update(cx, |w, cx| w.delete_worktree(&worktree, force, false, cx))
                         {
                             Ok(note) => {
                                 app.forget_worktree(&worktree, cx);
@@ -610,6 +618,47 @@ impl TreehouseApp {
                             }
                             Err(err) => window.push_notification(
                                 format!("Couldn't delete the worktree: {err:#}"),
+                                cx,
+                            ),
+                        }
+                    });
+                    true
+                })
+        });
+    }
+
+    fn confirm_clean_up(
+        &mut self,
+        worktree: PathBuf,
+        branch: String,
+        base: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let app = cx.entity().downgrade();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let (app, worktree) = (app.clone(), worktree.clone());
+            alert
+                .title(format!("Clean up “{branch}”?"))
+                .description(format!(
+                    "It's merged into {base}. This removes the worktree folder and the branch; the chat goes with it."
+                ))
+                .confirm()
+                .ok_text("Clean up")
+                .on_ok(move |_, window, cx| {
+                    let _ = app.update(cx, |app, cx| {
+                        match app
+                            .workspace
+                            .update(cx, |w, cx| w.delete_worktree(&worktree, false, true, cx))
+                        {
+                            Ok(note) => {
+                                app.forget_worktree(&worktree, cx);
+                                if let Some(note) = note {
+                                    window.push_notification(note, cx);
+                                }
+                            }
+                            Err(err) => window.push_notification(
+                                format!("Couldn't clean up the worktree: {err:#}"),
                                 cx,
                             ),
                         }

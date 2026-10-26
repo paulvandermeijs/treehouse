@@ -11,6 +11,10 @@
  * - Sub-agents. The `subagent` tool asks Treehouse to start a separate Pi
  *   session in the same worktree. Treehouse shows it in the sidebar, lets the
  *   user open and steer it, and answers with the sub-agent's final report.
+ * - Merging. The `treehouse_merge` tool asks Treehouse to merge the worktree's
+ *   branch into its base branch, which is checked out in another folder.
+ *   Treehouse checks it's safe, asks the user every time, merges, and answers
+ *   with what happened.
  *
  * Requests use the `input` dialog with a `treehouse:` title and a JSON payload
  * in the placeholder, so they need nothing beyond the RPC protocol.
@@ -20,6 +24,7 @@ import { Type } from "typebox";
 
 const APPROVAL = "treehouse:approval";
 const SUBAGENT = "treehouse:subagent";
+const MERGE = "treehouse:merge";
 
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
@@ -59,6 +64,37 @@ export default function (pi: any) {
 				throw new Error("The sub-agent was stopped before it finished.");
 			}
 			return { content: [{ type: "text", text: report }], details: { title: params.title } };
+		},
+	});
+
+	pi.registerTool({
+		name: "treehouse_merge",
+		label: "Merge into base",
+		description:
+			"Merge this worktree's branch into its base branch, as the last step of finishing a branch. " +
+			"Commit everything and sync with the base first. Treehouse checks it's safe and asks the user, " +
+			"who picks a fast-forward or one squashed commit. Never merge into the base branch with git yourself.",
+		parameters: Type.Object({
+			squash_message: Type.String({
+				description: "A Conventional Commit message summing up the whole branch, used if the user squashes it into one commit",
+			}),
+		}),
+		async execute(toolCallId: string, params: any, signal: AbortSignal, _onUpdate: any, ctx: any) {
+			if (!ctx.hasUI || ctx.mode !== "rpc") {
+				throw new Error("Merging is only available inside Treehouse.");
+			}
+			const payload = JSON.stringify({ toolCallId, squashMessage: params.squash_message, cwd: ctx.cwd });
+			const answer: string | undefined = await ctx.ui.input(MERGE, payload, { signal });
+			if (answer === undefined) {
+				throw new Error("The merge was stopped before it finished.");
+			}
+			// Treehouse answers with the outcome as JSON: the text for the model,
+			// and what was merged, which the chat shows as a card.
+			const outcome = JSON.parse(answer);
+			if (!outcome.merged) {
+				throw new Error(outcome.text);
+			}
+			return { content: [{ type: "text", text: outcome.text }], details: { merged: outcome.merged } };
 		},
 	});
 }

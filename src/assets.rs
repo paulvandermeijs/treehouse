@@ -44,6 +44,11 @@ gpui_kit::assets::icon_assets!(
         PinOff,
         Package,
         Link,
+        GitMerge,
+        GitCommitHorizontal,
+        RefreshCw,
+        Flag,
+        Check,
     ]
 );
 

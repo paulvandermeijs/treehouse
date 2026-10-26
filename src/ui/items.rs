@@ -18,7 +18,9 @@ use serde_json::Value;
 
 use super::chat::ChatView;
 use super::icon;
-use crate::session::{AgentStatus, ApprovalChoice, PendingApproval, Session};
+use crate::session::{
+    AgentStatus, ApprovalChoice, MergeChoice, PendingApproval, PendingMerge, Session,
+};
 use crate::setup::LinkOutcome;
 use crate::theme::{MONO, Palette, mix, palette};
 use crate::transcript::{
@@ -958,6 +960,18 @@ pub(super) fn describe(tool: &ToolCall) -> ToolText {
             target: tool.clean_name().to_string(),
             result: None,
         },
+        "treehouse_merge" => ToolText {
+            icon: Lucide::GitMerge,
+            running: "Merging",
+            done: "Merge",
+            target: match tool.details["merged"]["base"].as_str() {
+                Some(base) => format!("into {base}"),
+                None => "into the base branch".to_string(),
+            },
+            result: tool.details["merged"]["squash"]
+                .as_bool()
+                .map(|squash| if squash { "squashed" } else { "fast-forward" }.to_string()),
+        },
         _ => ToolText {
             icon: Lucide::Wrench,
             running: "Running",
@@ -984,14 +998,22 @@ fn counts(additions: usize, deletions: usize, p: &Palette) -> Div {
 
 fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> AnyElement {
     let p = palette(cx);
-    let text = describe(tool);
+    let mut text = describe(tool);
+    // Until it's done, the merge's base comes from the session.
+    if tool.name == "treehouse_merge"
+        && tool.details["merged"].is_null()
+        && let Some(base) = &view.session.read(cx).base
+    {
+        text.target = format!("into {base}");
+    }
     let id = tool.id;
     let patch = tool.patch();
     let stat = patch.as_deref().map(crate::git::diff_stat);
     let output_lines = tool.output.lines().count();
     let running = matches!(tool.status, ToolStatus::Running | ToolStatus::Preparing);
     let unknown = tool.is_unknown_tool();
-    let failed = tool.status == ToolStatus::Failed;
+    // A refused merge gets its own yellow note rather than error red.
+    let failed = tool.status == ToolStatus::Failed && tool.name != "treehouse_merge";
     let session_running = view.session.read(cx).is_running();
     let keep_diffs = crate::config::Config::global(cx).keep_diffs_expanded;
 
@@ -1009,6 +1031,9 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         }
         ToolStatus::Denied => "Didn't run".into_any_element(),
         ToolStatus::Failed if tool.name == "edit" => "Edit failed".into_any_element(),
+        ToolStatus::AwaitingApproval if tool.name == "treehouse_merge" => {
+            "Wants to merge".into_any_element()
+        }
         ToolStatus::AwaitingApproval => "Wants to run".into_any_element(),
         _ => text.done.into_any_element(),
     };
@@ -1028,6 +1053,16 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
 
     let result: Option<AnyElement> = match (tool.name.as_str(), tool.status) {
         (_, ToolStatus::Denied) => Some(div().child("denied").into_any_element()),
+        ("treehouse_merge", ToolStatus::AwaitingApproval) => {
+            Some(div().child("waiting for you").into_any_element())
+        }
+        // A refusal is Treehouse keeping the base safe, not an error.
+        ("treehouse_merge", ToolStatus::Failed) if !unknown => Some(
+            div()
+                .text_color(p.yellow)
+                .child("refused")
+                .into_any_element(),
+        ),
         _ if unknown => Some(div().child("nothing ran").into_any_element()),
         ("bash", ToolStatus::Stopped) => Some(
             h_flex()
@@ -1114,10 +1149,30 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .find(|a| a.tool_call_id == tool.call_id)
         .cloned();
 
+    let merge = view
+        .session
+        .read(cx)
+        .merge
+        .clone()
+        .filter(|m| m.tool_call_id == tool.call_id);
+    let merged = (tool.name == "treehouse_merge" && tool.status == ToolStatus::Done)
+        .then(|| tool.details["merged"].clone())
+        .filter(|m| m.is_object());
+    let refused =
+        (tool.name == "treehouse_merge" && tool.status == ToolStatus::Failed).then(|| {
+            tool.output
+                .trim()
+                .trim_start_matches("Refused: ")
+                .to_string()
+        });
+
     v_flex()
         .id(("tool-wrap", id.0))
         .child(header)
         .when_some(approval, |this, approval| this.child(render_approval(view, &approval, cx)))
+        .when_some(merge, |this, merge| this.child(render_merge_approval(view, &merge, cx)))
+        .when_some(merged, |this, merged| this.child(render_merged(view, id, &merged, cx)))
+        .when_some(refused, |this, refused| this.child(warning_card(&refused, &p)))
         .when(expanded, |this| match tool.name.as_str() {
             "bash" => this.child(render_bash_output(tool, &p)),
             "edit" | "write" if failed => this.child(error_card(
@@ -1147,6 +1202,167 @@ fn first_line(text: &str) -> &str {
         .find(|l| !l.trim().is_empty())
         .unwrap_or("")
         .trim()
+}
+
+fn warning_card(text: &str, p: &Palette) -> Div {
+    error_card(text, p)
+        .border_color(mix(p.yellow, p.base, 0.4))
+        .bg(mix(p.yellow, p.base, 0.08))
+}
+
+/// Asks before merging into the base branch, whatever the approval setting.
+fn render_merge_approval(
+    view: &ChatView,
+    merge: &PendingMerge,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let session = view.session.clone();
+    let commits = match merge.plan.commits {
+        1 => "1 commit".to_string(),
+        n => format!("{n} commits"),
+    };
+    let choose = |choice: MergeChoice| {
+        let session = session.clone();
+        move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
+            session.update(cx, |s, cx| s.resolve_merge(choice, cx))
+        }
+    };
+    v_flex()
+        .mt_1()
+        .ml(px(GUTTER))
+        .gap_2()
+        .p_3()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(p.blue)
+        .bg(mix(p.blue, p.base, 0.06))
+        .child(
+            h_flex()
+                .gap_2()
+                .text_size(px(13.5))
+                .font_medium()
+                .child(icon(Lucide::GitMerge).text_color(p.blue))
+                .child(format!(
+                    "Pi wants to merge {} into {}",
+                    merge.branch, merge.base
+                )),
+        )
+        .child(
+            div()
+                .text_size(px(13.))
+                .text_color(p.subtext0)
+                .child(format!(
+                    "Fast-forward · {commits} · {} is clean and up to date",
+                    merge.base
+                )),
+        )
+        .child(
+            h_flex()
+                .gap_2()
+                .child(
+                    Button::new("merge")
+                        .primary()
+                        .small()
+                        .label("Merge ⏎")
+                        .on_click(choose(MergeChoice::FastForward)),
+                )
+                .child(
+                    Button::new("squash")
+                        .small()
+                        .label("Squash into one")
+                        .tooltip(merge.squash_message.clone())
+                        .on_click(choose(MergeChoice::Squash)),
+                )
+                .child(
+                    Button::new("deny-merge")
+                        .ghost()
+                        .small()
+                        .label("Deny  esc")
+                        .on_click(choose(MergeChoice::Deny)),
+                ),
+        )
+        .into_any_element()
+}
+
+/// What the merge did, with the offer to clean up the worktree.
+fn render_merged(
+    view: &ChatView,
+    id: ItemId,
+    merged: &serde_json::Value,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let base = merged["base"]
+        .as_str()
+        .unwrap_or("the base branch")
+        .to_string();
+    let sha = merged["sha"].as_str().unwrap_or_default();
+    let how = if merged["squash"].as_bool().unwrap_or(false) {
+        match merged["commits"].as_u64().unwrap_or(0) {
+            1 => "Squashed 1 commit".to_string(),
+            n => format!("Squashed {n} commits into one"),
+        }
+    } else {
+        "Fast-forward".to_string()
+    };
+    let worktree = view.session.read(cx).cwd.clone();
+    // Offered while the worktree is still there to clean up.
+    let offer = !view.kept.contains(&id)
+        && view
+            .workspace
+            .read(cx)
+            .worktree(&worktree)
+            .is_some_and(|w| !w.is_main);
+    h_flex()
+        .mt_1()
+        .ml(px(GUTTER))
+        .gap_3()
+        .p_3()
+        .rounded(px(8.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .child(icon(Lucide::Check).text_color(p.green))
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_size(px(13.5))
+                        .font_medium()
+                        .child(format!("Merged into {base}")),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(p.subtext0)
+                        .child(format!("{how} · {base} is now at {sha} · not pushed")),
+                ),
+        )
+        .when(offer, |this| {
+            this.child(
+                Button::new(("clean-up", id.0))
+                    .primary()
+                    .small()
+                    .label("Clean up worktree")
+                    .on_click(cx.listener(move |_, _, _, cx| {
+                        cx.emit(super::chat::ChatEvent::CleanUp(worktree.clone()))
+                    })),
+            )
+            .child(
+                Button::new(("keep", id.0))
+                    .ghost()
+                    .small()
+                    .label("Keep it")
+                    .on_click(cx.listener(move |view, _, _, cx| {
+                        view.kept.insert(id);
+                        cx.notify();
+                    })),
+            )
+        })
+        .into_any_element()
 }
 
 fn error_card(text: &str, p: &Palette) -> Div {

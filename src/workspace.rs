@@ -276,13 +276,16 @@ impl Workspace {
 
     /// Removes a worktree, and its branch when Settings say so. Without
     /// `force` git refuses to drop changed files or unmerged commits.
+    /// `clean_up` is for a merged worktree: its branch goes too, whatever the
+    /// setting, since its work is in the base.
     pub fn delete_worktree(
         &mut self,
         path: &Path,
         force: bool,
+        clean_up: bool,
         cx: &mut Context<Self>,
     ) -> Result<Option<String>> {
-        let delete = Config::global(cx).delete_on_remove;
+        let delete = clean_up || Config::global(cx).delete_on_remove;
         for project in self.projects.iter_mut() {
             if let Some(ix) = project
                 .worktrees
@@ -290,11 +293,13 @@ impl Workspace {
                 .position(|w| w.path == path && !w.is_main)
             {
                 let branch = project.worktrees[ix].branch.to_string();
+                let base = project.worktrees[ix].base.clone();
                 let note = git::remove_worktree(
                     &project.path,
                     path,
                     delete.then_some(branch.as_str()),
                     force,
+                    clean_up.then_some(base.as_str()),
                 )?;
                 let worktree = project.worktrees.remove(ix);
                 worktree.session.update(cx, |s, cx| s.stop(cx));
@@ -434,6 +439,20 @@ impl Workspace {
                     });
                 }
             }
+            SessionEvent::MergeRequested {
+                request_id,
+                tool_call_id,
+                squash_message,
+            } => self.check_merge(
+                session,
+                request_id.clone(),
+                tool_call_id.clone(),
+                squash_message.clone(),
+                cx,
+            ),
+            SessionEvent::MergeApproved(merge, choice) => {
+                self.merge(session, merge.clone(), *choice, cx)
+            }
             SessionEvent::TurnEnded => {
                 let cwd = session.read(cx).cwd.clone();
                 self.refresh_stat(cwd, cx);
@@ -441,6 +460,130 @@ impl Workspace {
             SessionEvent::StatusChanged => self.report_finished_subagents(cx),
         }
         cx.notify();
+    }
+
+    /// Checks a merge Pi asked for, then shows its approval card or tells Pi
+    /// why it can't happen.
+    fn check_merge(
+        &mut self,
+        session: Entity<Session>,
+        request_id: String,
+        tool_call_id: String,
+        squash_message: String,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(worktree) = self.worktree_of(session.entity_id()) else {
+            return;
+        };
+        let (path, branch, base) = (
+            worktree.path.clone(),
+            worktree.branch.to_string(),
+            worktree.base.clone(),
+        );
+        let Some(project) = self.project_of(&path) else {
+            return;
+        };
+        let project_path = project.path.clone();
+        // The base's own chat may be changing the same files.
+        let busy = project
+            .worktrees
+            .iter()
+            .any(|w| w.branch.as_ref() == base && w.status(cx) == AgentStatus::Working);
+        if busy {
+            let reason =
+                format!("An agent is working in {base}'s worktree. Wait for it to finish.");
+            return session.update(cx, |s, cx| s.finish_merge(&request_id, Err(reason), cx));
+        }
+        cx.spawn(async move |_, cx| {
+            let checked = cx
+                .background_spawn({
+                    let (branch, base) = (branch.clone(), base.clone());
+                    async move { git::check_merge(&project_path, &path, &branch, &base) }
+                })
+                .await;
+            session.update(cx, |s, cx| match checked {
+                Ok(plan) => s.ask_merge(
+                    crate::session::PendingMerge {
+                        request_id,
+                        tool_call_id,
+                        branch,
+                        base,
+                        plan,
+                        squash_message,
+                    },
+                    cx,
+                ),
+                Err(reason) => s.finish_merge(&request_id, Err(reason), cx),
+            });
+        })
+        .detach();
+    }
+
+    /// Carries out a merge the user approved, checking again first since
+    /// either folder may have changed while the card waited.
+    fn merge(
+        &mut self,
+        session: Entity<Session>,
+        merge: crate::session::PendingMerge,
+        choice: crate::session::MergeChoice,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(worktree) = self.worktree_of(session.entity_id()) else {
+            return;
+        };
+        let path = worktree.path.clone();
+        let Some(project) = self.project_of(&path).map(|p| p.path.clone()) else {
+            return;
+        };
+        let squash =
+            (choice == crate::session::MergeChoice::Squash).then(|| merge.squash_message.clone());
+        cx.spawn(async move |this, cx| {
+            let outcome = cx
+                .background_spawn({
+                    let (path, merge) = (path.clone(), merge.clone());
+                    async move {
+                        let plan = git::check_merge(&project, &path, &merge.branch, &merge.base)?;
+                        let sha = git::merge_into(&path, &merge.base, &plan, squash.as_deref())
+                            .map_err(|err| format!("{err:#}"))?;
+                        let (base, branch, commits) = (&merge.base, &merge.branch, plan.commits);
+                        let text = match &squash {
+                            Some(_) => format!(
+                                "Squashed {branch} into one commit on {base} ({sha}). Not pushed."
+                            ),
+                            None => {
+                                let commits = match commits {
+                                    1 => "1 commit".to_string(),
+                                    n => format!("{n} commits"),
+                                };
+                                format!(
+                                    "Merged {branch} into {base} with a fast-forward ({commits}); {base} is now at {sha}. Not pushed."
+                                )
+                            }
+                        };
+                        let merged = serde_json::json!({
+                            "base": base,
+                            "branch": branch,
+                            "sha": sha,
+                            "commits": commits,
+                            "squash": squash.is_some(),
+                        });
+                        Ok((text, merged))
+                    }
+                })
+                .await;
+            session.update(cx, |s, cx| s.finish_merge(&merge.request_id, outcome, cx));
+            let _ = this.update(cx, |this, cx| {
+                // The base's folder changed too.
+                let paths: Vec<PathBuf> = this
+                    .project_of(&path)
+                    .map(|p| p.worktrees.iter().map(|w| w.path.clone()).collect())
+                    .unwrap_or_default();
+                for path in paths {
+                    this.refresh_stat(path, cx);
+                }
+            });
+        })
+        .detach();
     }
 
     /// Hands a finished sub-agent's report to the tool call that started it.

@@ -16,6 +16,10 @@ the number of seconds the sub-agent keeps working before it reports back.
 Like Pi it saves the chat to a session file (`--session-dir`), and
 `--session <file>` continues one, so restoring a chat can be tried.
 
+The lifecycle skills (`/commit`, `/sync`, `/finish-branch`) run real git in
+the worktree: commit everything, merge the base branch named in
+`--append-system-prompt`, and call `treehouse_merge`.
+
 Set FAKE_PI_MCP to report a "figma" MCP server that needs a sign-in when
 Pi starts. `/mcp login <server>` then plays Pi's sign-in: pasting any address
 signs in, one containing "fail" fails, and cancelling cancels.
@@ -134,6 +138,14 @@ COMMANDS = [
     {"name": "fix-tests", "description": "Fix failing tests", "source": "prompt",
      "sourceInfo": {"path": "/home/you/.pi/agent/prompts/fix-tests.md", "scope": "user"}},
 ]
+# Skills loaded with --skill are listed like any other.
+i = 0
+while i < len(sys.argv) - 1:
+    if sys.argv[i] == "--skill":
+        name = os.path.basename(sys.argv[i + 1].rstrip("/"))
+        COMMANDS.append({"name": f"skill:{name}", "description": name, "source": "skill",
+                         "sourceInfo": {"path": os.path.join(sys.argv[i + 1], "SKILL.md")}})
+    i += 1
 state = {"model": MODELS[0], "thinking": "high", "tokens": 0}
 
 
@@ -263,6 +275,81 @@ def worktree_turn():
     emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
 
 
+def base_branch():
+    note = arg("--append-system-prompt") or ""
+    marker = "base branch is "
+    return note.split(marker, 1)[1].rstrip(".") if marker in note else "main"
+
+
+def shell_tool(index, call_id, command):
+    """A bash tool call that really runs, as Pi's does."""
+    update({"type": "toolcall_start", "contentIndex": index, "id": call_id, "toolName": "bash"})
+    args = {"command": command}
+    update({"type": "toolcall_end", "contentIndex": index,
+            "toolCall": {"type": "toolCall", "id": call_id, "name": "bash", "arguments": args}})
+    answer = ask("treehouse:approval", {"toolCallId": call_id, "toolName": "bash", "input": args, "cwd": os.getcwd()})
+    emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": "bash", "args": args})
+    if answer != "allow":
+        emit({"type": "tool_execution_end", "toolCallId": call_id, "toolName": "bash", "isError": True,
+              "result": {"content": [{"type": "text", "text": answer[5:] if answer else "Denied"}]}})
+        return None
+    proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True)
+    output = (proc.stdout + proc.stderr).strip()
+    if proc.returncode:
+        output += f"\n\nCommand exited with code {proc.returncode}"
+    emit({"type": "tool_execution_end", "toolCallId": call_id, "toolName": "bash", "isError": proc.returncode != 0,
+          "result": {"content": [{"type": "text", "text": output or "(no output)"}]}})
+    return proc.returncode == 0
+
+
+def commit_steps(start, run_id):
+    """Commits whatever is uncommitted; returns the next content index."""
+    dirty = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True).stdout.strip()
+    if not dirty:
+        return start
+    shell_tool(start, f"lc-status-{run_id}", "git status --porcelain")
+    shell_tool(start + 1, f"lc-commit-{run_id}",
+               "git add -A && git commit -q -m 'feat: save the work so far' -m 'Committed by fake-pi.'")
+    return start + 2
+
+
+def lifecycle_turn(skill):
+    base = base_branch()
+    # Pi's tool call ids are unique; repeated runs must not reuse them.
+    run_id = uuid.uuid4().hex[:6]
+    emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+    index = 0
+    if skill in ("commit", "finish-branch"):
+        index = commit_steps(0, run_id)
+    if skill == "commit":
+        say(index, "Committed the work so far." if index else "Nothing to commit.")
+    if skill in ("sync", "finish-branch"):
+        behind = subprocess.run(["git", "rev-list", "--count", f"HEAD..{base}"], capture_output=True, text=True).stdout.strip()
+        if behind not in ("", "0"):
+            shell_tool(index, f"lc-merge-{run_id}", f"git merge {base} --no-edit")
+            index += 1
+        elif skill == "sync":
+            say(index, f"Already up to date with {base}.")
+            index += 1
+    if skill == "finish-branch":
+        call_id = f"lc-finish-{run_id}"
+        args = {"squash_message": "feat: finish the branch"}
+        update({"type": "toolcall_start", "contentIndex": index, "id": call_id, "toolName": "treehouse_merge"})
+        update({"type": "toolcall_end", "contentIndex": index,
+                "toolCall": {"type": "toolCall", "id": call_id, "name": "treehouse_merge", "arguments": args}})
+        ask("treehouse:approval", {"toolCallId": call_id, "toolName": "treehouse_merge", "input": args, "cwd": os.getcwd()})
+        emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": "treehouse_merge", "args": args})
+        answer = ask("treehouse:merge", {"toolCallId": call_id, "squashMessage": args["squash_message"], "cwd": os.getcwd()})
+        outcome = json.loads(answer) if answer else {"text": "The merge was stopped before it finished.", "merged": None}
+        end = {"type": "tool_execution_end", "toolCallId": call_id, "toolName": "treehouse_merge",
+               "isError": not outcome.get("merged"), "result": {"content": [{"type": "text", "text": outcome["text"]}]}}
+        if outcome.get("merged"):
+            end["result"]["details"] = {"merged": outcome["merged"]}
+        emit(end)
+        say(index + 1, outcome["text"])
+    emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+
+
 def subagent_turn():
     emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
     tool(0, "s-rg", "bash", {"command": 'rg -l "pub struct" gpui-kit/src'},
@@ -352,6 +439,8 @@ def run(message):
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Long"):
         long_command_turn()
+    elif message.startswith("/skill:treehouse-") or message.split(" ")[0] in ("/skill:commit",):
+        lifecycle_turn(message.split(" ")[0].removeprefix("/skill:").removeprefix("treehouse-"))
     elif message.startswith("/"):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
         say(0, "Done: I followed the command.")
