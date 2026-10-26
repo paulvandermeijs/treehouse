@@ -4,7 +4,9 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_kit::component::diff::{Diff, DiffFile, DiffMode, DiffState};
-use gpui_kit::component::{IconName, Selectable as _, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{
+    Disableable as _, IconName, Selectable as _, Sizable as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -34,6 +36,9 @@ pub struct DiffPanel {
     pub full_screen: bool,
     /// The main worktree has nothing to finish.
     pub is_main: bool,
+    /// Where the worktree's branch stands, for when the lifecycle buttons
+    /// can run.
+    workspace: Option<Entity<crate::workspace::Workspace>>,
     /// See `ChatView::sidebar_lead`.
     pub sidebar_lead: Option<Pixels>,
     /// The panel's width when last painted; see `render`.
@@ -63,11 +68,55 @@ impl DiffPanel {
             pending_scroll: None,
             full_screen: false,
             is_main: false,
+            workspace: None,
             sidebar_lead: None,
             width: Default::default(),
         };
         this.reload(cx);
         this
+    }
+
+    /// Follows the worktree's branch state, so the lifecycle buttons know
+    /// when they can run.
+    pub fn watch(
+        &mut self,
+        workspace: Entity<crate::workspace::Workspace>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.observe(&workspace, |_, _, cx| cx.notify()).detach();
+        self.workspace = Some(workspace);
+    }
+
+    /// Why Commit with Pi and Finish branch can't run now, if they can't.
+    fn lifecycle_blocked(&self, cx: &App) -> (Option<&'static str>, Option<&'static str>) {
+        let Some(worktree) = self
+            .workspace
+            .as_ref()
+            .and_then(|w| w.read(cx).worktree(&self.worktree))
+        else {
+            return (None, None);
+        };
+        let busy = matches!(
+            worktree.status(cx),
+            crate::session::AgentStatus::Working | crate::session::AgentStatus::NeedsInput
+        );
+        let blocked = if !worktree.session.read(cx).trusted {
+            Some("read only")
+        } else if busy {
+            Some("Pi is busy")
+        } else {
+            None
+        };
+        let state = &worktree.state;
+        let commit = blocked.or((state.uncommitted == 0).then_some("nothing to commit"));
+        let finish = blocked.or(if state.merged {
+            Some("merged")
+        } else if state.ahead == 0 && state.uncommitted == 0 {
+            Some("nothing to merge")
+        } else {
+            None
+        });
+        (commit, finish)
     }
 
     /// Re-reads the diff on a background thread. A stale result is dropped.
@@ -142,6 +191,7 @@ impl Render for DiffPanel {
         let p = palette(cx);
         let unified = self.mode == DiffMode::Unified;
         let empty = !self.loading && self.error.is_none() && self.stat.files == 0;
+        let (commit_off, finish_off) = self.lifecycle_blocked(cx);
 
         // The kit's diff learns its new width while painting and asks for
         // another frame from there, which the window ignores mid-draw. On
@@ -221,7 +271,11 @@ impl Render for DiffPanel {
                             .ghost()
                             .small()
                             .icon(icon(Lucide::GitCommitHorizontal))
-                            .tooltip("Commit with Pi · /commit")
+                            .disabled(commit_off.is_some())
+                            .tooltip(format!(
+                                "Commit with Pi · {}",
+                                commit_off.unwrap_or("/commit")
+                            ))
                             .on_click(cx.listener(|_, _, _, cx| {
                                 cx.emit(DiffPanelEvent::Run(crate::slash::Lifecycle::Commit))
                             })),
@@ -232,7 +286,11 @@ impl Render for DiffPanel {
                                 .ghost()
                                 .small()
                                 .icon(icon(Lucide::GitMerge))
-                                .tooltip("Finish branch · /finish-branch")
+                                .disabled(finish_off.is_some())
+                                .tooltip(format!(
+                                    "Finish branch · {}",
+                                    finish_off.unwrap_or("/finish-branch")
+                                ))
                                 .on_click(cx.listener(|_, _, _, cx| {
                                     cx.emit(DiffPanelEvent::Run(
                                         crate::slash::Lifecycle::FinishBranch,

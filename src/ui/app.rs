@@ -356,9 +356,11 @@ impl TreehouseApp {
                 .read(cx)
                 .worktree(&worktree)
                 .is_some_and(|w| w.is_main);
+            let workspace = self.workspace.clone();
             let panel = cx.new(|cx| {
                 let mut panel = DiffPanel::new(worktree.clone(), branch, base, cx);
                 panel.is_main = is_main;
+                panel.watch(workspace, cx);
                 panel
             });
             self._subscriptions.push(cx.subscribe_in(
