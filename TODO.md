@@ -6,20 +6,14 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 ## Worktree lifecycle
 
-Commit, sync, merge and clean up from Treehouse, done by Pi rather than by hand. The boards are on the canvas (Lifecycle page) and wait for a review.
+Commit, sync, merge and clean up from Treehouse, done by Pi rather than by hand. The boards are on the canvas (Lifecycle page).
 
 - `/commit`, `/sync` and `/finish-branch`, backed by three built-in skills: `treehouse-commit`, `treehouse-sync` and `treehouse-finish-branch`. They're shipped in Treehouse's data folder and loaded with `--skill`. The prefix is there because Pi keeps the first skill it finds with a name, so a built-in `commit` would hide a project's own. `/commit` runs the project's or the user's `commit` skill when Pi lists one, and the built-in otherwise.
 - Pi's git commands show as normal rows, followed by a card per conventional commit (type, subject, body, hash), built from `git log` rather than from Pi's reply.
 - "Commit with Pi" and "Finish branch" in the diff dock and the worktree's context menu send the same commands. There's no manual commit UI.
-- Finish branch: Pi commits, syncs with the base branch and runs the tests, then calls a new merge tool in the bridge extension (`assets/pi/treehouse.ts`). Treehouse checks that the base is clean, never forces, and shows a merge approval card. After the merge, a card offers Clean up (safe worktree delete already exists).
+- Finish branch: Pi commits, syncs with the base branch and runs the tests (how is left to Pi and the project's AGENTS.md), then calls a new merge tool in the bridge extension (`assets/pi/treehouse.ts`). Treehouse checks that the base is clean, never forces, and shows a merge approval card. It always asks, even with approvals set to "Don't ask", since it changes a branch outside the worktree. Fast-forward by default, with Squash into one as the other choice. After the merge, a card offers Clean up (safe worktree delete already exists).
 - `/sync` has Pi resolve conflicts. Refusals such as "main isn't clean" get their own states.
-
-Open questions:
-
-1. Should the merge approval always ask, even with approvals set to "Don't ask"? The boards assume yes.
-2. Fast-forward by default, falling back to a merge commit, with squash as an option?
-3. Should `/finish-branch` run the tests itself, and if so, how does it find the test command? Or leave it to Pi and the project's AGENTS.md?
-4. Hide these commands in untrusted projects, or show them disabled with the read-only note?
+- Untrusted projects show the commands and menu items disabled, with the read-only note.
 
 ## Sub-agent worktrees
 
