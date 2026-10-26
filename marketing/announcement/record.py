@@ -7,6 +7,9 @@ into one clip per chapter in <out>/clips/<scene id>.mp4.
 
 Usage: record.py <out folder>
 
+THEME=latte records the app in Latte instead of Mocha. The whole session is
+kept in <out>/raw.mkv, with its scene marks in <out>/marks.json.
+
 The pauses follow fake-pi's script, so change them together.
 """
 
@@ -53,6 +56,14 @@ def click(x, y, pause=0.6):
     time.sleep(pause)
 
 
+def open_diff_view(pause):
+    """Opens the diff-view worktree, then leaves the sidebar so its hover card
+    doesn't cover the chat."""
+    click(64, 149, pause=0.2)
+    move(760, 480, seconds=0.35)
+    time.sleep(pause - 0.2)
+
+
 def type_text(text):
     xdo("type", "--delay", 45, text)
 
@@ -65,7 +76,7 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     app = subprocess.Popen(
         [str(HERE / "run-app.sh"), str(WORK), DISPLAY],
-        env=dict(env, DEMO_DIR=DEMO_DIR),
+        env=dict(env, DEMO_DIR=DEMO_DIR, THEME=os.environ.get("THEME", "mocha")),
         stdout=open(OUT / "app.log", "w"), stderr=subprocess.STDOUT,
     )
     window = None
@@ -79,6 +90,8 @@ def main():
     if not window:
         sys.exit("Treehouse didn't open a window; see app.log")
     xdo("windowmove", window, 0, 0)
+    # The app sets its pointer only once the pointer moves over it.
+    xdo("mousemove", mouse[0] - 10, mouse[1])
     xdo("mousemove", *mouse)
     time.sleep(2)
 
@@ -89,6 +102,11 @@ def main():
          "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", str(raw)],
         stdin=subprocess.PIPE,
     )
+    # ffmpeg takes a moment to start capturing; time the marks from its
+    # first frame (a lossless frame is far bigger than the file header), so
+    # they match the recording.
+    while not raw.exists() or raw.stat().st_size < 50_000:
+        time.sleep(0.02)
     start = time.time()
     marks = {}
 
@@ -115,7 +133,7 @@ def main():
     time.sleep(0.4)
     key("Return")
     time.sleep(1.6)
-    click(64, 149, pause=1.2)
+    open_diff_view(pause=1.2)
     mark("worktrees_end")
 
     # 02 Approvals: ask for a change; Pi wants to run a command.
@@ -133,7 +151,7 @@ def main():
     time.sleep(0.4)
     click(1180, 663, pause=1.4)
     click(620, 314, pause=4.8)
-    click(64, 149, pause=2.2)
+    open_diff_view(pause=2.2)
     mark("subagents_end")
 
     # 04 Diff: the worktree's changes in the dock, then side by side.
