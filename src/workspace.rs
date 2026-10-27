@@ -628,6 +628,9 @@ impl Workspace {
     /// Refreshes every worktree in the project of `worktree`: a commit on
     /// the base branch changes how far behind each of the others is.
     pub fn refresh_project(&mut self, worktree: &Path, cx: &mut Context<Self>) {
+        if let Some(project) = self.project_of(worktree).map(|p| p.path.clone()) {
+            self.sync_worktrees(project, cx);
+        }
         let paths: Vec<PathBuf> = self
             .project_of(worktree)
             .map(|p| p.worktrees.iter().map(|w| w.path.clone()).collect())
@@ -635,6 +638,62 @@ impl Workspace {
         for path in paths {
             self.refresh_stat(path, cx);
         }
+    }
+
+    /// Picks up worktrees made outside Treehouse, by Pi or in a terminal, and
+    /// branches renamed there, by reading git's worktree list again.
+    fn sync_worktrees(&mut self, project: PathBuf, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let listed = cx
+                .background_spawn({
+                    let project = project.clone();
+                    async move { git::list_worktrees(&project) }
+                })
+                .await;
+            let Ok(listed) = listed else {
+                return;
+            };
+            let _ = this.update(cx, |this, cx| {
+                let Some(known) = this.projects.iter().find(|p| p.path == project).map(|p| {
+                    p.worktrees
+                        .iter()
+                        .map(|w| (w.path.clone(), w.branch.to_string()))
+                        .collect::<Vec<_>>()
+                }) else {
+                    return;
+                };
+                let (added, renamed) = sync_plan(&known, listed);
+                if added.is_empty() && renamed.is_empty() {
+                    return;
+                }
+                for (path, branch) in renamed {
+                    if let Some(worktree) = this.worktree_mut(&path) {
+                        worktree.branch = branch.into();
+                    }
+                }
+                let base = this.base_for(&project, cx);
+                let mut paths = Vec::new();
+                for info in added {
+                    paths.push(info.path.clone());
+                    let worktree = this.make_worktree(
+                        &project,
+                        info.path,
+                        info.branch,
+                        base.clone(),
+                        false,
+                        cx,
+                    );
+                    if let Some(p) = this.projects.iter_mut().find(|p| p.path == project) {
+                        p.worktrees.push(worktree);
+                    }
+                }
+                for path in paths {
+                    this.refresh_stat(path, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Reads the worktree's diff stat and branch state again.
@@ -669,6 +728,34 @@ impl Workspace {
     }
 }
 
+/// What git's worktree list has that Treehouse doesn't: worktrees to add,
+/// and known ones whose branch was renamed. Paths are compared resolved,
+/// since git prints them without symlinks. A worktree git no longer lists
+/// stays until Treehouse deletes it, so a chat isn't pulled from under you.
+fn sync_plan(
+    known: &[(PathBuf, String)],
+    listed: Vec<git::WorktreeInfo>,
+) -> (Vec<git::WorktreeInfo>, Vec<(PathBuf, String)>) {
+    let resolve = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    let known: Vec<(PathBuf, &PathBuf, &String)> = known
+        .iter()
+        .map(|(path, branch)| (resolve(path), path, branch))
+        .collect();
+    let mut added = Vec::new();
+    let mut renamed = Vec::new();
+    for info in listed {
+        let here = resolve(&info.path);
+        match known.iter().find(|(resolved, ..)| *resolved == here) {
+            Some((_, path, branch)) if **branch != info.branch => {
+                renamed.push(((*path).clone(), info.branch))
+            }
+            Some(_) => {}
+            None => added.push(info),
+        }
+    }
+    (added, renamed)
+}
+
 /// Where a project goes among the pinned ones; unpinned ones come after, in
 /// their own order (the sort is stable).
 fn pin_rank(pinned: &[PathBuf], path: &Path) -> usize {
@@ -677,7 +764,45 @@ fn pin_rank(pinned: &[PathBuf], path: &Path) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::pin_rank;
+    use super::{pin_rank, sync_plan};
+    use crate::git::WorktreeInfo;
+
+    #[test]
+    fn picks_up_worktrees_made_elsewhere() {
+        let known = vec![
+            (PathBuf::from("/code/app"), "main".to_string()),
+            (
+                PathBuf::from("/code/app/.worktrees/a"),
+                "feat/a".to_string(),
+            ),
+        ];
+        let listed = vec![
+            WorktreeInfo {
+                path: "/code/app".into(),
+                branch: "main".into(),
+            },
+            WorktreeInfo {
+                path: "/code/app/.worktrees/a".into(),
+                branch: "feat/a2".into(),
+            },
+            WorktreeInfo {
+                path: "/code/app/.worktrees/about".into(),
+                branch: "about-page".into(),
+            },
+        ];
+        let (added, renamed) = sync_plan(&known, listed);
+        assert_eq!(
+            added.iter().map(|w| w.branch.as_str()).collect::<Vec<_>>(),
+            ["about-page"]
+        );
+        assert_eq!(
+            renamed,
+            [(
+                PathBuf::from("/code/app/.worktrees/a"),
+                "feat/a2".to_string()
+            )]
+        );
+    }
     use std::path::PathBuf;
 
     #[test]

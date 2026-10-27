@@ -2,7 +2,7 @@
 
 ## Projects
 
-Add a project with the folder button next to **Projects**, <kbd>⌘O</kbd>, or **Open project…** in the command palette. Treehouse lists the project's worktrees as `git worktree list` reports them.
+Add a project with the folder button next to **Projects**, <kbd>⌘O</kbd>, or **Open project…** in the command palette. Treehouse lists the project's worktrees as `git worktree list` reports them. A worktree made outside Treehouse, by Pi or in a terminal, shows up once Pi's turn or your `!` command ends.
 
 Projects are listed in the order you added them. To move one to the top, hover it and click the pin at the right of its row, or choose **Pin to top** from its context menu. Pinned projects keep their pin icon and stay in the order you pinned them; to reorder, unpin and pin again.
 

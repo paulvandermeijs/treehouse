@@ -116,7 +116,8 @@ pub enum SessionEvent {
     },
     /// The user approved a merge; the workspace carries it out.
     MergeApproved(PendingMerge, MergeChoice),
-    /// A turn ended; the worktree's diff may have changed.
+    /// A turn or a `!` command ended; the worktree's diff, and the
+    /// project's worktrees, may have changed.
     TurnEnded,
     StatusChanged,
 }
@@ -965,7 +966,14 @@ impl Session {
 
     fn handle(&mut self, message: PiMessage, cx: &mut Context<Self>) {
         match message {
-            PiMessage::Response(response) => self.handle_response(response),
+            PiMessage::Response(response) => {
+                // A `!` command can change files, or worktrees, like a turn.
+                let shell = response.command == "bash";
+                self.handle_response(response);
+                if shell {
+                    cx.emit(SessionEvent::TurnEnded);
+                }
+            }
             PiMessage::Event(event) => self.handle_event(&event, cx),
             PiMessage::Exited { code, stderr } => {
                 self.client = None;
