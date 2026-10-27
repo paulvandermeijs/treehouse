@@ -34,9 +34,27 @@ const SUBAGENT = "treehouse:subagent";
 const MERGE = "treehouse:merge";
 const WORKTREE = "treehouse:worktree";
 
+// `git worktree add`, also after `git -C <dir>` or `cd … &&`.
+const WORKTREE_ADD = /\bgit\b[^;&|\n]*\bworktree\s+add\b/;
+
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		if (!ctx.hasUI || ctx.mode !== "rpc") return undefined;
+		// Models follow a project's own instructions for making worktrees
+		// over the tool's description, and Treehouse then only finds a
+		// folder: no setup in its chat, no hand-over.
+		if (
+			event.toolName === "bash" &&
+			WORKTREE_ADD.test(String(event.input?.command ?? "")) &&
+			pi.getActiveTools().includes("treehouse_worktree")
+		) {
+			return {
+				block: true,
+				reason:
+					"Treehouse creates worktrees: call the treehouse_worktree tool with the branch and the whole task instead. " +
+					"The new worktree's own chat runs its setup and does the task, sub-agents included.",
+			};
+		}
 		const payload = JSON.stringify({
 			toolCallId: event.toolCallId,
 			toolName: event.toolName,
@@ -124,12 +142,15 @@ export default function (pi: any) {
 		// commands a project's own instructions describe.
 		promptGuidelines: [
 			"Create worktrees only with treehouse_worktree, never with git worktree add, even when project instructions describe creating them by hand; Treehouse runs the worktree's setup itself",
-			"After treehouse_worktree, leave the task to the new worktree's chat: don't edit its files or run its setup from here",
+			"After treehouse_worktree, leave the whole task to the new worktree's chat, sub-agents included: don't start them, edit its files or run its setup from here",
 		],
 		parameters: Type.Object({
 			branch: Type.String({ description: "The new branch's name, such as feat/about-page" }),
 			task: Type.Optional(
-				Type.String({ description: "Complete, self-contained instructions for the new worktree's chat" }),
+				Type.String({
+					description:
+						"Complete, self-contained instructions for the new worktree's chat, with everything the user asked to happen there, such as starting sub-agents",
+				}),
 			),
 		}),
 		async execute(toolCallId: string, params: any, signal: AbortSignal, _onUpdate: any, ctx: any) {

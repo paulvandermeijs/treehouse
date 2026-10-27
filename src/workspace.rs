@@ -647,11 +647,17 @@ impl Workspace {
                     continue;
                 }
                 let child = subagent.session.read(cx);
+                // A run has to have ended: a sub-agent whose Pi is still
+                // starting can already show a notice, such as MCP servers
+                // needing attention, and would report back empty.
+                let ended = child.transcript_settled_at().is_some()
+                    || child.start_error.is_some()
+                    || child.exited.is_some();
                 let done = matches!(
                     child.status(),
                     AgentStatus::Finished | AgentStatus::Idle | AgentStatus::Failed
                 ) && !child.is_running()
-                    && !child.items().is_empty();
+                    && ended;
                 if done {
                     subagent.reported = true;
                     let report = child.last_assistant_text().or_else(|| {
@@ -659,6 +665,7 @@ impl Workspace {
                             .start_error
                             .clone()
                             .map(|e| format!("The sub-agent failed to start: {e}"))
+                            .or_else(|| child.exited.clone())
                     });
                     reports.push((subagent.parent.clone(), subagent.request_id.clone(), report));
                 }
