@@ -5,6 +5,8 @@ Every worktree has its own chat with Pi. Pi starts the first time you send a mes
 ![A worktree chat: tool calls, two sub-agent cards and the toolbar under the message box](/screens/chat-latte.png){.screen .light-only loading=lazy}
 ![A worktree chat: tool calls, two sub-agent cards and the toolbar under the message box](/screens/chat-mocha.png){.screen .dark-only loading=lazy}
 
+The chat's header shows the branch, where Pi stands and the worktree's diff stat. Once the chat has had a turn, a pill after the branch name says **Running**, **Needs input**, **Failed** or **Finished**, as a sub-agent's header does. Finished means Pi's last turn ended; unlike the sidebar's dot, it stays after you've seen the chat.
+
 ## Sending and steering
 
 Type in the message box and press <kbd>Enter</kbd>. While Pi is working, the send button turns into **Steer**: a message you send then goes into the current run instead of waiting for it to finish.
