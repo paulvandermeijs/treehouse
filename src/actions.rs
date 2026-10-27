@@ -177,9 +177,6 @@ fn menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Toggle Theme", ToggleTheme),
         ]),
-        Menu::new("Help").items([MenuItem::action(
-            "Treehouse Documentation",
-            OpenDocumentation,
-        )]),
+        Menu::new("Help").items([MenuItem::action("Documentation", OpenDocumentation)]),
     ]
 }
