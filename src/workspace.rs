@@ -452,6 +452,11 @@ impl Workspace {
                 squash_message.clone(),
                 cx,
             ),
+            SessionEvent::WorktreeRequested {
+                request_id,
+                branch,
+                task,
+            } => self.create_for_pi(session, request_id.clone(), branch, task.clone(), cx),
             SessionEvent::MergeApproved(merge, choice) => {
                 self.merge(session, merge.clone(), *choice, cx)
             }
@@ -462,6 +467,55 @@ impl Workspace {
             SessionEvent::StatusChanged => self.report_finished_subagents(cx),
         }
         cx.notify();
+    }
+
+    /// Creates the worktree Pi asked for, the way New worktree does, and
+    /// hands it the task, which its own chat then works on.
+    fn create_for_pi(
+        &mut self,
+        session: Entity<Session>,
+        request_id: String,
+        branch: &str,
+        task: String,
+        cx: &mut Context<Self>,
+    ) {
+        let asking = self.worktree_of(session.entity_id()).map(|w| {
+            let project = self.project_of(&w.path).map(|p| p.path.clone());
+            (project, w.branch.to_string())
+        });
+        let Some((Some(project), from)) = asking else {
+            return;
+        };
+        let branch = branch.trim();
+        let created = if branch.is_empty() {
+            Err("Give the new worktree a branch name.".to_string())
+        } else {
+            self.new_worktree(&project, branch, cx)
+                .map_err(|err| format!("Couldn't create the worktree: {err:#}"))
+        };
+        let outcome = created.map(|path| {
+            let handed = !task.trim().is_empty();
+            if handed
+                && let Some(new) = self.worktree(&path).map(|w| w.session.clone())
+            {
+                new.update(cx, |s, cx| s.hand_over(from.clone(), task.clone(), cx));
+            }
+            let text = if handed {
+                format!(
+                    "Created the worktree {branch} at {}. Its own chat is working on the task; don't edit its files from here.",
+                    path.display()
+                )
+            } else {
+                format!("Created the worktree {branch} at {}. Its chat is ready.", path.display())
+            };
+            let worktree = serde_json::json!({
+                "branch": branch,
+                "path": path,
+                "task": handed,
+            });
+            (text, worktree)
+        });
+        session.update(cx, |s, cx| s.finish_worktree(&request_id, outcome, cx));
     }
 
     /// Checks a merge Pi asked for, then shows its approval card or tells Pi

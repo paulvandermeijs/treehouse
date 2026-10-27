@@ -15,6 +15,9 @@
  *   branch into its base branch, which is checked out in another folder.
  *   Treehouse checks it's safe, asks the user every time, merges, and answers
  *   with what happened.
+  * - Worktrees. The `treehouse_worktree` tool asks Treehouse to create a new
+ *   worktree the way its New worktree does, and to hand it a task, which
+ *   that worktree's own chat then works on.
  * - Saving. Treehouse shows some things Pi's own messages don't hold, such
  *   as the commits a turn made. It sends `/treehouse-save {customType, data}`
  *   and the extension appends that to the session file, out of the model's
@@ -29,6 +32,7 @@ import { Type } from "typebox";
 const APPROVAL = "treehouse:approval";
 const SUBAGENT = "treehouse:subagent";
 const MERGE = "treehouse:merge";
+const WORKTREE = "treehouse:worktree";
 
 export default function (pi: any) {
 	pi.on("tool_call", async (event: any, ctx: any) => {
@@ -99,6 +103,36 @@ export default function (pi: any) {
 				throw new Error(outcome.text);
 			}
 			return { content: [{ type: "text", text: outcome.text }], details: { merged: outcome.merged } };
+		},
+	});
+
+		pi.registerTool({
+		name: "treehouse_worktree",
+		label: "New worktree",
+		description:
+			"Create a new git worktree of this project, with its own branch, folder and Pi chat, and hand it a task. " +
+			"Use it whenever the user asks for a new worktree or for work that should happen on its own branch; " +
+			"never run git worktree add yourself. The new worktree's chat does the task, so don't edit its files from here.",
+		parameters: Type.Object({
+			branch: Type.String({ description: "The new branch's name, such as feat/about-page" }),
+			task: Type.Optional(
+				Type.String({ description: "Complete, self-contained instructions for the new worktree's chat" }),
+			),
+		}),
+		async execute(toolCallId: string, params: any, signal: AbortSignal, _onUpdate: any, ctx: any) {
+			if (!ctx.hasUI || ctx.mode !== "rpc") {
+				throw new Error("New worktrees are only available inside Treehouse.");
+			}
+			const payload = JSON.stringify({ toolCallId, branch: params.branch, task: params.task ?? "", cwd: ctx.cwd });
+			const answer: string | undefined = await ctx.ui.input(WORKTREE, payload, { signal });
+			if (answer === undefined) {
+				throw new Error("The worktree wasn't created.");
+			}
+			const outcome = JSON.parse(answer);
+			if (!outcome.worktree) {
+				throw new Error(outcome.text);
+			}
+			return { content: [{ type: "text", text: outcome.text }], details: { worktree: outcome.worktree } };
 		},
 	});
 

@@ -6,7 +6,8 @@ on the chat UI without a model or an API key:
 
     Settings › Agent defaults › Pi command: /path/to/treehouse/tools/fake-pi
 
-A message that starts with "Find" plays the sub-agent script, "Fail" a
+A message that starts with "Find" plays the sub-agent script, "Worktree" asks
+Treehouse for a new worktree with a task, "Fail" a
 provider error with a stack trace, and "Approve" a command with a long approval
 pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
@@ -369,6 +370,29 @@ def lifecycle_turn(skill):
     emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
 
 
+def worktree_turn_for_pi():
+    """Asks Treehouse for a new worktree and hands it the task."""
+    emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+    say(0, "I'll start a worktree for it and hand it the task, so the page is built there.")
+    call_id = f"wt-{uuid.uuid4().hex[:6]}"
+    args = {"branch": f"about-page-{call_id[3:]}",
+            "task": "Table of the diff libraries, for the about page."}
+    update({"type": "toolcall_start", "contentIndex": 1, "id": call_id, "toolName": "treehouse_worktree"})
+    update({"type": "toolcall_end", "contentIndex": 1,
+            "toolCall": {"type": "toolCall", "id": call_id, "name": "treehouse_worktree", "arguments": args}})
+    ask("treehouse:approval", {"toolCallId": call_id, "toolName": "treehouse_worktree", "input": args, "cwd": os.getcwd()})
+    emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": "treehouse_worktree", "args": args})
+    answer = ask("treehouse:worktree", {"toolCallId": call_id, "branch": args["branch"], "task": args["task"], "cwd": os.getcwd()})
+    outcome = json.loads(answer) if answer else {"text": "The worktree wasn't created.", "worktree": None}
+    end = {"type": "tool_execution_end", "toolCallId": call_id, "toolName": "treehouse_worktree",
+           "isError": not outcome.get("worktree"), "result": {"content": [{"type": "text", "text": outcome["text"]}]}}
+    if outcome.get("worktree"):
+        end["result"]["details"] = {"worktree": outcome["worktree"]}
+    emit(end)
+    say(2, outcome["text"])
+    emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+
+
 def subagent_turn():
     emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
     tool(0, "s-rg", "bash", {"command": 'rg -l "pub struct" gpui-kit/src'},
@@ -458,6 +482,8 @@ def run(message):
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Long"):
         long_command_turn()
+    elif message.startswith("Worktree"):
+        worktree_turn_for_pi()
     elif message.startswith("/skill:treehouse-") or message.split(" ")[0] in ("/skill:commit",):
         lifecycle_turn(message.split(" ")[0].removeprefix("/skill:").removeprefix("treehouse-"))
     elif message.startswith("/"):
