@@ -472,7 +472,7 @@ impl ChatView {
         };
         self.scroll.set_offset(point(offset.x, y));
         // Paging back down to the end follows new output again.
-        self.follow_tail = (y + max).abs() < px(24.);
+        self.follow_tail = at_end(y, max);
         cx.notify();
     }
 
@@ -1308,6 +1308,13 @@ fn status_pill(status: AgentStatus, cx: &App) -> impl IntoElement {
         .child(label)
 }
 
+/// Whether the history is scrolled to its end. GPUI adds a scroll step to
+/// the offset at once and clamps it at the next layout, so a fast scroll
+/// into the end reads as past it, and still counts as the end.
+fn at_end(offset: Pixels, max: Pixels) -> bool {
+    -offset >= max - px(24.)
+}
+
 impl Render for ChatView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
@@ -1363,9 +1370,8 @@ impl Render for ChatView {
                     .track_scroll(&self.scroll)
                     .overflow_y_scroll()
                     .on_scroll_wheel(cx.listener(move |view, _, _, cx| {
-                        let offset = view.scroll.offset().y;
-                        let max = view.scroll.max_offset().y;
-                        let at_bottom = (-offset - max).abs() < px(24.);
+                        let at_bottom =
+                            at_end(view.scroll.offset().y, view.scroll.max_offset().y);
                         // While away from the end the box counts what's below.
                         if view.follow_tail != at_bottom || !at_bottom {
                             view.follow_tail = at_bottom;
@@ -1509,5 +1515,16 @@ mod tests {
     fn initials_use_first_and_last_names() {
         assert_eq!(super::initials("Paul van der Meijs"), "PM");
         assert_eq!(super::initials("ada"), "AD");
+    }
+
+    #[test]
+    fn scrolling_past_the_end_is_the_end() {
+        use gpui_kit::px;
+        let max = px(1000.);
+        assert!(super::at_end(px(-1000.), max));
+        assert!(super::at_end(px(-990.), max));
+        // A fast scroll lands past the end before layout clamps it.
+        assert!(super::at_end(px(-1080.), max));
+        assert!(!super::at_end(px(-900.), max));
     }
 }
