@@ -27,8 +27,3 @@ features:
     details: See each worktree's changes next to the chat, unified or side by side.
     link: /guide/diff
 ---
-
-<div class="announcement">
-  <img loading="lazy" class="light-only" src="/treehouse-announcement-latte.gif" alt="Treehouse running Pi agents in worktrees">
-  <img loading="lazy" class="dark-only" src="/treehouse-announcement-mocha.gif" alt="Treehouse running Pi agents in worktrees">
-</div>
