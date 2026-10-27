@@ -2,6 +2,8 @@
 
 Pi has no sub-agents of its own. Treehouse adds a `subagent` tool through its [bridge extension](/development/#the-bridge-extension): when Pi calls it, Treehouse starts a separate Pi session in the same worktree to do the task, and returns that session's final answer to Pi as the tool result.
 
+Sub-agents are for research and small, self-contained tasks: they work in the same folder as their chat, so they can read its uncommitted changes, and need no branch, setup or merge. Separate features worked on in parallel belong in their own [worktrees](./worktrees), which Pi can also [start itself](./worktrees#worktrees-pi-starts). Pi is told not to let sub-agents running at the same time edit the same files.
+
 ## Following a sub-agent
 
 A sub-agent shows up in two places:

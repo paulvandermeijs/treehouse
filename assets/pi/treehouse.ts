@@ -75,8 +75,14 @@ export default function (pi: any) {
 		description:
 			"Start a sub-agent: a separate Pi session in the same worktree with its own context. " +
 			"Use it for self-contained research or work that would otherwise fill your context, " +
-			"such as exploring a library or writing tests. The result is the sub-agent's final report.",
+			"such as exploring a library or writing tests. The result is the sub-agent's final report. " +
+			"Sub-agents share this worktree's files: sub-agents running at the same time must not edit the same files. " +
+			"Separate features or larger changes that should happen in parallel belong in their own worktrees (treehouse_worktree).",
 		promptSnippet: "Run a self-contained task in a separate Pi session in this worktree and get its report",
+		promptGuidelines: [
+			"Use subagent for research or a small, self-contained task; sub-agents share this worktree, so never let ones running at the same time edit the same files",
+			"For separate features or larger changes that should happen in parallel, use treehouse_worktree instead of sub-agents",
+		],
 		parameters: Type.Object({
 			title: Type.String({ description: "Short title shown to the user, 2 to 6 words" }),
 			task: Type.String({ description: "Complete, self-contained instructions for the sub-agent" }),
@@ -134,7 +140,8 @@ export default function (pi: any) {
 		label: "New worktree",
 		description:
 			"Create a new git worktree of this project, with its own branch, folder and Pi chat, and hand it a task. " +
-			"Use it whenever the user asks for a new worktree or for work that should happen on its own branch; " +
+			"Use it whenever the user asks for a new worktree or for work that should happen on its own branch, " +
+			"such as separate features worked on in parallel; sub-agents are for research and small tasks in this worktree. " +
 			"never run git worktree add yourself. The new worktree's chat does the task, so don't edit its files from here.",
 		promptSnippet: "Create a new git worktree with its own branch and chat, and hand it a task",
 		// Pi only lists a custom tool in the system prompt when it has a
