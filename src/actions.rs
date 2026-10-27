@@ -8,6 +8,7 @@ actions!(
     [
         Quit,
         About,
+        OpenDocumentation,
         Hide,
         HideOthers,
         ShowAll,
@@ -123,11 +124,15 @@ pub fn init(cx: &mut App) {
     ]);
     cx.on_action(|_: &Quit, cx| cx.quit());
     cx.on_action(|_: &About, cx| crate::ui::open_about(cx));
+    cx.on_action(|_: &OpenDocumentation, cx| cx.open_url(DOCUMENTATION));
     cx.on_action(|_: &Hide, cx| cx.hide());
     cx.on_action(|_: &HideOthers, cx| cx.hide_other_apps());
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.set_menus(menus());
 }
+
+/// The manual, built from `docs/`.
+pub const DOCUMENTATION: &str = "https://paulvandermeijs.github.io/treehouse/";
 
 /// The menu bar. macOS shows it; other platforms reach the same actions
 /// through shortcuts and the command palette.
@@ -172,5 +177,9 @@ fn menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Toggle Theme", ToggleTheme),
         ]),
+        Menu::new("Help").items([MenuItem::action(
+            "Treehouse Documentation",
+            OpenDocumentation,
+        )]),
     ]
 }

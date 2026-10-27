@@ -90,6 +90,8 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
             "App",
             vec![
                 entry("Settings", IconName::Settings, OpenSettings),
+                entry("Documentation", Lucide::ExternalLink, OpenDocumentation)
+                    .keywords(&["help", "manual", "docs", "guide"]),
                 entry("About Treehouse", IconName::Info, About),
             ],
         ),
