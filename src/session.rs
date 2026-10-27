@@ -116,6 +116,13 @@ pub enum SessionEvent {
     },
     /// The user approved a merge; the workspace carries it out.
     MergeApproved(PendingMerge, MergeChoice),
+    /// Pi's `treehouse_worktree` tool wants a new worktree, perhaps with a
+    /// task for its chat; the workspace creates it.
+    WorktreeRequested {
+        request_id: String,
+        branch: String,
+        task: String,
+    },
     /// A turn or a `!` command ended; the worktree's diff, and the
     /// project's worktrees, may have changed.
     TurnEnded,
@@ -451,6 +458,7 @@ impl Session {
                     .cloned()
                     .chain((!self.is_subagent()).then(|| "subagent".to_string()))
                     .chain(self.base.is_some().then(|| "treehouse_merge".to_string()))
+                    .chain((!self.is_subagent()).then(|| "treehouse_worktree".to_string()))
                     .chain(MCP_DISCOVERY.iter().map(|t| t.to_string()))
                     .collect()
             } else {
@@ -598,6 +606,11 @@ impl Session {
             client.send(command::abort_bash());
         }
         cx.notify();
+    }
+
+    /// Whether the worktree's `.agents/` setup is running.
+    pub fn setup_running(&self) -> bool {
+        self.transcript.setup_running()
     }
 
     pub fn shell_running(&self) -> bool {
@@ -918,6 +931,28 @@ impl Session {
         self.answer(request_id, Some(&outcome.to_string()));
     }
 
+    /// Answers the worktree tool: the new worktree, or why there isn't one.
+    pub fn finish_worktree(
+        &mut self,
+        request_id: &str,
+        outcome: Result<(String, Value), String>,
+        cx: &mut Context<Self>,
+    ) {
+        let outcome = match outcome {
+            Ok((text, worktree)) => serde_json::json!({"text": text, "worktree": worktree}),
+            Err(reason) => serde_json::json!({"text": reason, "worktree": null}),
+        };
+        self.answer(request_id, Some(&outcome.to_string()));
+        cx.notify();
+    }
+
+    /// Starts this worktree's chat on a task another chat handed over. It
+    /// waits for the worktree's setup, as any message does.
+    pub fn hand_over(&mut self, from: String, task: String, cx: &mut Context<Self>) {
+        self.transcript.hand_over(from, task.clone());
+        self.send(&task, cx);
+    }
+
     /// The merge passed Treehouse's checks: show its approval card.
     pub fn ask_merge(&mut self, merge: PendingMerge, cx: &mut Context<Self>) {
         if let Some(tool) = self.transcript.tool_mut(&merge.tool_call_id) {
@@ -1231,6 +1266,11 @@ impl Session {
                     task: str_field(&payload, "task"),
                 });
             }
+            ("input", "treehouse:worktree") => cx.emit(SessionEvent::WorktreeRequested {
+                request_id,
+                branch: str_field(&payload, "branch"),
+                task: str_field(&payload, "task"),
+            }),
             ("input", "treehouse:merge") => cx.emit(SessionEvent::MergeRequested {
                 request_id,
                 tool_call_id: str_field(&payload, "toolCallId"),

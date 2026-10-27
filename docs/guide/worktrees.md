@@ -51,6 +51,12 @@ Both files are the project's own code, so in a project you haven't [trusted](./t
 Add `.worktrees/` to your project's `.gitignore`, or pick a location outside the project, so the worktrees don't show up as untracked files.
 :::
 
+## Worktrees Pi starts
+
+Ask Pi for a new worktree, say "start a worktree to add an about page", and it asks Treehouse for one, the way it starts a sub-agent. Treehouse creates it as **New worktree** does, with your location setting and the project's [setup](#preparing-new-worktrees), and it appears in the sidebar at once. Creating one doesn't ask for approval: it only adds a worktree, which **Delete worktree…** removes.
+
+When Pi hands it a task, the new worktree's own chat works on it, starting with a "Task from master's chat" card once the setup is done. The chat that asked shows a card that follows the new worktree, setting up, working, waiting for you or finished, and opens it; <kbd>⌘</kbd>-click opens it in the right dock. If Treehouse can't create it, for example because the branch exists, the card says why and Pi can try another name.
+
 ## Renaming and deleting
 
 Right-click a worktree for **Rename branch**, **Show diff**, **Open in right dock** and **Delete worktree…**, and for **Commit with Pi**, **Sync with main** and **Finish branch** ([Committing and merging](./lifecycle)). Once a worktree is merged, **Clean up…** takes the place of **Delete worktree…**.

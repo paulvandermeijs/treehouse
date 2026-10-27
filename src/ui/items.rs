@@ -104,6 +104,9 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             ..
         } => render_thinking(view, *id, text, *streaming, *elapsed, cx),
         Item::Tool(tool) if tool.name == "subagent" => render_subagent_card(view, tool, cx),
+        Item::Tool(tool) if tool.name == "treehouse_worktree" => {
+            render_worktree_card(view, tool, cx)
+        }
         Item::Tool(tool) => render_tool(view, tool, cx),
         Item::Notice { id, text } => h_flex()
             .id(("notice", id.0))
@@ -120,6 +123,7 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
         Item::SignIn(sign_in) => render_sign_in(view, sign_in, cx),
         Item::Shell(run) => render_shell(view, run, cx),
         Item::Commits(card) => render_commits(view, card, cx),
+        Item::Handover { from, task, .. } => render_handover(from, task, &p),
     }
 }
 
@@ -1963,6 +1967,187 @@ fn render_subagent_card(
             .into_any_element();
     };
     render_agent_card(view, &child, Some(tool), cx)
+}
+
+/// The task another chat handed to this worktree, as a sub-agent's task
+/// shows.
+fn render_handover(from: &str, task: &str, p: &Palette) -> AnyElement {
+    v_flex()
+        .ml(px(GUTTER))
+        .px(px(14.))
+        .py_3()
+        .rounded(px(8.))
+        .bg(p.mantle)
+        .border_1()
+        .border_color(p.surface0)
+        .child(
+            div()
+                .text_size(px(12.))
+                .text_color(p.subtext0)
+                .mb_1()
+                .child(format!("Task from {from}'s chat")),
+        )
+        .child(SharedString::from(task.to_string()))
+        .into_any_element()
+}
+
+/// A worktree Pi asked Treehouse for: a card like a sub-agent's that
+/// follows the new worktree's agent and opens its chat.
+fn render_worktree_card(
+    view: &ChatView,
+    tool: &ToolCall,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let created = &tool.details["worktree"];
+    let branch = created["branch"]
+        .as_str()
+        .or(tool.args["branch"].as_str())
+        .unwrap_or("worktree")
+        .to_string();
+    let handed = created["task"].as_bool().unwrap_or(false);
+    let workspace = view.workspace.read(cx);
+    let worktree = created["path"]
+        .as_str()
+        .and_then(|path| workspace.worktree(std::path::Path::new(path)));
+    let spin = || {
+        Spinner::new()
+            .with_size(px(16.))
+            .color(p.blue)
+            .into_any_element()
+    };
+    let glyph = |name: Lucide, color: Hsla| icon(name).text_color(color).into_any_element();
+
+    let (lead, detail, session) = match (tool.status, worktree) {
+        (ToolStatus::Failed | ToolStatus::Denied | ToolStatus::Stopped, _) => (
+            glyph(Lucide::X, p.red),
+            format!("Couldn't create it · {}", first_line(&tool.output)),
+            None,
+        ),
+        (ToolStatus::Done, None) => (
+            glyph(Lucide::GitBranchPlus, p.subtext0),
+            "Worktree · removed".to_string(),
+            None,
+        ),
+        (_, None) => (spin(), "New worktree · creating".to_string(), None),
+        (_, Some(worktree)) => {
+            let session = worktree.session.read(cx);
+            let (lead, detail) = if session.setup_running() {
+                (spin(), "New worktree · running .agents/prepare".to_string())
+            } else if session.setup_waiting {
+                (
+                    glyph(Lucide::GitBranchPlus, p.subtext0),
+                    "New worktree · setup waits for trust".to_string(),
+                )
+            } else {
+                match session.status() {
+                    AgentStatus::Working => (
+                        spin(),
+                        format!(
+                            "Worktree · working on the task · {} tool calls",
+                            session.tool_call_count()
+                        ),
+                    ),
+                    AgentStatus::NeedsInput => (
+                        glyph(Lucide::Shield, p.blue),
+                        "Worktree · waiting for you".to_string(),
+                    ),
+                    AgentStatus::Failed => (
+                        glyph(Lucide::CircleAlert, p.red),
+                        "Worktree · stopped on an error".to_string(),
+                    ),
+                    AgentStatus::Finished | AgentStatus::Idle if handed => {
+                        let stat = worktree.stat;
+                        let mut detail = "Worktree · finished".to_string();
+                        match worktree.state.ahead {
+                            0 => {}
+                            1 => detail.push_str(" · 1 commit"),
+                            n => detail.push_str(&format!(" · {n} commits")),
+                        }
+                        if stat.additions + stat.deletions > 0 {
+                            detail.push_str(&format!(" · +{} −{}", stat.additions, stat.deletions));
+                        }
+                        (glyph(IconName::Check.into(), p.green), detail)
+                    }
+                    AgentStatus::Finished | AgentStatus::Idle => (
+                        glyph(Lucide::GitBranchPlus, p.subtext0),
+                        "New worktree · ready, nothing handed over".to_string(),
+                    ),
+                }
+            };
+            (lead, detail, Some(worktree.session.clone()))
+        }
+    };
+    let working = matches!(
+        session.as_ref().map(|s| s.read(cx).status()),
+        Some(AgentStatus::Working)
+    );
+    let selected = session
+        .as_ref()
+        .is_some_and(|s| view.docked_session == Some(s.entity_id()));
+
+    h_flex()
+        .id(("worktree-card", tool.id.0))
+        .ml(px(GUTTER))
+        .gap_3()
+        .px_3()
+        .py(px(10.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(if selected { p.blue } else { p.surface0 })
+        .bg(if selected {
+            mix(p.blue, p.base, 0.08)
+        } else {
+            p.mantle
+        })
+        .when(session.is_some(), |this| {
+            this.cursor_pointer().hover(|s| s.border_color(p.surface1))
+        })
+        .child(
+            div()
+                .flex_none()
+                .size(px(30.))
+                .rounded(px(6.))
+                .bg(p.surface0)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(lead),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(div().text_size(px(13.5)).font_medium().child(branch))
+                .child(
+                    div()
+                        .text_size(px(12.5))
+                        .text_color(p.subtext0)
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .child(SharedString::from(detail)),
+                ),
+        )
+        .when(working, |this| {
+            this.child(
+                h_flex()
+                    .gap_1()
+                    .text_size(px(12.))
+                    .text_color(p.subtext0)
+                    .child(gpui_kit::component::kbd::Kbd::new(
+                        Keystroke::parse("secondary").unwrap_or_default(),
+                    ))
+                    .child("click to split"),
+            )
+        })
+        .when_some(session, |this, session| {
+            this.child(icon(IconName::ChevronRight).text_color(p.subtext0))
+                .on_click(cx.listener(move |view, event: &ClickEvent, window, cx| {
+                    view.open_session(session.clone(), event.modifiers().secondary(), window, cx)
+                }))
+        })
+        .into_any_element()
 }
 
 /// A sub-agent from before Treehouse restarted: its session is gone, but

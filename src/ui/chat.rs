@@ -823,10 +823,13 @@ impl ChatView {
             // pill once it has had one.
             .when(
                 is_subagent
-                    || session
-                        .items()
-                        .iter()
-                        .any(|item| matches!(item, crate::transcript::Item::User { .. })),
+                    || session.items().iter().any(|item| {
+                        matches!(
+                            item,
+                            crate::transcript::Item::User { .. }
+                                | crate::transcript::Item::Handover { .. }
+                        )
+                    }),
                 |this| this.child(status_pill(status, cx)),
             )
             .child(

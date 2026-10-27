@@ -80,8 +80,12 @@ impl Policy<'_> {
     pub fn decide(&self, call: &ToolCallRequest) -> Decision {
         // The sub-agent tool only starts another session in the same worktree;
         // that session's own tool calls go through this policy.
-        // The merge tool asks the user itself, every time.
-        if call.tool_name == "subagent" || call.tool_name == "treehouse_merge" {
+        // The merge tool asks the user itself, every time. A new worktree only
+        // adds one, which Delete worktree removes.
+        if matches!(
+            call.tool_name,
+            "subagent" | "treehouse_merge" | "treehouse_worktree"
+        ) {
             return Decision::Allow;
         }
 

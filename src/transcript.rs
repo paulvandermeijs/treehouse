@@ -62,6 +62,13 @@ pub enum Item {
     Shell(ShellRun),
     /// The commits a turn made, read from git once it settled.
     Commits(CommitCard),
+    /// A task another chat handed to this worktree when it asked for it.
+    Handover {
+        id: ItemId,
+        /// The chat it came from, by branch.
+        from: String,
+        task: String,
+    },
 }
 
 /// The session entries Treehouse saves for what Pi's own messages don't
@@ -72,6 +79,7 @@ pub const ERROR_ENTRY: &str = "treehouse:error";
 pub const SETUP_ENTRY: &str = "treehouse:setup";
 pub const MCP_ATTENTION_ENTRY: &str = "treehouse:mcp-attention";
 pub const SIGN_IN_ENTRY: &str = "treehouse:sign-in";
+pub const HANDOVER_ENTRY: &str = "treehouse:handover";
 
 /// A finished setup row, as it's saved.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -153,6 +161,7 @@ impl Item {
             Item::Shell(run) => run.id,
             Item::Tool(tool) => tool.id,
             Item::Commits(card) => card.id,
+            Item::Handover { id, .. } => *id,
         }
     }
 }
@@ -278,6 +287,9 @@ pub struct Transcript {
     /// Entries to save in Pi's session file, for items Pi's own messages
     /// don't hold; the session sends them once Pi runs.
     saves: Vec<(&'static str, Value)>,
+    /// A handed-over task whose message Pi hasn't echoed yet: the card shows
+    /// it, so the message doesn't.
+    handed_over: Option<String>,
     /// What the user typed for messages Pi hasn't echoed yet. Pi echoes a
     /// skill or template command expanded, so the chat shows this instead.
     typed: VecDeque<String>,
@@ -295,6 +307,7 @@ impl Transcript {
             settled_at: None,
             compacting: false,
             saves: Vec::new(),
+            handed_over: None,
             typed: VecDeque::new(),
             cwd: cwd.into(),
         }
@@ -367,6 +380,16 @@ impl Transcript {
                     setup: Some(saved.links),
                 }));
             }
+            Some(HANDOVER_ENTRY) => {
+                let task = str_field(data, "task");
+                let id = self.alloc();
+                self.items.push(Item::Handover {
+                    id,
+                    from: str_field(data, "from"),
+                    task: task.clone(),
+                });
+                self.handed_over = Some(task);
+            }
             Some(MCP_ATTENTION_ENTRY) => {
                 if let Ok(servers) = serde_json::from_value(data["servers"].clone()) {
                     let id = self.alloc();
@@ -437,6 +460,10 @@ impl Transcript {
                     let id = self.alloc();
                     let text = user_text(&message["content"]);
                     let text = skill_command(&text).unwrap_or(text);
+                    if self.handed_over.as_ref() == Some(&text) {
+                        self.handed_over = None;
+                        continue;
+                    }
                     self.items.push(Item::User { id, text });
                 }
                 Some("assistant") => {
@@ -651,6 +678,27 @@ impl Transcript {
             Some(ix) => self.items.insert(ix + 1, Item::Commits(card)),
             None => self.items.push(Item::Commits(card)),
         }
+    }
+
+    /// Shows a task handed over by another chat, saved with the chat; the
+    /// message that sends it to Pi then doesn't show again.
+    pub fn hand_over(&mut self, from: String, task: String) {
+        self.saves.push((
+            HANDOVER_ENTRY,
+            serde_json::json!({ "from": from, "task": task }),
+        ));
+        // First, above the setup row that started with the worktree, as the
+        // saved entry restores it.
+        let id = self.alloc();
+        self.items.insert(
+            0,
+            Item::Handover {
+                id,
+                from,
+                task: task.clone(),
+            },
+        );
+        self.handed_over = Some(task);
     }
 
     /// The entries to save since this was last called.
@@ -876,8 +924,12 @@ impl Transcript {
                             .typed
                             .pop_front()
                             .unwrap_or_else(|| user_text(&message["content"]));
-                        let id = self.alloc();
-                        self.items.push(Item::User { id, text });
+                        if self.handed_over.as_ref() == Some(&text) {
+                            self.handed_over = None;
+                        } else {
+                            let id = self.alloc();
+                            self.items.push(Item::User { id, text });
+                        }
                     }
                     Some("assistant") => self.blocks.clear(),
                     _ => {}
@@ -1600,5 +1652,39 @@ mod tests {
             })
             .collect();
         assert_eq!(kinds, ["c1", "card", "c2"]);
+    }
+
+    #[test]
+    fn a_handed_over_task_shows_once_as_a_card() {
+        let task = "Add an about page";
+        let mut live = Transcript::new("/tmp");
+        live.start_setup(".agents/prepare");
+        live.hand_over("master".into(), task.into());
+        live.expect_user_text(task);
+        live.apply(&json!({"type": "message_start", "message": {"role": "user", "content": task}}));
+        let kinds = |t: &Transcript| -> Vec<&'static str> {
+            t.items()
+                .iter()
+                .map(|item| match item {
+                    Item::Handover { .. } => "task",
+                    Item::Shell(_) => "setup",
+                    Item::User { .. } => "user",
+                    _ => "other",
+                })
+                .collect()
+        };
+        assert_eq!(kinds(&live), ["task", "setup"]);
+
+        // Back from the session file: the entry, then Pi's own message.
+        let saves = live.take_saves();
+        assert_eq!(saves[0].0, HANDOVER_ENTRY);
+        let mut entries: Vec<Value> = saves
+            .into_iter()
+            .map(|(kind, data)| json!({"type": "custom", "customType": kind, "data": data}))
+            .collect();
+        entries.push(json!({"type": "message", "message": {"role": "user", "content": task}}));
+        let mut restored = Transcript::new("/tmp");
+        restored.restore(&entries);
+        assert_eq!(kinds(&restored), ["task"]);
     }
 }
