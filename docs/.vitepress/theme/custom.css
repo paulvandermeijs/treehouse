@@ -109,18 +109,6 @@ html:not(.dark) .dark-only {
   border: 1px solid var(--vp-c-divider);
 }
 
-.announcement {
-  max-width: 960px;
-  margin: 48px auto 0;
-  padding: 0 24px;
-}
-
-.announcement img {
-  display: block;
-  width: 100%;
-  height: auto;
-  border-radius: 12px;
-}
 
 /* The hero shows the app as a video rather than the logo: wider than the
    logo's square, so the container follows the video's 16:10 shape. */
