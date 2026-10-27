@@ -8,7 +8,7 @@ on the chat UI without a model or an API key:
 
 A message that starts with "Find" plays the sub-agent script, "Worktree" asks
 Treehouse for a new worktree with a task, "Fail" a
-provider error with a stack trace, and "Approve" a command with a long approval
+provider error with a stack trace, "Retry" a connection error that Pi retries, and "Approve" a command with a long approval
 pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
@@ -441,6 +441,15 @@ def run(message):
         subagent_turn()
     elif message.startswith("Fail"):
         error_turn()
+    elif message.startswith("Retry"):
+        # A connection error that Pi retries, the way it reports one.
+        emit({"type": "auto_retry_start", "attempt": 1, "maxAttempts": 3, "delayMs": 2000,
+              "errorMessage": "Connection error."})
+        time.sleep(float(os.environ.get("FAKE_PI_HOLD", "4")))
+        emit({"type": "auto_retry_end", "success": True, "attempt": 1})
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        say(0, "Back again.")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Approve"):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
         sub = "run-" + "-".join(["a-very-long-script-name"] * 6)

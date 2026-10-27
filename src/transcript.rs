@@ -1010,7 +1010,9 @@ impl Transcript {
             "auto_retry_start" => {
                 let attempt = event.get("attempt").and_then(Value::as_u64).unwrap_or(1);
                 let delay = event.get("delayMs").and_then(Value::as_u64).unwrap_or(0) / 1000;
+                // Pi's message often ends in a full stop already.
                 let error = str_field(event, "errorMessage");
+                let error = error.trim_end().trim_end_matches('.');
                 let id = self.alloc();
                 self.items.push(Item::Error {
                     id,
@@ -1307,6 +1309,22 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn retry_notice_has_one_full_stop() {
+        let mut t = Transcript::new("/tmp");
+        feed(
+            &mut t,
+            &[
+                json!({"type": "auto_retry_start", "attempt": 1, "delayMs": 2000, "errorMessage": "Connection error."}),
+            ],
+        );
+        assert!(matches!(
+            t.items().last(),
+            Some(Item::Error { text, retrying: true, .. })
+                if text == "Request failed: Connection error. Retrying in 2s (attempt 1)."
+        ));
     }
 
     #[test]
