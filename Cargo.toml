@@ -1,6 +1,6 @@
 [package]
 name = "treehouse"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
@@ -56,3 +56,5 @@ icon = [
 ]
 category = "public.app-category.developer-tools"
 short_description = "Run Pi coding agents in git worktrees"
+# What GPUI loads at run time.
+deb_depends = ["libxkbcommon0", "libxkbcommon-x11-0", "libvulkan1", "mesa-vulkan-drivers"]

@@ -14,6 +14,10 @@ cargo fmt
 
 `cargo test` and `cargo clippy` don't rebuild `target/debug/treehouse`; run `cargo build` before launching the app to check a change.
 
+## Versions and releases
+
+Treehouse follows [semver](https://semver.org): a change to the app bumps `version` in `Cargo.toml` before it's pushed to `master`, the minor version for features and the patch version for fixes. That push publishes a GitHub release `vX.Y.Z`, built by `.github/workflows/release.yml` for macOS (Apple silicon and Intel), Linux (`.deb` and AppImage) and Windows. Run the workflow by hand from the Actions tab to retry a release that failed; it skips versions that are already released.
+
 ## How data flows
 
 Data flows one way:

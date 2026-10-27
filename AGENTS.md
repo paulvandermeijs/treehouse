@@ -63,6 +63,12 @@ Everything the chat shows as history must come back from Pi's session file after
 - A dialog opened while `TreehouseApp` is still being constructed panics; defer it (`window.defer`).
 - In `#[cfg(test)]` modules, import items by name rather than `use super::*` when the parent glob-imports `gpui_kit::*`; the glob causes a recursion error.
 
+## Versions and releases
+
+Treehouse follows [semver](https://semver.org). Before pushing to `master`, bump `version` in `Cargo.toml`: the minor version for new features, the patch version for fixes (while it's 0.x, breaking changes bump the minor version too). Run `cargo build` so `Cargo.lock` follows. Changes that don't touch the app itself, such as docs, tests or CI, don't need a bump.
+
+A push to `master` that changes the version publishes a GitHub release `vX.Y.Z` (`.github/workflows/release.yml`) with the app for macOS, Linux and Windows. The docs link to `releases/latest/download/<asset>`, so keep the asset names free of the version.
+
 ## Design and conventions
 
 - The UI follows a Treehouse design canvas (Catppuccin Mocha/Latte, IBM Plex Sans and Mono). Colours come from `theme::Palette` (`src/theme.rs`); add a token there rather than hard-coding a colour. Icons beyond gpui-kit's defaults are added to `ExtraIcons` in `src/assets.rs`.

@@ -1,0 +1,130 @@
+name: Release
+
+# A push to master that changes the version in Cargo.toml publishes a release
+# named after it, with the app built for each platform. Asset names leave the
+# version out, so releases/latest/download/<name> links in the docs keep
+# working.
+
+on:
+  push:
+    branches: [master]
+    paths: [Cargo.toml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      new: ${{ steps.version.outputs.new }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "v$version is already released"
+            echo "new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "new=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    needs: version
+    if: needs.version.outputs.new == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macos-x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: linux-x86_64
+            # The oldest supported runner, so the binary runs on older glibc.
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev
+      - if: runner.os != 'Windows'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-bundle
+
+      - name: Bundle (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cargo bundle --release --target ${{ matrix.target }}
+          app=target/${{ matrix.target }}/release/bundle/osx/Treehouse.app
+          # Not notarized: an ad-hoc signature at least keeps macOS from
+          # calling the downloaded app damaged.
+          codesign --force --deep --sign - "$app"
+          mkdir dist
+          ditto -c -k --keepParent "$app" dist/Treehouse-${{ matrix.name }}.zip
+
+      - name: Bundle (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo bundle --release --target ${{ matrix.target }}
+          bundle=target/${{ matrix.target }}/release/bundle
+          mkdir dist
+          cp $bundle/deb/*.deb dist/treehouse-${{ matrix.name }}.deb
+          cp $bundle/appimage/*.AppImage dist/Treehouse-${{ matrix.name }}.AppImage
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cargo build --release --target ${{ matrix.target }}
+          New-Item -ItemType Directory dist | Out-Null
+          Compress-Archive -Path target/${{ matrix.target }}/release/treehouse.exe, LICENSE -DestinationPath dist/treehouse-${{ matrix.name }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: dist/*
+
+  release:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Treehouse $VERSION" \
+            --generate-notes

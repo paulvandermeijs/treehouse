@@ -13,7 +13,13 @@ Treehouse is written in Rust with [GPUI](https://www.gpui.rs) and [gpui-kit](htt
 
 ## Installing
 
-You need Rust 1.88 or later (edition 2024) and Pi:
+Download the app for macOS, Linux or Windows from the [latest release](https://github.com/paulvandermeijs/treehouse/releases/latest), and install Pi:
+
+```sh
+npm install -g @earendil-works/pi-coding-agent
+```
+
+To build it yourself, you need Rust 1.88 or later (edition 2024) and Pi:
 
 ```sh
 npm install -g @earendil-works/pi-coding-agent

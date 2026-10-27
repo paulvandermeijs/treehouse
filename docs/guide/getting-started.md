@@ -2,22 +2,41 @@
 
 Treehouse is a desktop app for running [Pi](https://github.com/badlogic/pi-mono) coding agents in git worktrees. Each worktree of a project gets its own Pi chat; Pi can start sub-agents that you can open, steer and stop; and the right dock shows the worktree's diff or a second chat.
 
-## Requirements
+## Pi
 
-- Rust 1.88 or later (edition 2024)
-- Pi, installed with npm:
+Treehouse runs Pi, so install it first, with npm:
 
-  ```sh
-  npm install -g @earendil-works/pi-coding-agent
-  ```
+```sh
+npm install -g @earendil-works/pi-coding-agent
+```
 
-- On Linux, the X11/Wayland and Vulkan libraries GPUI needs. On Debian or Ubuntu:
+## Download
 
-  ```sh
-  sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers
-  ```
+Each release on GitHub has the app ready to run:
 
-## Build and start
+| Platform | Download |
+| --- | --- |
+| macOS, Apple silicon | [Treehouse-macos-arm64.zip](https://github.com/paulvandermeijs/treehouse/releases/latest/download/Treehouse-macos-arm64.zip) |
+| macOS, Intel | [Treehouse-macos-x86_64.zip](https://github.com/paulvandermeijs/treehouse/releases/latest/download/Treehouse-macos-x86_64.zip) |
+| Linux (Debian, Ubuntu) | [treehouse-linux-x86_64.deb](https://github.com/paulvandermeijs/treehouse/releases/latest/download/treehouse-linux-x86_64.deb) |
+| Linux (other) | [Treehouse-linux-x86_64.AppImage](https://github.com/paulvandermeijs/treehouse/releases/latest/download/Treehouse-linux-x86_64.AppImage) |
+| Windows | [treehouse-windows-x86_64.zip](https://github.com/paulvandermeijs/treehouse/releases/latest/download/treehouse-windows-x86_64.zip) |
+
+The [releases page](https://github.com/paulvandermeijs/treehouse/releases/latest) lists what changed in each version.
+
+The macOS app isn't notarized by Apple, so the first time macOS refuses to open it. Open it anyway from **System Settings › Privacy & Security**, or run `xattr -dr com.apple.quarantine /Applications/Treehouse.app` once.
+
+On Linux, the `.deb` installs the libraries GPUI needs. The AppImage runs on any distribution once it's executable (`chmod +x`), with the Vulkan and xkbcommon libraries installed (see below).
+
+## Build from source
+
+You need Rust 1.88 or later (edition 2024). On Linux, GPUI also needs the X11/Wayland and Vulkan libraries. On Debian or Ubuntu:
+
+```sh
+sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers
+```
+
+Then build and start it:
 
 ```sh
 git clone https://github.com/paulvandermeijs/treehouse
