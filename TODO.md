@@ -24,7 +24,6 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 - After a squash merge the worktree's diff stat still counts the branch's changes, since it compares with the merge base.
 - The sidebar's branch markers refresh after each turn and merge, not yet when the window gets focus.
 - With **Compare against** set to `origin/main` the merge is refused; offer push and a pull request instead.
-- "Jump to latest" flashes when scrolling past the end of the chat, probably the scroll bounce on macOS.
 - In the collapsed rail, project tooltips open below the pointer rather than to the right.
 - Restored sub-agents can come back in a different order in the sidebar than in the chat.
 - A worktree setup script still running when Treehouse quits is left running; stop its process group on quit (`setup::stop`).
