@@ -12,7 +12,7 @@ Now that the worktree lifecycle is in, this can be picked up.
 
 ## Next
 
-- **Signed releases:** the macOS app is only ad-hoc signed, so macOS refuses it on first launch. Sign it with a Developer ID and notarize it in the release workflow (needs an Apple Developer account and its certificate as repository secrets); Windows has the same issue with SmartScreen.
+- **Signed Windows releases:** SmartScreen warns about the unsigned `treehouse.exe`. Azure Trusted Signing is the cheapest way to sign it from the release workflow.
 - **Remember UI state:** the project tree opens fully expanded every time; store which items are collapsed and restore them on start. Restoring whether the right dock is open is lower priority.
 - **Images:** paste or drop screenshots into the message box, and show thumbnails when Pi reads an image.
 - **Plan cards:** a built-in skill whose plan shows as a checklist card that updates as Pi works.
