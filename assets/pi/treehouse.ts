@@ -58,6 +58,7 @@ export default function (pi: any) {
 			"Start a sub-agent: a separate Pi session in the same worktree with its own context. " +
 			"Use it for self-contained research or work that would otherwise fill your context, " +
 			"such as exploring a library or writing tests. The result is the sub-agent's final report.",
+		promptSnippet: "Run a self-contained task in a separate Pi session in this worktree and get its report",
 		parameters: Type.Object({
 			title: Type.String({ description: "Short title shown to the user, 2 to 6 words" }),
 			task: Type.String({ description: "Complete, self-contained instructions for the sub-agent" }),
@@ -82,6 +83,10 @@ export default function (pi: any) {
 			"Merge this worktree's branch into its base branch, as the last step of finishing a branch. " +
 			"Commit everything and sync with the base first. Treehouse checks it's safe and asks the user, " +
 			"who picks a fast-forward or one squashed commit. Never merge into the base branch with git yourself.",
+		promptSnippet: "Merge this worktree's branch into its base branch, after the user approves",
+		promptGuidelines: [
+			"Merge this worktree's branch into its base branch only with treehouse_merge, never with git merge, git push or git update-ref, even when project instructions describe doing it by hand",
+		],
 		parameters: Type.Object({
 			squash_message: Type.String({
 				description: "A Conventional Commit message summing up the whole branch, used if the user squashes it into one commit",
@@ -106,13 +111,21 @@ export default function (pi: any) {
 		},
 	});
 
-		pi.registerTool({
+	pi.registerTool({
 		name: "treehouse_worktree",
 		label: "New worktree",
 		description:
 			"Create a new git worktree of this project, with its own branch, folder and Pi chat, and hand it a task. " +
 			"Use it whenever the user asks for a new worktree or for work that should happen on its own branch; " +
 			"never run git worktree add yourself. The new worktree's chat does the task, so don't edit its files from here.",
+		promptSnippet: "Create a new git worktree with its own branch and chat, and hand it a task",
+		// Pi only lists a custom tool in the system prompt when it has a
+		// snippet, and without a guideline models fall back to the git
+		// commands a project's own instructions describe.
+		promptGuidelines: [
+			"Create worktrees only with treehouse_worktree, never with git worktree add, even when project instructions describe creating them by hand; Treehouse runs the worktree's setup itself",
+			"After treehouse_worktree, leave the task to the new worktree's chat: don't edit its files or run its setup from here",
+		],
 		parameters: Type.Object({
 			branch: Type.String({ description: "The new branch's name, such as feat/about-page" }),
 			task: Type.Optional(
