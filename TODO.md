@@ -12,6 +12,7 @@ Now that the worktree lifecycle is in, this can be picked up.
 
 ## Next
 
+- **Auto mode:** long runs keep stopping for approvals. Add an approval mode that lets Pi work on without asking for actions that stay inside the worktree and can be undone, and still asks for the risky ones: deleting outside the worktree, pushing, installing globally, network calls that send data, anything touching the base branch. Open questions: decide by rules (patterns and paths) or let a model judge each call, as Claude Code's auto mode does; how to show what was allowed without asking, so it can be reviewed; and whether it's a setting, a per-chat toggle in the status bar, or both.
 - **Signed Windows releases:** SmartScreen warns about the unsigned `treehouse.exe`. Azure Trusted Signing is the cheapest way to sign it from the release workflow.
 - **Remember UI state:** the project tree opens fully expanded every time; store which items are collapsed and restore them on start. Restoring whether the right dock is open is lower priority.
 - **Images:** paste or drop screenshots into the message box, and show thumbnails when Pi reads an image.
