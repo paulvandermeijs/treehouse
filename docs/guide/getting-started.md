@@ -24,7 +24,7 @@ Each release on GitHub has the app ready to run:
 
 The [releases page](https://github.com/paulvandermeijs/treehouse/releases/latest) lists what changed in each version.
 
-The macOS app isn't notarized by Apple, so the first time macOS refuses to open it. Open it anyway from **System Settings › Privacy & Security**, or run `xattr -dr com.apple.quarantine /Applications/Treehouse.app` once.
+The macOS app is signed and notarized by Apple. Windows may warn that the app is from an unknown publisher; choose **More info › Run anyway**.
 
 On Linux, the `.deb` installs the libraries GPUI needs. The AppImage runs on any distribution once it's executable (`chmod +x`), with the Vulkan and xkbcommon libraries installed (see below).
 

@@ -16,7 +16,7 @@ cargo fmt
 
 ## Versions and releases
 
-Treehouse follows [semver](https://semver.org): a change to the app bumps `version` in `Cargo.toml` before it's pushed to `master`, the minor version for features and the patch version for fixes. That push publishes a GitHub release `vX.Y.Z`, built by `.github/workflows/release.yml` for macOS (Apple silicon and Intel), Linux (`.deb` and AppImage) and Windows. Run the workflow by hand from the Actions tab to retry a release that failed; it skips versions that are already released.
+Treehouse follows [semver](https://semver.org): a change to the app bumps `version` in `Cargo.toml` before it's pushed to `master`, the minor version for features and the patch version for fixes. That push publishes a GitHub release `vX.Y.Z`, built by `.github/workflows/release.yml` for macOS (Apple silicon and Intel), Linux (`.deb` and AppImage) and Windows. The macOS app is signed with a Developer ID and notarized (`.github/scripts/sign-macos.sh`) using the repository secrets `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`; without them it's only ad-hoc signed. Run the workflow by hand from the Actions tab to retry a release that failed; it skips versions that are already released.
 
 ## How data flows
 
