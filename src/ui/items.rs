@@ -1320,13 +1320,14 @@ fn render_merged(
         "Fast-forward".to_string()
     };
     let worktree = view.session.read(cx).cwd.clone();
-    // Offered while the worktree is still there to clean up.
+    // Offered while the worktree is there and still merged: new work since
+    // makes it a delete, which the sidebar's menu offers.
     let offer = !view.kept.contains(&id)
         && view
             .workspace
             .read(cx)
             .worktree(&worktree)
-            .is_some_and(|w| !w.is_main);
+            .is_some_and(|w| !w.is_main && w.state.merged);
     h_flex()
         .mt_1()
         .ml(px(GUTTER))

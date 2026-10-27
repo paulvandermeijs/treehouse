@@ -458,7 +458,8 @@ pub struct BranchState {
     pub uncommitted: usize,
     pub ahead: usize,
     pub behind: usize,
-    /// Its work has landed in the base.
+    /// Its work has landed in the base and nothing is left uncommitted, so
+    /// cleaning it up loses nothing.
     pub merged: bool,
     /// Stopped halfway through a sync (a rebase onto the base, or a merge of
     /// it), with this many files still in conflict.
@@ -479,7 +480,8 @@ pub fn branch_state(worktree: &Path, branch: &str, base: Option<&str>) -> Branch
         state.ahead = ahead;
         state.behind = behind;
     }
-    state.merged = landed(worktree, branch, base);
+    // New changes after a merge are work that hasn't landed yet.
+    state.merged = state.uncommitted == 0 && landed(worktree, branch, base);
     let merging = git(
         worktree,
         &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
@@ -984,5 +986,33 @@ mod tests {
         assert!(status.success());
         assert!(commits_since(repo, &before, None, started).is_empty());
         assert_eq!(commits_since(repo, &before, None, 0).len(), 1);
+    }
+
+    #[test]
+    fn new_work_after_a_merge_is_not_merged() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |cwd: &Path, args: &[&str]| git(cwd, args).unwrap();
+        run(repo, &["config", "user.email", "t@example.com"]);
+        run(repo, &["config", "user.name", "Test"]);
+        run(repo, &["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\n").unwrap();
+        run(repo, &["add", "."]);
+        run(repo, &["commit", "-m", "init"]);
+        let feat = repo.join(".worktrees/feat");
+        add_worktree(repo, "feat", &feat).unwrap();
+        std::fs::write(feat.join("b.txt"), "b\n").unwrap();
+        run(&feat, &["add", "."]);
+        run(&feat, &["commit", "-m", "feat: b"]);
+        run(repo, &["merge", "--ff-only", "feat"]);
+        assert!(branch_state(&feat, "feat", Some("main")).merged);
+
+        // Uncommitted changes, then a commit, after the merge.
+        std::fs::write(feat.join("c.txt"), "c\n").unwrap();
+        assert!(!branch_state(&feat, "feat", Some("main")).merged);
+        run(&feat, &["add", "."]);
+        run(&feat, &["commit", "-m", "feat: c"]);
+        assert!(!branch_state(&feat, "feat", Some("main")).merged);
     }
 }

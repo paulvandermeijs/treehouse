@@ -53,7 +53,7 @@ Treehouse never forces anything, and doesn't push. The card that follows says wh
 
 **Clean up worktree** on the merged card, or **Clean up…** in the context menu of a merged worktree, removes the worktree's folder and its branch, and its chat goes with it. Squash-merged branches count as merged too: Treehouse checks that every change is in the base. **Keep it** leaves the worktree where it is.
 
-For abandoned work, **Delete worktree…** still warns about anything that would be lost.
+A merged worktree that gets new changes or commits counts as unmerged again: it loses its check mark, and **Delete worktree…**, in red, takes the place of Clean up. For abandoned work, **Delete worktree…** still warns about anything that would be lost.
 
 ## When a sync stops halfway
 
