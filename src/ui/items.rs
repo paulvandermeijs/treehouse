@@ -22,6 +22,7 @@ use crate::session::{
     AgentStatus, ApprovalChoice, MergeChoice, PendingApproval, PendingMerge, Session,
 };
 use crate::setup::LinkOutcome;
+use crate::steps::{Fold, Segment};
 use crate::theme::{MONO, Palette, mix, palette};
 use crate::transcript::{
     CommitCard, Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
@@ -29,7 +30,8 @@ use crate::transcript::{
 
 pub const GUTTER: f32 = 34.;
 
-/// Renders the transcript, grouping three or more finished reads in a row.
+/// Renders the transcript, folding the finished steps of each turn into a
+/// summary line unless that's turned off.
 pub fn render_items(view: &ChatView, cx: &mut Context<ChatView>) -> Vec<AnyElement> {
     let session = view.session.clone();
     let mut items: Vec<Item> = session.read(cx).items().to_vec();
@@ -39,6 +41,29 @@ pub fn render_items(view: &ChatView, cx: &mut Context<ChatView>) -> Vec<AnyEleme
     {
         items.remove(0);
     }
+    let segments = if crate::config::Config::global(cx).collapse_steps {
+        crate::steps::segments(&items, session.read(cx).is_running())
+    } else {
+        vec![Segment::Items(0..items.len())]
+    };
+    let mut out = Vec::new();
+    for segment in segments {
+        match segment {
+            Segment::Items(range) => out.extend(render_run(view, &items[range], false, cx)),
+            Segment::Fold(fold) => out.push(render_fold(view, &items, &fold, cx)),
+        }
+    }
+    out
+}
+
+/// Renders items as they are, grouping three or more finished reads in a row.
+/// Inside opened steps Pi's notes are muted, so they read as detail.
+fn render_run(
+    view: &ChatView,
+    items: &[Item],
+    in_steps: bool,
+    cx: &mut Context<ChatView>,
+) -> Vec<AnyElement> {
     let mut out = Vec::new();
     let mut ix = 0;
     while ix < items.len() {
@@ -59,10 +84,134 @@ pub fn render_items(view: &ChatView, cx: &mut Context<ChatView>) -> Vec<AnyEleme
                 continue;
             }
         }
-        out.push(render_item(view, &items[ix], cx));
+        out.push(match &items[ix] {
+            Item::Text { id, text, .. } if in_steps => render_text(view, *id, text, true, cx),
+            item => render_item(view, item, cx),
+        });
         ix += 1;
     }
     out
+}
+
+/// A turn's finished steps as one line: how long they took, what they did
+/// and what they changed. Opened, the steps hang off a guide line below.
+fn render_fold(
+    view: &ChatView,
+    items: &[Item],
+    fold: &Fold,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let steps = &items[fold.range.clone()];
+    let first = steps[0].id();
+    let open = view.steps_open(first);
+    let summary = crate::steps::summarize(steps);
+    let took = {
+        let session = view.session.read(cx);
+        let stamp = |ix: usize| items.get(ix).and_then(|item| session.item_stamp(item.id()));
+        // From what set Pi going (the message or the card before) until
+        // what came next, or until now while the turn runs.
+        let start = fold
+            .range
+            .start
+            .checked_sub(1)
+            .and_then(stamp)
+            .or_else(|| stamp(fold.range.start));
+        let end = if fold.working {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_millis() as u64)
+        } else {
+            // A turn that ended without a reply ends with its last step,
+            // not when the next message came.
+            let next_turn = matches!(
+                items.get(fold.range.end),
+                None | Some(Item::User { .. } | Item::Handover { .. })
+            );
+            if next_turn {
+                let last = &items[fold.range.end - 1];
+                let ran = match last {
+                    Item::Tool(tool) => tool.duration.map(|d| d.as_millis() as u64),
+                    _ => None,
+                };
+                stamp(fold.range.end - 1).map(|at| at + ran.unwrap_or(0))
+            } else {
+                stamp(fold.range.end)
+            }
+        };
+        start
+            .zip(end)
+            .map(|(start, end)| std::time::Duration::from_millis(end.saturating_sub(start)))
+    };
+    let verb = if fold.working { "Working" } else { "Worked" };
+    let label = match took {
+        // Whole seconds, like "Thought for 8s".
+        Some(took) if took.as_secs() < 60 => format!("{verb} for {}s", took.as_secs().max(1)),
+        Some(took) => format!("{verb} for {}", format_duration(took)),
+        None => verb.to_string(),
+    };
+    let row = h_flex()
+        .id(("steps-row", first.0))
+        .gap_2()
+        .min_h(px(24.))
+        .text_size(px(13.))
+        .text_color(p.subtext0)
+        .cursor_pointer()
+        .hover(|s| s.text_color(p.text))
+        .child(div().ml(px(3.)).mr(px(7.)).child(icon(if open {
+            IconName::ChevronDown
+        } else {
+            IconName::ChevronRight
+        })))
+        .child(
+            h_flex()
+                .flex_1()
+                .min_w_0()
+                .child(div().flex_none().whitespace_nowrap().child(label))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_color(p.subtext1)
+                        .when(!summary.what.is_empty(), |this| {
+                            this.child(format!("\u{a0}· {}", summary.what))
+                        }),
+                ),
+        )
+        .child(
+            h_flex()
+                .flex_none()
+                .gap_2()
+                .text_size(px(12.5))
+                .when(summary.failed > 0, |this| {
+                    this.child(
+                        div()
+                            .text_color(p.red)
+                            .child(format!("{} failed", summary.failed)),
+                    )
+                })
+                .child(counts(summary.additions, summary.deletions, &p)),
+        )
+        .on_click(cx.listener(move |view, _, _, cx| view.toggle_steps(first, cx)));
+    v_flex()
+        .id(("steps", first.0))
+        .gap(px(14.))
+        .child(row)
+        .when(open, |this| {
+            this.child(
+                v_flex()
+                    .ml(px(11.))
+                    .pl(px(22.))
+                    .border_l_1()
+                    .border_color(p.surface0)
+                    .gap(px(14.))
+                    .children(render_run(view, steps, true, cx)),
+            )
+        })
+        .into_any_element()
 }
 
 fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyElement {
@@ -81,19 +230,7 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
                 cx,
             )))
             .into_any_element(),
-        Item::Text { id, text, .. } => {
-            let body = match view.session.read(cx).text_view(*id) {
-                Some(state) => markdown_style(TextView::new(state).stream_fade(true), cx),
-                None => markdown_style(
-                    TextView::markdown(
-                        ("text", id.0),
-                        SharedString::from(crate::markdown::align_numeric_columns(text)),
-                    ),
-                    cx,
-                ),
-            };
-            div().pl(px(GUTTER)).child(body).into_any_element()
-        }
+        Item::Text { id, text, .. } => render_text(view, *id, text, false, cx),
         Item::Thinking {
             id,
             text,
@@ -123,6 +260,37 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
         Item::Commits(card) => render_commits(view, card, cx),
         Item::Handover { from, task, .. } => render_handover(from, task, &p),
     }
+}
+
+/// One of Pi's replies. Muted for the notes inside opened steps.
+fn render_text(
+    view: &ChatView,
+    id: ItemId,
+    text: &str,
+    muted: bool,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let view_of = |text: TextView, cx: &App| {
+        markdown_style(
+            if muted {
+                text.text_color(palette(cx).subtext0)
+            } else {
+                text
+            },
+            cx,
+        )
+    };
+    let body = match view.session.read(cx).text_view(id) {
+        Some(state) => view_of(TextView::new(state).stream_fade(true), cx),
+        None => view_of(
+            TextView::markdown(
+                ("text", id.0),
+                SharedString::from(crate::markdown::align_numeric_columns(text)),
+            ),
+            cx,
+        ),
+    };
+    div().pl(px(GUTTER)).child(body).into_any_element()
 }
 
 /// Pi's Markdown as the design has it: code blocks drawn by our own plugin,

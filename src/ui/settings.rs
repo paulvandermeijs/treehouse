@@ -526,6 +526,13 @@ fn appearance_page() -> SettingPage {
                     |cx| Config::global(cx).always_expand_thinking,
                     |v, cx| Config::update(cx, |c| c.always_expand_thinking = v),
                 ),
+            ))
+            .item(SettingItem::new(
+                "Collapse finished steps",
+                SettingField::switch(
+                    |cx| Config::global(cx).collapse_steps,
+                    |v, cx| Config::update(cx, |c| c.collapse_steps = v),
+                ),
             )),
     )
 }
