@@ -133,9 +133,9 @@ pub struct Session {
     texts: HashMap<ItemId, (Entity<TextViewState>, usize)>,
     pub approvals: Vec<PendingApproval>,
     pub merge: Option<PendingMerge>,
-    /// The worktree's HEAD and the time (Unix seconds) when the current run
-    /// started, for the card listing the commits it made.
-    head_before: Option<(String, u64)>,
+    /// The worktree's HEAD as last seen during the current run, and the time
+    /// (Unix seconds) the run started, for the cards listing its commits.
+    head_seen: Option<(String, u64)>,
     /// Sub-agent requests waiting on a child session's report.
     pub subagent_requests: HashMap<String, String>,
     /// Set once the user has opened a finished turn.
@@ -226,7 +226,7 @@ impl Session {
             texts: HashMap::new(),
             approvals: Vec::new(),
             merge: None,
-            head_before: None,
+            head_seen: None,
             subagent_requests: HashMap::new(),
             viewed: true,
             model: model.and_then(|m| {
@@ -563,7 +563,7 @@ impl Session {
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            self.head_before = crate::git::head(&self.cwd).map(|head| (head, now));
+            self.head_seen = crate::git::head(&self.cwd).map(|head| (head, now));
         }
         if let Some(client) = &self.client {
             // `/mcp …` is an extension command: Pi runs it without a message.
@@ -1107,12 +1107,17 @@ impl Session {
                 }
                 Effect::Settled => {
                     self.viewed = false;
-                    self.show_commits(cx);
+                    self.card_new_commits(None, true);
                     if let Some(client) = &self.client {
                         client.send(command::get_session_stats());
                     }
                 }
                 Effect::None => {}
+            }
+            // Commits come from Pi's shell; a card follows the call that made them.
+            if event["type"] == "tool_execution_end" && event["toolName"] == "bash" {
+                let call_id = str_field(event, "toolCallId");
+                self.card_new_commits(Some(&call_id), false);
             }
             if event.get("type").and_then(Value::as_str) == Some("message_update")
                 && let Some(tokens) = event["usage"]["totalTokens"].as_u64().filter(|t| *t > 0)
@@ -1125,36 +1130,38 @@ impl Session {
         }
     }
 
-    /// Adds a card for the commits the run made, read from git rather than
-    /// from Pi's reply.
-    fn show_commits(&mut self, cx: &mut Context<Self>) {
-        let Some((before, started)) = self.head_before.take() else {
+    /// Adds a card for commits made since HEAD was last seen, read from git
+    /// rather than from Pi's reply: right after the tool call that made
+    /// them, or at the end once the run settles, which also ends the run's
+    /// tracking. A rebase moves HEAD without new commits, so no card.
+    fn card_new_commits(&mut self, after: Option<&str>, settled: bool) {
+        let Some((seen, started)) = self.head_seen.clone() else {
             return;
         };
-        let (cwd, base) = (self.cwd.clone(), self.base.clone());
-        cx.spawn(async move |this, cx| {
-            let card = cx
-                .background_spawn(async move {
-                    let commits =
-                        crate::git::commits_since(&cwd, &before, base.as_deref(), started);
-                    let ahead = base
-                        .as_deref()
-                        .and_then(|base| crate::git::ahead_behind(&cwd, base))
-                        .map(|(ahead, _)| ahead);
-                    (commits, base, ahead, crate::git::uncommitted(&cwd))
-                })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                let (commits, base, ahead, uncommitted) = card;
-                if !commits.is_empty() {
-                    this.transcript
-                        .push_commits(commits, base, ahead, uncommitted);
-                    this.flush_saves();
-                    cx.notify();
-                }
-            });
-        })
-        .detach();
+        if settled {
+            self.head_seen = None;
+        }
+        let Some(head) = crate::git::head(&self.cwd) else {
+            return;
+        };
+        if head == seen {
+            return;
+        }
+        if !settled {
+            self.head_seen = Some((head, started));
+        }
+        let base = self.base.clone();
+        let commits = crate::git::commits_since(&self.cwd, &seen, base.as_deref(), started);
+        if commits.is_empty() {
+            return;
+        }
+        let ahead = base
+            .as_deref()
+            .and_then(|base| crate::git::ahead_behind(&self.cwd, base))
+            .map(|(ahead, _)| ahead);
+        let uncommitted = crate::git::uncommitted(&self.cwd);
+        self.transcript
+            .push_commits(after, commits, base, ahead, uncommitted);
     }
 
     fn handle_ui_request(&mut self, event: &Value, cx: &mut Context<Self>) {

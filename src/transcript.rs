@@ -622,8 +622,11 @@ impl Transcript {
         }
     }
 
+    /// Adds a commit card right after the tool call that made the commits,
+    /// or at the end without one.
     pub fn push_commits(
         &mut self,
+        after: Option<&str>,
         commits: Vec<crate::git::Commit>,
         base: Option<String>,
         ahead: Option<usize>,
@@ -639,7 +642,15 @@ impl Transcript {
         if let Ok(saved) = serde_json::to_value(&card) {
             self.saves.push((COMMITS_ENTRY, saved));
         }
-        self.items.push(Item::Commits(card));
+        let at = after.and_then(|call_id| {
+            self.items
+                .iter()
+                .position(|item| matches!(item, Item::Tool(tool) if tool.call_id == call_id))
+        });
+        match at {
+            Some(ix) => self.items.insert(ix + 1, Item::Commits(card)),
+            None => self.items.push(Item::Commits(card)),
+        }
     }
 
     /// The entries to save since this was last called.
@@ -1565,5 +1576,29 @@ mod tests {
             kinds,
             ["setup", "notice", "error", "attention", "sign-in", "model"]
         );
+    }
+
+    #[test]
+    fn a_commit_card_follows_the_call_that_committed() {
+        let mut t = Transcript::new("/tmp");
+        t.ensure_tool("c1", "bash");
+        t.ensure_tool("c2", "treehouse_merge");
+        let commit = crate::git::Commit {
+            hash: "8a7e7d5".into(),
+            subject: "feat: say goodbye".into(),
+            body: String::new(),
+            files: 2,
+        };
+        t.push_commits(Some("c1"), vec![commit], Some("master".into()), Some(1), 0);
+        let kinds: Vec<&str> = t
+            .items()
+            .iter()
+            .map(|item| match item {
+                Item::Tool(tool) => tool.call_id.as_str(),
+                Item::Commits(_) => "card",
+                _ => "other",
+            })
+            .collect();
+        assert_eq!(kinds, ["c1", "card", "c2"]);
     }
 }

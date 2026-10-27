@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 The base branch is named in the system prompt ("This worktree's base branch is …"). Rebasing keeps the history linear, so the branch can later be merged into the base with a fast-forward.
 
-1. If there are uncommitted changes, commit them first by following the treehouse-commit steps, or ask the user what to do with them. Don't stash.
+1. If there are uncommitted changes, commit them first by following the steps in `../treehouse-commit/SKILL.md`, or ask the user what to do with them. Don't stash.
 2. If `git log HEAD..<base>` shows nothing, the branch is up to date: say so and stop.
 3. If the branch has been pushed and the remote has its commits (`git status` names an upstream), ask the user before rewriting it.
 4. Run `git rebase <base>`.
