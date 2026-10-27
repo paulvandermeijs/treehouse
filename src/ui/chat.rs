@@ -55,6 +55,8 @@ pub struct ChatView {
     pub redirect_input: Entity<gpui_kit::component::input::InputState>,
     /// Items the user expanded or collapsed against their default.
     toggled: HashSet<ItemId>,
+    /// Folded steps the user opened, by their first item.
+    open_steps: HashSet<ItemId>,
     /// Merged cards whose "Keep it" was clicked: no more clean-up offer.
     pub kept: HashSet<ItemId>,
     scroll: ScrollHandle,
@@ -152,6 +154,7 @@ impl ChatView {
                     .placeholder("http://127.0.0.1:…/callback?code=…")
             }),
             toggled: HashSet::new(),
+            open_steps: HashSet::new(),
             kept: HashSet::new(),
             scroll,
             follow_tail: true,
@@ -475,6 +478,18 @@ impl ChatView {
 
     pub fn is_expanded(&self, id: ItemId, default: bool) -> bool {
         default != self.toggled.contains(&id)
+    }
+
+    pub fn steps_open(&self, first: ItemId) -> bool {
+        self.open_steps.contains(&first)
+    }
+
+    pub fn toggle_steps(&mut self, first: ItemId, cx: &mut Context<Self>) {
+        if !self.open_steps.remove(&first) {
+            self.open_steps.insert(first);
+        }
+        self.follow_tail = false;
+        cx.notify();
     }
 
     pub fn toggle(&mut self, id: ItemId, cx: &mut Context<Self>) {

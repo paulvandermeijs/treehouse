@@ -50,6 +50,7 @@ The page also shows the commit author, read from `git config user.name`. Prepari
 | Text size | `text_size` | 14 (13 to 16) |
 | Keep diffs expanded after a turn | `keep_diffs_expanded` | off |
 | Always expand thinking | `always_expand_thinking` | off |
+| Collapse finished steps | `collapse_steps` | on |
 
 **Toggle Theme** in the View menu or command palette switches between Mocha and Latte. **Match system** follows the system's light or dark setting.
 

@@ -293,6 +293,11 @@ impl Session {
         self.transcript.settled_at
     }
 
+    /// When an item appeared, in ms since the epoch.
+    pub fn item_stamp(&self, id: crate::transcript::ItemId) -> Option<u64> {
+        self.transcript.stamp(id)
+    }
+
     pub fn is_running(&self) -> bool {
         self.transcript.run == RunState::Running
     }

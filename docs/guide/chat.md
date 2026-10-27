@@ -23,6 +23,8 @@ The defaults for new chats and sub-agents are in **Settings › Agent defaults**
 
 Pi's replies stream in as Markdown, and your own messages show as Markdown too. Thinking is collapsed into a **Thought** row unless **Always expand thinking** is on. Tool calls show as rows (Reading, Edited, Searched, Ran a script…) that you can expand for their input and output; an edit has an **Open in diff** button.
 
+Once Pi moves on, a turn's steps fold into one line, such as "Worked for 2m 14s · edited 3 files, ran 4 commands, read 6", with the lines it added and removed on the right. That covers thinking, tool calls and the notes Pi writes between them; your message and Pi's last reply stay as they are. Click the line to see the steps. While Pi works, the line says "Working for" and keeps counting, with Pi's latest note and the step running now below it. Approvals and anything else waiting for you never fold, nor do sub-agent, worktree, commit and merge cards, which split the steps. Failed steps show as "1 failed" in red on the line. A turn with fewer than three steps doesn't fold. Turn it off with **Collapse finished steps** in Settings.
+
 ### Code and syntax highlighting
 
 Code blocks in the chat and the diff are highlighted for Astro, Bash, CSS, HTML, JavaScript, JSON, Markdown, Python, Rust, TOML, TSX, TypeScript and YAML, in the theme's Catppuccin colours. Other languages show as plain text.

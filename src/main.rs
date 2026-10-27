@@ -13,6 +13,7 @@ mod session;
 mod setup;
 mod shell_env;
 mod slash;
+mod steps;
 mod theme;
 mod transcript;
 mod trust;

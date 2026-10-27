@@ -4,11 +4,18 @@
 //! feeds it events and renders its items.
 
 use serde_json::Value;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::pi::rpc::str_field;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ItemId(pub u64);
@@ -293,6 +300,11 @@ pub struct Transcript {
     /// What the user typed for messages Pi hasn't echoed yet. Pi echoes a
     /// skill or template command expanded, so the chat shows this instead.
     typed: VecDeque<String>,
+    /// When each item appeared, in ms since the epoch, for how long the
+    /// steps of a turn took. Restored items take their message's timestamp.
+    stamps: HashMap<ItemId, u64>,
+    /// The timestamp of the message being restored.
+    clock: Option<u64>,
     cwd: PathBuf,
 }
 
@@ -309,12 +321,19 @@ impl Transcript {
             saves: Vec::new(),
             handed_over: None,
             typed: VecDeque::new(),
+            stamps: HashMap::new(),
+            clock: None,
             cwd: cwd.into(),
         }
     }
 
     pub fn items(&self) -> &[Item] {
         &self.items
+    }
+
+    /// When an item appeared, in ms since the epoch.
+    pub fn stamp(&self, id: ItemId) -> Option<u64> {
+        self.stamps.get(&id).copied()
     }
 
     pub fn tool(&self, call_id: &str) -> Option<&ToolCall> {
@@ -416,6 +435,11 @@ impl Transcript {
     /// `crate::history::load` returns them. Pi's events never replay, so the
     /// items are built from the stored messages themselves.
     pub fn restore(&mut self, entries: &[Value]) {
+        self.restore_entries(entries);
+        self.clock = None;
+    }
+
+    fn restore_entries(&mut self, entries: &[Value]) {
         // When each tool call was made, for its duration once the result is in.
         let mut called_at: std::collections::HashMap<String, u64> = Default::default();
         for entry in entries {
@@ -455,6 +479,7 @@ impl Transcript {
             }
             let message = &entry["message"];
             let timestamp = message.get("timestamp").and_then(Value::as_u64);
+            self.clock = timestamp.or(self.clock);
             match message.get("role").and_then(Value::as_str) {
                 Some("user") => {
                     let id = self.alloc();
@@ -868,6 +893,7 @@ impl Transcript {
     fn alloc(&mut self) -> ItemId {
         let id = ItemId(self.next_id);
         self.next_id += 1;
+        self.stamps.insert(id, self.clock.unwrap_or_else(now_ms));
         id
     }
 
@@ -1309,6 +1335,18 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn restored_items_take_their_message_time() {
+        let entry = |message: Value| json!({"type": "message", "message": message});
+        let mut t = Transcript::new("/tmp");
+        t.restore(&[
+            entry(json!({"role": "user", "timestamp": 500, "content": "Hi"})),
+            entry(json!({"role": "assistant", "timestamp": 1500, "content": [{"type": "text", "text": "Hello"}]})),
+        ]);
+        let stamps: Vec<_> = t.items().iter().map(|i| t.stamp(i.id())).collect();
+        assert_eq!(stamps, [Some(500), Some(1500)]);
     }
 
     #[test]

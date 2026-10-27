@@ -33,6 +33,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `assets/pi/treehouse.ts` | The Pi extension Treehouse loads into every session (see below) |
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
+| `src/steps.rs` | Folds a turn's finished steps into one summary line |
 | `src/history.rs` | Which Pi session file holds each worktree's chat, and reading one back |
 | `assets/pi/skills/` | The built-in skills behind `/commit`, `/sync`, `/finish-branch` and `/setup-worktrees`, loaded with `--skill` |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact`, `/new` and the lifecycle commands |

@@ -38,6 +38,8 @@ pub struct Config {
     pub text_size: f32,
     pub keep_diffs_expanded: bool,
     pub always_expand_thinking: bool,
+    /// Fold a turn's finished steps into one summary line.
+    pub collapse_steps: bool,
     pub animate_working: bool,
 
     /// The `pi` executable.
@@ -67,6 +69,7 @@ impl Default for Config {
             text_size: 14.0,
             keep_diffs_expanded: false,
             always_expand_thinking: false,
+            collapse_steps: true,
             animate_working: true,
             pi_command: "pi".into(),
             model: None,
