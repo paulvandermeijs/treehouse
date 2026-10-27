@@ -819,7 +819,16 @@ impl ChatView {
                     .text_ellipsis()
                     .child(title),
             )
-            .when(is_subagent, |this| this.child(status_pill(status, cx)))
+            // A sub-agent always has a turn, its task; a worktree's chat shows the
+            // pill once it has had one.
+            .when(
+                is_subagent
+                    || session
+                        .items()
+                        .iter()
+                        .any(|item| matches!(item, crate::transcript::Item::User { .. })),
+                |this| this.child(status_pill(status, cx)),
+            )
             .child(
                 h_flex()
                     .flex_1()
@@ -1252,6 +1261,8 @@ impl ChatView {
     }
 }
 
+/// Where the chat's agent stands. Finished is its last turn ending; it
+/// stays after the chat is seen, when the sidebar's dot turns idle.
 fn status_pill(status: AgentStatus, cx: &App) -> impl IntoElement {
     let p = palette(cx);
     let (label, color) = match status {
