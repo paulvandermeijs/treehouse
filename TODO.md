@@ -25,7 +25,6 @@ Now that the worktree lifecycle is in, this can be picked up.
 ## Small fixes
 
 - A worktree removed outside Treehouse (`git worktree remove` in a terminal) stays in the sidebar until a restart; drop it once its chat isn't running.
-
 - Clicking a commit in a commit card should open its diff in the right dock.
 - After a squash merge the worktree's diff stat still counts the branch's changes, since it compares with the merge base.
 - The sidebar's branch markers refresh after each turn and merge, not yet when the window gets focus.
@@ -34,4 +33,3 @@ Now that the worktree lifecycle is in, this can be picked up.
 - In the collapsed rail, project tooltips open below the pointer rather than to the right.
 - Restored sub-agents can come back in a different order in the sidebar than in the chat.
 - A worktree setup script still running when Treehouse quits is left running; stop its process group on quit (`setup::stop`).
-- "Ask Pi to fix it" sends the setup output in a code fence, which shows as literal backticks because the user's own messages aren't rendered as Markdown.
