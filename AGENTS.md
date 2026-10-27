@@ -55,7 +55,7 @@ Everything the chat shows as history must come back from Pi's session file after
 ### Things that bite
 
 - `--tools` replaces Pi's whole tool selection: name the bridge's `subagent`, `treehouse_merge` and `treehouse_worktree` tools, and `codemode` and `tool_search` (the only way MCP tools are reachable). Untrusted projects get `read` only, plus `--no-approve`, `--no-mcp` and a read-only note through `--append-system-prompt`.
-- Pi lists a custom tool in its system prompt only when it has a `promptSnippet`. The bridge's tools carry one, plus `promptGuidelines` that tell the model to use them instead of the `git` commands a project's own instructions may describe.
+- Pi lists a custom tool in its system prompt only when it has a `promptSnippet`. The bridge's tools carry one, plus `promptGuidelines` that tell the model to use them instead of the `git` commands a project's own instructions may describe. Models still follow those instructions, so the bridge also blocks a bash `git worktree add`.
 - Project trust is stored in Pi's own `~/.pi/agent/trust.json`, shared with `pi` in a terminal (`src/trust.rs`, which takes Pi's `.json.lock` directory lock).
 - Some Pi messages are only human-readable text; `src/mcp.rs` parses MCP sign-in notices by their exact wording. Check it against Pi's source when Pi changes.
 - `/compact`, `/new` and `/reload` are handled in Treehouse (`src/slash.rs`, `Session::send`). Messages starting with `!`/`!!` go to Pi's `bash` RPC command, not to the model.

@@ -53,7 +53,7 @@ Add `.worktrees/` to your project's `.gitignore`, or pick a location outside the
 
 ## Worktrees Pi starts
 
-Ask Pi for a new worktree, say "start a worktree to add an about page", and it asks Treehouse for one, the way it starts a sub-agent. Treehouse creates it as **New worktree** does, with your location setting and the project's [setup](#preparing-new-worktrees), and it appears in the sidebar at once. Creating one doesn't ask for approval: it only adds a worktree, which **Delete worktree…** removes.
+Ask Pi for a new worktree, say "start a worktree to add an about page", and it asks Treehouse for one, the way it starts a sub-agent. Treehouse creates it as **New worktree** does, with your location setting and the project's [setup](#preparing-new-worktrees), and it appears in the sidebar at once. Creating one doesn't ask for approval: it only adds a worktree, which **Delete worktree…** removes. If Pi tries `git worktree add` itself, for instance because the project's own instructions say so, Treehouse refuses the command and tells Pi to ask for the worktree instead.
 
 When Pi hands it a task, the new worktree's own chat works on it, starting with a "Task from master's chat" card once the setup is done. The chat that asked shows a card that follows the new worktree, setting up, working, waiting for you or finished, and opens it; <kbd>⌘</kbd>-click opens it in the right dock. If Treehouse can't create it, for example because the branch exists, the card says why and Pi can try another name.
 
