@@ -76,12 +76,13 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             // Centre the avatar on the first line, which grows with the text
             // size (GPUI's default line height is 1.618 × the text size).
             .child(avatar(&view.initials, &p).mt(first_line_offset(cx)))
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(SharedString::from(text.clone())),
-            )
+            .child(div().flex_1().min_w_0().child(markdown_style(
+                TextView::markdown(
+                    ("user-text", id.0),
+                    SharedString::from(crate::markdown::keep_line_breaks(text)),
+                ),
+                cx,
+            )))
             .into_any_element(),
         Item::Text { id, text, .. } => {
             let body = match view.session.read(cx).text_view(*id) {
@@ -745,7 +746,15 @@ fn render_error(
                 )
                 .child(div().flex_1().min_w_0().child(SharedString::from(summary)))
                 .when(retrying, |this| {
-                    this.child(Spinner::new().xsmall().color(p.subtext0))
+                    // The row aligns to the top for multi-line text; centre
+                    // the spinner on the first line, like the icon.
+                    this.child(
+                        h_flex()
+                            .flex_none()
+                            .h(px(20.))
+                            .items_center()
+                            .child(Spinner::new().xsmall().color(p.subtext0)),
+                    )
                 })
                 .when(!details.is_empty(), |this| {
                     this.child(

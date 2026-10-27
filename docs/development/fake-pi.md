@@ -13,6 +13,7 @@ The first word of a message picks the script:
 | `Find` | A sub-agent |
 | `Worktree` | Asks Treehouse for a new worktree and hands it a task |
 | `Fail` | A provider error |
+| `Retry` | A connection error that Pi retries |
 | `Approve` | A long approval pattern |
 | `Long` | A long-running command |
 | `Mangle` | A garbled tool name |

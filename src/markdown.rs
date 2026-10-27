@@ -113,9 +113,42 @@ fn is_numeric(cell: &str) -> bool {
         || unit.chars().count() <= 5 && unit.chars().all(|c| c.is_alphabetic() || c == '/')
 }
 
+/// Keeps the line breaks of a message the user typed: Enter means a new
+/// line, where Markdown would join the lines. Code blocks are left alone.
+pub fn keep_line_breaks(source: &str) -> String {
+    let lines: Vec<&str> = source.split('\n').collect();
+    let mut out = String::with_capacity(source.len() + lines.len() * 2);
+    let mut in_fence = false;
+    for (ix, line) in lines.iter().enumerate() {
+        let trimmed = line.trim_start();
+        let fence = trimmed.starts_with("```") || trimmed.starts_with("~~~");
+        if fence {
+            in_fence = !in_fence;
+        }
+        out.push_str(line);
+        let next = lines.get(ix + 1);
+        if let Some(next) = next {
+            if !in_fence && !fence && !line.trim().is_empty() && !next.trim().is_empty() {
+                out.push_str("  ");
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{align_numeric_columns, is_numeric};
+    use super::{align_numeric_columns, is_numeric, keep_line_breaks};
+
+    #[test]
+    fn keeps_typed_line_breaks_outside_code() {
+        let source = "First line\nsecond line\n\nNew paragraph\n```\nlet a = 1;\nlet b = 2;\n```";
+        assert_eq!(
+            keep_line_breaks(source),
+            "First line  \nsecond line\n\nNew paragraph  \n```\nlet a = 1;\nlet b = 2;\n```"
+        );
+    }
 
     #[test]
     fn right_aligns_numeric_columns() {
