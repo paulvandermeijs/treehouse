@@ -21,7 +21,7 @@ The defaults for new chats and sub-agents are in **Settings › Agent defaults**
 
 ## What the chat shows
 
-Pi's replies stream in as Markdown, and your own messages show as Markdown too, keeping the line breaks you typed. Thinking is collapsed into a **Thought** row unless **Always expand thinking** is on. Tool calls show as rows (Reading, Edited, Searched, Ran a script…) that you can expand for their input and output; an edit has an **Open in diff** button.
+Pi's replies stream in as Markdown, and your own messages show as Markdown too. Thinking is collapsed into a **Thought** row unless **Always expand thinking** is on. Tool calls show as rows (Reading, Edited, Searched, Ran a script…) that you can expand for their input and output; an edit has an **Open in diff** button.
 
 ### Code and syntax highlighting
 

@@ -77,10 +77,7 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             // size (GPUI's default line height is 1.618 × the text size).
             .child(avatar(&view.initials, &p).mt(first_line_offset(cx)))
             .child(div().flex_1().min_w_0().child(markdown_style(
-                TextView::markdown(
-                    ("user-text", id.0),
-                    SharedString::from(crate::markdown::keep_line_breaks(text)),
-                ),
+                TextView::markdown(("user-text", id.0), SharedString::from(text.clone())),
                 cx,
             )))
             .into_any_element(),
