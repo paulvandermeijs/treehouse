@@ -413,6 +413,11 @@ def error_turn():
         f"@earendil-works/pi-coding-agent/dist/bundle/chunks/chunk-N43LRJ4N.js:3:{38000 + i})"
         for i in range(8))
     emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+    # An edit that fails with Pi's long message, then the provider error.
+    path = os.path.join(os.getcwd(), "src/pages/home/home.css")
+    tool(0, f"f-edit-{uuid.uuid4().hex[:6]}", "edit", {"path": path, "edits": [{"oldText": "a {", "newText": "b {"}]},
+         f"Could not find edits[0] in {path}. The oldText must match exactly including all whitespace and newlines.",
+         is_error=True)
     emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "error",
           "errorMessage": "OAuth refresh failed for anthropic: Anthropic token refresh request failed. "
                           "url=https://platform.claude.com/v1/oauth/token; details=Error: HTTP request failed. status=400\n" + stack}})
