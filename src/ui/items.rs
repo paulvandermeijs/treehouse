@@ -1107,8 +1107,13 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
                 .child(format_duration(tool.started.elapsed()))
                 .into_any_element(),
         ),
+        // Errors can be long; the expanded output has the whole text.
         (_, ToolStatus::Failed) => Some(
             div()
+                .max_w(px(360.))
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
                 .text_color(p.red)
                 .child(SharedString::from(first_line(&tool.output).to_string()))
                 .into_any_element(),
@@ -1148,7 +1153,13 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             .whitespace_nowrap(),
         )
         .when_some(result, |this, result| {
-            this.child(div().flex_none().text_size(px(12.5)).child(result))
+            this.child(
+                div()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .text_size(px(12.5))
+                    .child(result),
+            )
         })
         .on_click(cx.listener(move |view, _, _, cx| view.toggle(id, cx)));
 
