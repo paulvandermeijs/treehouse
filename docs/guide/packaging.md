@@ -1,5 +1,7 @@
 # Packaging
 
+The [downloads](./getting-started#download) are already packaged. This page is for building the app yourself.
+
 `cargo run` starts a bare executable, which shows the default icon. To get Treehouse's icon in the Dock, taskbar or launcher, build it as an app.
 
 ## macOS
@@ -21,7 +23,7 @@ mkdir -p ~/.local/share/icons/hicolor/256x256/apps
 cp assets/icon/png/256x256.png ~/.local/share/icons/hicolor/256x256/apps/treehouse.png
 ```
 
-`cargo bundle --release` also builds a `.deb` with both.
+`cargo bundle --release` also builds a `.deb` and an AppImage with both.
 
 ## Windows
 
