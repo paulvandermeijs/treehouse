@@ -4,9 +4,11 @@ Open Settings with <kbd>⌘,</kbd> (<kbd>Ctrl+,</kbd>), the gear at the bottom o
 
 ## Providers
 
-API keys for Anthropic, OpenAI, Google and OpenRouter. Paste a key and press <kbd>Enter</kbd>; it replaces the stored key.
+API keys for Anthropic, OpenAI, Google and OpenRouter, one row per provider showing where its key comes from: saved in Pi's own `auth.json`, signed in with Pi (OAuth), read from the environment (such as `$ANTHROPIC_API_KEY`), or not set up.
 
-Keys are saved in Pi's own `auth.json`, so a key added here also works for `pi` in a terminal. Each provider shows where its key comes from: saved in Pi's `auth.json`, signed in with Pi (OAuth), read from the environment (such as `$ANTHROPIC_API_KEY`), or not set up.
+A provider without a key has a field in its row: paste the key and press <kbd>Enter</kbd> or **Save**. Nothing is saved when you leave the field. The key shows as dots; the eye button shows it while you check it. A saved key shows masked, with **Replace** and **Remove**; **Add key** on a provider read from the environment saves a key that's used instead of the variable. **Sign out** asks first, since signing in again needs `pi` in a terminal.
+
+Keys are saved in Pi's own `auth.json`, readable only by you, so a key added here also works for `pi` in a terminal.
 
 ## Agent defaults
 
