@@ -4,6 +4,11 @@ name: Release
 # named after it, with the app built for each platform. Asset names leave the
 # version out, so releases/latest/download/<name> links in the docs keep
 # working.
+#
+# Building runs every crate's build script, so the build jobs get neither the
+# signing secrets nor write access: the macOS app is signed in a job of its
+# own that runs no third-party build code, and only the release job can write.
+# Actions are pinned to commits, with the tag they were taken from beside them.
 
 on:
   push:
@@ -12,7 +17,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release
@@ -28,14 +33,16 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       new: ${{ steps.version.outputs.new }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - id: version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          if gh release view "v$version" > /dev/null 2>&1; then
+          if gh release view "v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             echo "v$version is already released"
             echo "new=false" >> "$GITHUB_OUTPUT"
           else
@@ -64,40 +71,35 @@ jobs:
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           key: ${{ matrix.target }}
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libxkbcommon-x11-dev
       - if: runner.os != 'Windows'
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
         with:
           tool: cargo-bundle
 
+      # Unsigned: the sign-macos job signs it. ditto keeps the bundle's
+      # permissions and symlinks, which an artifact upload alone would lose.
       - name: Bundle (macOS)
         if: runner.os == 'macOS'
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
-          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
         run: |
           cargo bundle --release --target ${{ matrix.target }}
-          app=target/${{ matrix.target }}/release/bundle/osx/Treehouse.app
-          if [ -n "$MACOS_CERTIFICATE" ]; then
-            .github/scripts/sign-macos.sh "$app"
-          else
-            # Without the secrets (a fork, say), an ad-hoc signature at
-            # least keeps macOS from calling the downloaded app damaged.
-            codesign --force --deep --sign - "$app"
-          fi
-          mkdir dist
-          ditto -c -k --keepParent "$app" dist/Treehouse-${{ matrix.name }}.zip
+          mkdir unsigned
+          ditto -c -k --keepParent target/${{ matrix.target }}/release/bundle/osx/Treehouse.app unsigned/Treehouse.zip
+      - if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: unsigned-${{ matrix.name }}
+          path: unsigned/Treehouse.zip
 
       - name: Bundle (Linux)
         if: runner.os == 'Linux'
@@ -116,18 +118,62 @@ jobs:
           New-Item -ItemType Directory dist | Out-Null
           Compress-Archive -Path target/${{ matrix.target }}/release/treehouse.exe, LICENSE -DestinationPath dist/treehouse-${{ matrix.name }}.zip
 
-      - uses: actions/upload-artifact@v4
+      - if: runner.os != 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: ${{ matrix.name }}
+          name: release-${{ matrix.name }}
+          path: dist/*
+
+  # The only job with the signing secrets. It checks out this repository for
+  # the signing script and runs nothing else it didn't write itself.
+  sign-macos:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [macos-arm64, macos-x86_64]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: unsigned-${{ matrix.name }}
+          path: unsigned
+      - name: Sign and notarize
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          ditto -x -k unsigned/Treehouse.zip app
+          if [ -n "$MACOS_CERTIFICATE" ]; then
+            .github/scripts/sign-macos.sh app/Treehouse.app
+          else
+            # Without the secrets (a fork, say), an ad-hoc signature at
+            # least keeps macOS from calling the downloaded app damaged.
+            codesign --force --deep --sign - app/Treehouse.app
+          fi
+          mkdir dist
+          ditto -c -k --keepParent app/Treehouse.app dist/Treehouse-${{ matrix.name }}.zip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-${{ matrix.name }}
           path: dist/*
 
   release:
-    needs: [version, build]
+    needs: [version, build, sign-macos]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
+          pattern: release-*
           merge-multiple: true
       - env:
           GH_TOKEN: ${{ github.token }}
