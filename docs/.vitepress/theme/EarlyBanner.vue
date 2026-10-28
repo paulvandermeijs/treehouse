@@ -31,7 +31,8 @@
   height: var(--vp-layout-top-height);
   padding: 0 16px;
   box-sizing: border-box;
-  background: var(--vp-c-brand-soft);
+  /* The tint is translucent, so lay it over the page colour: the page scrolls under the banner. */
+  background: linear-gradient(var(--vp-c-brand-soft), var(--vp-c-brand-soft)), var(--vp-c-bg);
   border-bottom: 1px solid var(--vp-c-divider);
   color: var(--vp-c-text-1);
   font-size: 14px;
