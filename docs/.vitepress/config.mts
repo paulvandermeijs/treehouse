@@ -64,7 +64,10 @@ export default defineConfig({
         ],
       },
     ],
-    socialLinks: [{ icon: 'github', link: 'https://github.com/paulvandermeijs/treehouse' }],
+    socialLinks: [
+      { icon: 'github', link: 'https://github.com/paulvandermeijs/treehouse' },
+      { icon: 'discord', link: 'https://discord.com/channels/1564952399796502608' },
+    ],
     editLink: {
       pattern: 'https://github.com/paulvandermeijs/treehouse/edit/master/docs/:path',
     },
