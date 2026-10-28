@@ -156,3 +156,20 @@ html:not(.dark) .dark-only {
     height: 100%;
   }
 }
+
+/* Keyboard shortcuts as key caps; VitePress leaves <kbd> unstyled. */
+.vp-doc kbd {
+  display: inline-block;
+  min-width: 1.6em;
+  padding: 0 0.4em;
+  border: 1px solid var(--vp-c-divider);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--vp-c-bg-soft);
+  color: var(--vp-c-text-1);
+  font-family: var(--vp-font-family-mono);
+  font-size: 0.85em;
+  line-height: 1.6;
+  text-align: center;
+  white-space: nowrap;
+}
