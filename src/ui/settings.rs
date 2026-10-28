@@ -254,7 +254,9 @@ fn defaults_page() -> SettingPage {
                             |v: SharedString, cx| Config::update(cx, |c| c.model = Some(v.to_string()).filter(|m| !m.trim().is_empty())),
                         ),
                     )
-                    .description("provider/model for new chats, e.g. anthropic/claude-opus-4-5. Empty uses Pi's default."),
+                    .description("provider/model for new chats, e.g. anthropic/claude-opus-4-5. Empty uses Pi's default.")
+                    // The value can be long, so the input gets the whole row.
+                    .layout(Axis::Vertical),
                 )
                 .item(
                     SettingItem::new(
@@ -266,7 +268,9 @@ fn defaults_page() -> SettingPage {
                             },
                         ),
                     )
-                    .description("Cheaper models are often enough. Empty means the same as the chat."),
+                    .description("Cheaper models are often enough. Empty means the same as the chat.")
+                    // The value can be long, so the input gets the whole row.
+                    .layout(Axis::Vertical),
                 )
                 .item(SettingItem::new(
                     "Thinking level",
@@ -298,7 +302,9 @@ fn defaults_page() -> SettingPage {
                             |v: SharedString, cx| Config::update(cx, |c| c.pi_command = v.to_string()),
                         ),
                     )
-                    .description("The pi executable. Install it with npm install -g @earendil-works/pi-coding-agent."),
+                    .description("The pi executable. Install it with npm install -g @earendil-works/pi-coding-agent.")
+                    // The value can be long, so the input gets the whole row.
+                    .layout(Axis::Vertical),
                 ),
         )
         .group(SettingGroup::new().title("Tools").description("What Pi may use").items(tools.collect::<Vec<_>>()))
@@ -408,7 +414,8 @@ fn worktrees_page() -> SettingPage {
                         },
                     ),
                 )
-                .description("Where new worktrees go. {project} and {branch} are filled in."),
+                .description("Where new worktrees go. {project} and {branch} are filled in.")
+                .layout(Axis::Vertical),
             )
             .item(
                 SettingItem::new(
