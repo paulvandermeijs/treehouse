@@ -3,7 +3,7 @@
     <p>
       Treehouse is in early development: expect rough edges and changes. Feedback is welcome on
       <a href="https://github.com/paulvandermeijs/treehouse/issues">GitHub</a> or
-      <a href="https://discord.com/channels/1564952399796502608">Discord</a>.
+      <a href="https://discord.gg/hzE6muNPh6">Discord</a>.
     </p>
   </div>
 </template>
