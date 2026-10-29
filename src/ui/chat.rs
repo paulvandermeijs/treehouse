@@ -70,6 +70,8 @@ pub struct ChatView {
     /// following, to count what arrived since.
     left_at: Option<usize>,
     pub in_dock: bool,
+    /// The right dock fills the window.
+    pub full_screen: bool,
     /// Set when this pane sits beside the collapsed sidebar on macOS: the top
     /// bar then starts with the sidebar toggle, this far in.
     pub sidebar_lead: Option<Pixels>,
@@ -209,6 +211,7 @@ impl ChatView {
             row_bounds: Default::default(),
             left_at: None,
             in_dock: false,
+            full_screen: false,
             sidebar_lead: None,
             docked_session: None,
             diff_open: false,
@@ -843,8 +846,20 @@ impl ChatView {
                     Button::new("dock-full")
                         .ghost()
                         .small()
-                        .icon(icon(Lucide::Maximize2))
-                        .tooltip_with_action("Full screen", &FullScreenDock, None)
+                        .icon(icon(if self.full_screen {
+                            Lucide::Minimize2
+                        } else {
+                            Lucide::Maximize2
+                        }))
+                        .tooltip_with_action(
+                            if self.full_screen {
+                                "Exit full screen"
+                            } else {
+                                "Full screen"
+                            },
+                            &FullScreenDock,
+                            None,
+                        )
                         .on_click(|_, window, cx| {
                             window.dispatch_action(Box::new(FullScreenDock), cx)
                         }),
