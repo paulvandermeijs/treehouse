@@ -45,7 +45,7 @@ Markdown tables have a header row, hairline dividers and a copy button under the
 
 ### Diagrams
 
-A fenced ` ```mermaid ` block is drawn as its diagram, in the theme's colours: flowcharts, sequence, class, state and ER diagrams, Gantt charts, mind maps and more. **Diagram** and **Source** in the block's header switch between the drawing and the text, and the copy button copies the source. While Pi is still writing the block it shows "Rendering diagram…"; a diagram that can't be drawn shows its source with the reason. A diagram wider than the chat scrolls sideways.
+A fenced ` ```mermaid ` block is drawn as its diagram, in the theme's colours: flowcharts, sequence, class, state and ER diagrams, Gantt charts, mind maps and more. **Diagram** and **Source** in the block's header switch between the drawing and the text, and the copy button copies the source. While Pi is still writing the block it shows "Rendering diagram…"; a diagram that can't be drawn shows its source with the reason. A diagram wider than the chat is scaled down to fit.
 
 ## Scrolling
 

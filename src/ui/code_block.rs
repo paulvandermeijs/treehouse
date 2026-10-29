@@ -5,7 +5,7 @@
 //! button over the highlighted code.
 
 use gpui_kit::assets::IconName as Lucide;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonGroup, ButtonVariants as _};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
 use gpui_kit::component::{
@@ -168,20 +168,6 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
         .then(|| crate::mermaid::render(&mermaid.code, &p, window.scale_factor()));
     let failed = matches!(rendered, Some(Err(_)));
     let copied = mermaid.code.clone();
-    let toggle = |label: &'static str, on: bool, to_source: bool| {
-        let state = show_source.clone();
-        Button::new(SharedString::from(format!("mermaid-{label}-{id}")))
-            .ghost()
-            .xsmall()
-            .label(label)
-            .selected(on)
-            .on_click(move |_, _, cx| {
-                state.update(cx, |s, cx| {
-                    *s = to_source;
-                    cx.notify();
-                })
-            })
-    };
     let source = |error_line: Option<SharedString>| {
         v_flex()
             .when_some(error_line, |this, error| {
@@ -226,20 +212,17 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
             source(Some(format!("Couldn't render: {error}").into())).into_any_element()
         }
         Some(Ok(_)) if source_on => source(None).into_any_element(),
-        Some(Ok(diagram)) => div()
-            .id(("mermaid-diagram", id))
+        // A diagram wider than the chat is scaled down to fit it, so none of
+        // it is hidden behind a sideways scroll.
+        Some(Ok(diagram)) => h_flex()
             .w_full()
-            .overflow_x_scroll()
+            .justify_center()
+            .p_4()
             .child(
-                // Auto margins centre a diagram that fits; a wider one starts
-                // at the left edge and scrolls.
-                h_flex().min_w_full().p_4().child(
-                    img(diagram.image.clone())
-                        .flex_none()
-                        .mx_auto()
-                        .w(px(diagram.width))
-                        .h(px(diagram.height)),
-                ),
+                img(diagram.image.clone())
+                    .w_full()
+                    .max_w(px(diagram.width))
+                    .aspect_ratio(diagram.width / diagram.height),
             )
             .into_any_element(),
     };
@@ -274,10 +257,20 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
                 })
                 .child(div().flex_1())
                 .when(mermaid.closed && !failed, |this| {
+                    let state = show_source.clone();
                     this.child(
-                        h_flex()
-                            .child(toggle("Diagram", !source_on, false))
-                            .child(toggle("Source", source_on, true)),
+                        ButtonGroup::new(("mermaid-view", id))
+                            .outline()
+                            .xsmall()
+                            .child(Button::new("diagram").label("Diagram").selected(!source_on))
+                            .child(Button::new("source").label("Source").selected(source_on))
+                            .on_click(move |selected: &Vec<usize>, _, cx| {
+                                let to_source = selected.first() == Some(&1);
+                                state.update(cx, |s, cx| {
+                                    *s = to_source;
+                                    cx.notify();
+                                })
+                            }),
                     )
                 })
                 .child(
