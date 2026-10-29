@@ -17,7 +17,7 @@ use std::ops::Range;
 use std::sync::{Arc, Mutex};
 
 use super::icon;
-use crate::theme::{MONO, SANS, palette};
+use crate::theme::palette;
 
 const NAME: &str = "treehouse-code";
 
@@ -93,7 +93,7 @@ impl MarkdownPlugin for CodeBlocks {
                     .pr_1()
                     .border_b_1()
                     .border_color(p.surface0)
-                    .font_family(SANS)
+                    .font_family(crate::theme::sans())
                     .text_size(px(12.))
                     .text_color(p.subtext0)
                     .child(div().flex_1().child(code.lang.clone().unwrap_or_default()))
@@ -112,7 +112,7 @@ impl MarkdownPlugin for CodeBlocks {
                 div()
                     .px_4()
                     .py(px(10.))
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_size(px(12.5))
                     .line_height(px(20.))
                     .text_color(p.text)

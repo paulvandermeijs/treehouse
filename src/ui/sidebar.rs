@@ -111,7 +111,7 @@ fn markers(
             .id(id)
             .flex_none()
             .gap(px(2.))
-            .font_family(crate::theme::MONO)
+            .font_family(crate::theme::mono())
             .text_size(px(11.5))
             .text_color(p.subtext0)
             .when(state.uncommitted > 0, |this| {

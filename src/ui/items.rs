@@ -23,7 +23,7 @@ use crate::session::{
 };
 use crate::setup::LinkOutcome;
 use crate::steps::{Fold, Segment};
-use crate::theme::{MONO, Palette, mix, palette};
+use crate::theme::{Palette, mix, palette};
 use crate::transcript::{
     CommitCard, Item, ItemId, ShellRun, SignIn, SignInState, ToolCall, ToolStatus, format_duration,
 };
@@ -371,7 +371,7 @@ fn exit_pill(ok: bool, label: String, p: &Palette) -> Div {
         .px(px(6.))
         .rounded(px(4.))
         .text_size(px(11.5))
-        .font_family(MONO)
+        .font_family(crate::theme::mono())
         .bg(mix(if ok { p.green } else { p.red }, p.base, 0.16))
         .text_color(if ok { p.add } else { p.delete })
         .child(label)
@@ -474,7 +474,7 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
             };
             h_flex()
                 .gap_2()
-                .font_family(crate::theme::SANS)
+                .font_family(crate::theme::sans())
                 .text_size(px(12.5))
                 .text_color(colour)
                 .child(icon(Lucide::Link).size(px(14.)))
@@ -572,7 +572,7 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                 (false, Some(_)) => p.surface0,
                                 (false, None) => mix(p.shell, p.surface0, 0.28),
                             })
-                            .font_family(MONO)
+                            .font_family(crate::theme::mono())
                             .text_size(px(12.))
                             .line_height(px(19.))
                             .when(has_links, |this| {
@@ -596,7 +596,7 @@ fn render_shell(view: &ChatView, run: &ShellRun, cx: &mut Context<ChatView>) -> 
                                 this.child(
                                     div()
                                         .mt_1()
-                                        .font_family(crate::theme::SANS)
+                                        .font_family(crate::theme::sans())
                                         .text_color(p.subtext0)
                                         .child("Live output · last 5 lines"),
                                 )
@@ -937,7 +937,7 @@ fn render_error(
                     .ml(px(24.))
                     .min_w_0()
                     .overflow_hidden()
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_size(px(11.5))
                     .text_color(p.subtext0)
                     .child(SharedString::from(details.join("\n"))),
@@ -970,7 +970,7 @@ pub fn avatar(initials: &SharedString, p: &Palette) -> Div {
 
 fn mono(text: impl Into<SharedString>, color: Hsla) -> Div {
     div()
-        .font_family(MONO)
+        .font_family(crate::theme::mono())
         .text_size(px(12.))
         .text_color(color)
         .child(text.into())
@@ -1165,7 +1165,7 @@ pub(super) fn describe(tool: &ToolCall) -> ToolText {
 fn counts(additions: usize, deletions: usize, p: &Palette) -> Div {
     h_flex()
         .gap_1()
-        .font_family(MONO)
+        .font_family(crate::theme::mono())
         .text_size(px(12.))
         .when(additions > 0, |this| {
             this.child(div().text_color(p.add).child(format!("+{additions}")))
@@ -1648,7 +1648,7 @@ fn render_commits(view: &ChatView, card: &CommitCard, cx: &mut Context<ChatView>
                         .min_w_0()
                         .child(
                             h_flex()
-                                .font_family(MONO)
+                                .font_family(crate::theme::mono())
                                 .text_size(px(12.5))
                                 .when_some(kind, |this, kind| {
                                     this.child(
@@ -1670,7 +1670,7 @@ fn render_commits(view: &ChatView, card: &CommitCard, cx: &mut Context<ChatView>
                         })
                         .child(
                             div()
-                                .font_family(MONO)
+                                .font_family(crate::theme::mono())
                                 .text_size(px(11.5))
                                 .text_color(p.subtext0)
                                 .child(format!("{} · {files}", commit.hash)),
@@ -1746,7 +1746,7 @@ fn render_tool_output(tool: &ToolCall, p: &Palette) -> Div {
             )
             .child(
                 div()
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_size(px(12.))
                     .line_height(px(19.))
                     .whitespace_normal()
@@ -1797,7 +1797,7 @@ fn render_bash_output(tool: &ToolCall, p: &Palette) -> Div {
             v_flex()
                 .px_3()
                 .py_2()
-                .font_family(MONO)
+                .font_family(crate::theme::mono())
                 .text_size(px(12.))
                 .line_height(px(19.))
                 .when(hidden > 0, |this| {
@@ -1873,7 +1873,7 @@ fn render_mini_diff(
             };
             rows.push(
                 h_flex()
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_size(px(12.5))
                     .line_height(px(22.))
                     .whitespace_nowrap()
@@ -2004,7 +2004,7 @@ fn render_approval(
                 .bg(p.mantle)
                 .border_1()
                 .border_color(p.surface0)
-                .font_family(MONO)
+                .font_family(crate::theme::mono())
                 .text_size(px(12.5))
                 .child(SharedString::from(format!("$ {detail}"))),
         )

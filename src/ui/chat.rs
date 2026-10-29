@@ -24,7 +24,7 @@ use crate::actions::{
 use crate::config::{Config, THINKING_LEVELS};
 use crate::session::{AgentStatus, ModelInfo, Session, SessionEvent, SessionKind};
 use crate::slash::{self, CommandKind, SlashCommand};
-use crate::theme::{MONO, mix, palette};
+use crate::theme::{mix, palette};
 use crate::transcript::{ItemId, format_tokens};
 use crate::workspace::Workspace;
 use gpui_kit::component::popover::Popover;
@@ -699,7 +699,7 @@ impl ChatView {
                             .child(
                                 div()
                                     .flex_none()
-                                    .font_family(crate::theme::MONO)
+                                    .font_family(crate::theme::mono())
                                     .text_size(px(12.5))
                                     .child(format!("/{}", command.name)),
                             )
@@ -707,7 +707,7 @@ impl ChatView {
                                 this.child(
                                     div()
                                         .flex_none()
-                                        .font_family(crate::theme::MONO)
+                                        .font_family(crate::theme::mono())
                                         .text_size(px(12.5))
                                         .text_color(p.subtext0)
                                         .child(hint),
@@ -1040,7 +1040,7 @@ impl ChatView {
             .child("Runs in")
             .child(
                 div()
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_color(p.text)
                     .child(SharedString::from(self.shell_location(cx))),
             )
@@ -1051,7 +1051,12 @@ impl ChatView {
                 } else {
                     this.child("output is sent to Pi")
                         .child(sep())
-                        .child(div().font_family(MONO).text_color(p.text).child("!!"))
+                        .child(
+                            div()
+                                .font_family(crate::theme::mono())
+                                .text_color(p.text)
+                                .child("!!"),
+                        )
                         .child("to keep it out of the context")
                 }
             })
@@ -1115,7 +1120,8 @@ impl ChatView {
                             .appearance(false)
                             .aria_label("Message Pi, or start with ! to run a shell command")
                             .when(shell.is_some(), |this| {
-                                this.font_family(MONO).text_color(p.shell_text)
+                                this.font_family(crate::theme::mono())
+                                    .text_color(p.shell_text)
                             }),
                     )
                     .when_some(shell, |this, excluded| {

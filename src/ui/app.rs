@@ -1032,7 +1032,7 @@ impl Render for TreehouseApp {
             .size_full()
             .bg(p.base)
             .text_color(p.text)
-            .font_family("IBM Plex Sans")
+            .font_family(crate::theme::sans())
             .when(self.sidebar_open, |this| {
                 this.child(sidebar::render(self, window, cx))
             })

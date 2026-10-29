@@ -17,7 +17,7 @@ use super::app::TreehouseApp;
 use super::items::describe;
 use super::{icon, status_dot};
 use crate::session::{AgentStatus, Session, SessionKind};
-use crate::theme::{MONO, palette};
+use crate::theme::palette;
 use crate::transcript::{Item, ToolStatus, format_duration};
 use crate::workspace::Workspace;
 
@@ -160,7 +160,7 @@ fn render(
                                 .overflow_hidden()
                                 .text_ellipsis()
                                 .whitespace_nowrap()
-                                .font_family(MONO)
+                                .font_family(crate::theme::mono())
                                 .text_size(px(12.))
                                 .text_color(p.subtext1)
                                 .child(text.target),
@@ -202,7 +202,7 @@ fn render(
                                 .overflow_hidden()
                                 .text_ellipsis()
                                 .whitespace_nowrap()
-                                .font_family(MONO)
+                                .font_family(crate::theme::mono())
                                 .text_size(px(12.))
                                 .text_color(p.text)
                                 .child(wants),

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use super::icon;
-use crate::theme::{MONO, mix, palette};
+use crate::theme::{mix, palette};
 use crate::trust::Decision;
 use crate::workspace::Workspace;
 
@@ -152,7 +152,7 @@ pub fn open(
                                         .bg(p.mantle)
                                         .border_1()
                                         .border_color(p.surface0)
-                                        .font_family(MONO)
+                                        .font_family(crate::theme::mono())
                                         .text_size(px(12.5))
                                         .child(icon(Lucide::Folder).text_color(p.subtext0))
                                         .child(div().flex_1().min_w_0().truncate().child(SharedString::from(path.clone()))),
@@ -192,7 +192,7 @@ pub fn open(
                                                         div()
                                                             .min_w_0()
                                                             .truncate()
-                                                            .font_family(MONO)
+                                                            .font_family(crate::theme::mono())
                                                             .text_size(px(12.))
                                                             .child(SharedString::from(parent)),
                                                     ),
