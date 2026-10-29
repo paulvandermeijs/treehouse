@@ -9,7 +9,7 @@ on the chat UI without a model or an API key:
 A message that starts with "Find" plays the sub-agent script, "Worktree" asks
 Treehouse for a new worktree with a task, "Fail" a
 provider error with a stack trace, "Retry" a connection error that Pi retries, and "Approve" a command with a long approval
-pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Long" a long-running command with a
+pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Mermaid" diagrams, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -491,6 +491,33 @@ def run(message):
                "cx.spawn(async move |this, cx| {\n    // one refresh per burst\n"
                "    while let Some(_) = events.next().await { this.update(cx, |w, cx| w.refresh(cx)); }\n});\n```\n\n"
                "And in the config:\n\n```toml\n[watch]\ndebounce_ms = 150\nenabled = true\n```\n\nWant me to make that change?", pause=0)
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+    elif message.startswith("Mermaid"):
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        say(0, "Here's how a request flows through the stack:\n\n"
+               "```mermaid\nflowchart LR\n"
+               "    subgraph infra[\"DDEV stack\"]\n"
+               "        NGINX[\"nginx + PHP-FPM<br/>(Laravel 13)\"]\n"
+               "        PG[(\"PostgreSQL 17\")]\n"
+               "        VALKEY[(\"Valkey<br/>sessions + queue\")]\n"
+               "    end\n"
+               "    BROWSER[\"Browser\"] --> NGINX\n"
+               "    NGINX --> PG\n"
+               "    NGINX --> VALKEY\n"
+               "    NGINX -->|\"OAuth redirect\"| B2C[\"Azure AD B2C\"]\n"
+               "```\n\n"
+               "And the sign-in:\n\n"
+               "```mermaid\nsequenceDiagram\n"
+               "    participant B as Browser\n"
+               "    participant A as App\n"
+               "    participant I as B2C\n"
+               "    B->>A: GET /login\n"
+               "    A->>I: redirect\n"
+               "    I-->>B: login page\n"
+               "    B->>A: callback with code\n"
+               "```\n\n"
+               "This one has a mistake:\n\n"
+               "```mermaid\nflowchart LR\n    A[Open folder] --> B[git worktree add]\n    B --> --> C[Start Pi]\n```\n")
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("MCP"):
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})

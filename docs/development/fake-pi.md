@@ -20,6 +20,7 @@ The first word of a message picks the script:
 | `MCP` | MCP tool calls |
 | `Code` | Code blocks |
 | `Table` | A table |
+| `Mermaid` | Mermaid diagrams, one with a mistake |
 | anything else | A worktree turn with tools, an approval and a sub-agent |
 
 `/setup-worktrees` writes a sample `.agents/linked` and `.agents/prepare`. `/commit`, `/sync` and `/finish-branch` run real git in the worktree: they commit everything, rebase onto the base branch named in `--append-system-prompt`, and call `treehouse_merge`, so the whole lifecycle can be tried on a scratch repository.

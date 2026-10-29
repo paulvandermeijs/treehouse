@@ -8,7 +8,9 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::highlighter::SyntaxHighlighter;
 use gpui_kit::component::text::{MarkdownNode, MarkdownParseContext, MarkdownPlugin, markdown_ast};
-use gpui_kit::component::{ActiveTheme as _, Rope, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{
+    ActiveTheme as _, IconName, Rope, Selectable as _, Sizable as _, h_flex, v_flex,
+};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -26,6 +28,13 @@ struct Code {
     code: SharedString,
 }
 
+/// A ```mermaid block, drawn as its diagram.
+struct Mermaid {
+    code: SharedString,
+    /// The closing fence has arrived; until then Pi is still writing it.
+    closed: bool,
+}
+
 pub struct CodeBlocks;
 
 impl MarkdownPlugin for CodeBlocks {
@@ -40,12 +49,30 @@ impl MarkdownPlugin for CodeBlocks {
     fn parse(
         &self,
         node: &markdown_ast::Node,
-        _: &MarkdownParseContext<'_>,
+        context: &MarkdownParseContext<'_>,
     ) -> Option<MarkdownNode> {
         let markdown_ast::Node::Code(code) = node else {
             return None;
         };
         let lang = code.lang.as_deref().and_then(fence_language);
+        if lang.as_deref() == Some("mermaid") {
+            let closed = code
+                .position
+                .as_ref()
+                .and_then(|p| context.source().get(p.start.offset..p.end.offset))
+                .is_none_or(crate::mermaid::fence_closed);
+            return Some(
+                MarkdownNode::new(
+                    NAME,
+                    Mermaid {
+                        code: code.value.clone().into(),
+                        closed,
+                    },
+                )
+                .text(code.value.clone())
+                .markdown(format!("```mermaid\n{}\n```", code.value)),
+            );
+        }
         let fence = format!(
             "```{}\n{}\n```",
             code.lang.as_deref().unwrap_or(""),
@@ -64,7 +91,11 @@ impl MarkdownPlugin for CodeBlocks {
         )
     }
 
-    fn render(&self, node: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        if let Some(mermaid) = node.data::<Mermaid>() {
+            let id = node.source_range().map_or(0, |r| r.start);
+            return render_mermaid(mermaid, id, window, cx);
+        }
         let Some(code) = node.data::<Code>() else {
             return div().into_any_element();
         };
@@ -125,6 +156,143 @@ impl MarkdownPlugin for CodeBlocks {
             )
             .into_any_element()
     }
+}
+
+fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = palette(cx);
+    // Diagram or source, per block.
+    let show_source = window.use_keyed_state(("mermaid-source", id), cx, |_, _| false);
+    let source_on = *show_source.read(cx);
+    let rendered = mermaid
+        .closed
+        .then(|| crate::mermaid::render(&mermaid.code, &p, window.scale_factor()));
+    let failed = matches!(rendered, Some(Err(_)));
+    let copied = mermaid.code.clone();
+    let toggle = |label: &'static str, on: bool, to_source: bool| {
+        let state = show_source.clone();
+        Button::new(SharedString::from(format!("mermaid-{label}-{id}")))
+            .ghost()
+            .xsmall()
+            .label(label)
+            .selected(on)
+            .on_click(move |_, _, cx| {
+                state.update(cx, |s, cx| {
+                    *s = to_source;
+                    cx.notify();
+                })
+            })
+    };
+    let source = |error_line: Option<SharedString>| {
+        v_flex()
+            .when_some(error_line, |this, error| {
+                this.child(
+                    h_flex()
+                        .gap_2()
+                        .px_4()
+                        .py(px(8.))
+                        .border_b_1()
+                        .border_color(p.surface0)
+                        .font_family(crate::theme::sans())
+                        .text_size(px(12.5))
+                        .text_color(p.red)
+                        .child(icon(IconName::Info).size(px(14.)))
+                        .child(error),
+                )
+            })
+            .child(
+                div()
+                    .px_4()
+                    .py(px(10.))
+                    .font_family(crate::theme::mono())
+                    .text_size(px(12.5))
+                    .line_height(px(20.))
+                    .text_color(p.text)
+                    .child(mermaid.code.clone()),
+            )
+    };
+    let body = match rendered {
+        // Still streaming: the diagram is drawn once the fence closes.
+        None => h_flex()
+            .gap_2()
+            .px_4()
+            .py(px(14.))
+            .font_family(crate::theme::sans())
+            .text_size(px(12.5))
+            .text_color(p.subtext0)
+            .child(div().size(px(6.)).rounded_full().bg(p.blue))
+            .child("Rendering diagram…")
+            .into_any_element(),
+        Some(Err(error)) => {
+            source(Some(format!("Couldn't render: {error}").into())).into_any_element()
+        }
+        Some(Ok(_)) if source_on => source(None).into_any_element(),
+        Some(Ok(diagram)) => div()
+            .id(("mermaid-diagram", id))
+            .w_full()
+            .overflow_x_scroll()
+            .child(
+                // Auto margins centre a diagram that fits; a wider one starts
+                // at the left edge and scrolls.
+                h_flex().min_w_full().p_4().child(
+                    img(diagram.image.clone())
+                        .flex_none()
+                        .mx_auto()
+                        .w(px(diagram.width))
+                        .h(px(diagram.height)),
+                ),
+            )
+            .into_any_element(),
+    };
+    v_flex()
+        .id(("mermaid-block", id))
+        .w_full()
+        .min_w_0()
+        .my_1()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .overflow_hidden()
+        .child(
+            h_flex()
+                .h(px(30.))
+                .gap_2()
+                .pl_3()
+                .pr_1()
+                .border_b_1()
+                .border_color(p.surface0)
+                .font_family(crate::theme::sans())
+                .text_size(px(12.))
+                .text_color(p.subtext0)
+                .child("mermaid")
+                .when_some(crate::mermaid::kind(&mermaid.code), |this, kind| {
+                    this.child(
+                        div()
+                            .opacity(0.7)
+                            .child(SharedString::from(kind.to_string())),
+                    )
+                })
+                .child(div().flex_1())
+                .when(mermaid.closed && !failed, |this| {
+                    this.child(
+                        h_flex()
+                            .child(toggle("Diagram", !source_on, false))
+                            .child(toggle("Source", source_on, true)),
+                    )
+                })
+                .child(
+                    Button::new(("copy-mermaid", id))
+                        .ghost()
+                        .xsmall()
+                        .icon(icon(Lucide::Copy).size(px(14.)))
+                        .tooltip("Copy source")
+                        .on_click(move |_, _, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(copied.to_string()))
+                        }),
+                ),
+        )
+        .child(body)
+        .into_any_element()
 }
 
 /// The language a fence names: "rust,ignore" and "ts {title}" name it first.
