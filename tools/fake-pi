@@ -152,6 +152,10 @@ MODELS = [
      "contextWindow": 1048576},
     {"id": "z-ai/glm-5.3-flash", "name": "Z.AI: GLM 5.3 Flash", "provider": "openrouter", "contextWindow": 202752},
 ]
+# OpenRouter's real catalogue runs to hundreds of models.
+if os.environ.get("FAKE_PI_MANY_MODELS"):
+    MODELS += [{"id": f"maker-{m:02}/model-{i}", "name": f"Maker {m}: Model {i}", "provider": "openrouter",
+                "contextWindow": 128000} for m in range(30) for i in range(12)]
 COMMANDS = [
     {"name": "skill:pdf-tools", "description": "Extract text and tables from PDF files", "source": "skill",
      "sourceInfo": {"path": "/home/you/.pi/agent/skills/pdf-tools/SKILL.md", "scope": "user"}},

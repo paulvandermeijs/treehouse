@@ -17,6 +17,18 @@ use crate::config::Config;
 use crate::models::{self, ListOptions, ModelInfo, Row, Section};
 use crate::theme::{mix, palette};
 
+/// A row's height as drawn, so the list knows its own height without
+/// measuring hundreds of rows. Models include the 2px gap under them.
+fn row_height(ix: usize, row: &Row) -> Pixels {
+    match row {
+        Row::First | Row::Model { .. } => px(50.),
+        Row::Header { .. } if ix == 0 => px(28.),
+        // The 4px above the line is margin, outside this height.
+        Row::Header { .. } => px(30.),
+        Row::Maker(_) => px(24.),
+    }
+}
+
 /// What was picked.
 #[derive(Clone)]
 pub enum Pick {
@@ -43,7 +55,12 @@ pub struct ModelPicker {
     selected: Option<usize>,
     /// Opened, but the current model isn't highlighted yet.
     select_current: bool,
-    scroll: ScrollHandle,
+    /// Only the rows in view are drawn: OpenRouter alone lists hundreds.
+    list: ListState,
+    /// The rows the list was last drawn with.
+    rows: Rc<Vec<Row>>,
+    /// The star shows on the selected and the hovered row.
+    hovered: Option<usize>,
     max_height: Pixels,
     _subscription: Subscription,
 }
@@ -87,7 +104,9 @@ impl ModelPicker {
             toggled: HashSet::new(),
             selected: None,
             select_current: false,
-            scroll: ScrollHandle::new(),
+            list: ListState::new(0, ListAlignment::Top, px(200.)),
+            rows: Rc::new(Vec::new()),
+            hovered: None,
             max_height: px(440.),
             _subscription: subscription,
         }
@@ -109,7 +128,10 @@ impl ModelPicker {
             .update(cx, |state, cx| state.set_value("", window, cx));
         self.toggled.clear();
         self.selected = None;
+        self.hovered = None;
         self.select_current = true;
+        self.rows = Rc::new(Vec::new());
+        self.list.reset(0);
         cx.notify();
     }
 
@@ -129,7 +151,7 @@ impl ModelPicker {
             })
             .or_else(|| rows.iter().position(Row::selectable));
         if let Some(ix) = self.selected {
-            self.scroll.scroll_to_item(ix);
+            self.list.scroll_to_reveal_item(ix);
         }
     }
 
@@ -154,7 +176,7 @@ impl ModelPicker {
             .iter()
             .position(|row| matches!(row, Row::Model { .. }))
             .or_else(|| rows.iter().position(Row::selectable));
-        self.scroll.scroll_to_item(0);
+        self.list.scroll_to_reveal_item(0);
     }
 
     fn move_selection(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -172,7 +194,7 @@ impl ModelPicker {
             None => 0,
         };
         self.selected = Some(selectable[next]);
-        self.scroll.scroll_to_item(selectable[next]);
+        self.list.scroll_to_reveal_item(selectable[next]);
         cx.notify();
     }
 
@@ -254,15 +276,15 @@ impl ModelPicker {
                 label, count, open, ..
             } => h_flex()
                 .id(("model-group", ix))
-                .flex_none()
+                .w_full()
+                .h(row_height(ix, row))
+                .items_end()
                 .gap(px(6.))
                 .px(px(14.))
-                .pt(px(10.))
-                .pb(px(4.))
+                .pb(px(2.))
                 .when(ix > 0, |this| {
                     this.mt(px(4.)).border_t_1().border_color(p.surface0)
                 })
-                .when(ix == 0, |this| this.pt(px(8.)))
                 .text_size(px(11.5))
                 .text_color(p.subtext0)
                 .font_weight(FontWeight::MEDIUM)
@@ -298,10 +320,11 @@ impl ModelPicker {
                         )
                 })
                 .into_any_element(),
-            Row::Maker(maker) => div()
-                .flex_none()
+            Row::Maker(maker) => h_flex()
+                .w_full()
+                .h(row_height(ix, row))
+                .items_end()
                 .px(px(14.))
-                .pt(px(8.))
                 .pb(px(2.))
                 .text_size(px(11.))
                 .text_color(p.subtext0)
@@ -325,11 +348,18 @@ impl ModelPicker {
                         .map(|r| (r.clone(), marked))
                         .collect::<Vec<_>>()
                 };
-                let group: SharedString = format!("model-row-{ix}").into();
                 let favorite = *favorite;
+                let starred = selected || self.hovered == Some(ix);
                 self.model_shell(ix, selected, cx)
-                    .group(group.clone())
                     .when(!selected, |this| this.hover(|s| s.bg(hover)))
+                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                        if *hovered {
+                            this.hovered = Some(ix);
+                        } else if this.hovered == Some(ix) {
+                            this.hovered = None;
+                        }
+                        cx.notify();
+                    }))
                     .child(
                         v_flex()
                             .flex_1()
@@ -384,37 +414,36 @@ impl ModelPicker {
                             .when(*current, |this| {
                                 this.child(icon(IconName::Check).size(px(14.)).text_color(p.blue))
                             })
-                            .child(
-                                h_flex()
-                                    .id(("model-star", ix))
-                                    .size(px(20.))
-                                    .justify_center()
-                                    .cursor_pointer()
-                                    .when(!selected, |this| {
-                                        this.hidden().group_hover(group, |s| s.flex())
-                                    })
-                                    .child(
-                                        icon(if favorite {
-                                            IconName::StarFill
-                                        } else {
-                                            IconName::Star
+                            .when(starred, |this| {
+                                this.child(
+                                    h_flex()
+                                        .id(("model-star", ix))
+                                        .size(px(20.))
+                                        .justify_center()
+                                        .cursor_pointer()
+                                        .child(
+                                            icon(if favorite {
+                                                IconName::StarFill
+                                            } else {
+                                                IconName::Star
+                                            })
+                                            .size(px(14.))
+                                            .text_color(if favorite { p.blue } else { p.subtext0 }),
+                                        )
+                                        .tooltip(move |window, cx| {
+                                            Tooltip::new(if favorite {
+                                                "Remove from favorites"
+                                            } else {
+                                                "Add to favorites"
+                                            })
+                                            .build(window, cx)
                                         })
-                                        .size(px(14.))
-                                        .text_color(if favorite { p.blue } else { p.subtext0 }),
-                                    )
-                                    .tooltip(move |window, cx| {
-                                        Tooltip::new(if favorite {
-                                            "Remove from favorites"
-                                        } else {
-                                            "Add to favorites"
-                                        })
-                                        .build(window, cx)
-                                    })
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.toggle_favorite(ix, cx)
-                                    })),
-                            ),
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
+                                            this.toggle_favorite(ix, cx)
+                                        })),
+                                )
+                            }),
                     )
                     .into_any_element()
             }
@@ -427,8 +456,9 @@ impl ModelPicker {
         h_flex()
             .id(("model", ix))
             .flex_none()
-            .mx(px(6.))
-            .min_h(px(48.))
+            .flex_1()
+            .mb(px(2.))
+            .h(px(48.))
             .gap(px(8.))
             .px(px(8.))
             .py(px(7.))
@@ -443,6 +473,12 @@ impl Render for ModelPicker {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = palette(cx);
         let rows = self.rows(cx);
+        if *self.rows != rows {
+            // Splicing keeps the scroll position, so starring a row
+            // deep in the list doesn't jump to the top.
+            self.list.splice(0..self.rows.len(), rows.len());
+            self.rows = Rc::new(rows.clone());
+        }
         if self.select_current {
             self.highlight_current(&rows, cx);
         }
@@ -531,19 +567,32 @@ impl Render for ModelPicker {
                             }),
                     )
                 } else {
+                    let height = rows
+                        .iter()
+                        .enumerate()
+                        .map(|(ix, row)| row_height(ix, row))
+                        .sum::<Pixels>()
+                        .min(self.max_height);
                     this.child(
-                        v_flex()
-                            .id("model-rows")
-                            .track_scroll(&self.scroll)
-                            .overflow_y_scroll()
-                            .max_h(self.max_height)
-                            .py(px(6.))
-                            .gap(px(2.))
-                            .children(
-                                rows.iter()
-                                    .enumerate()
-                                    .map(|(ix, row)| self.render_row(ix, row, cx)),
-                            ),
+                        div().py(px(6.)).child(
+                            list(
+                                self.list.clone(),
+                                cx.processor(|this, ix: usize, _, cx| {
+                                    let rows = this.rows.clone();
+                                    // Without a full-width wrapper the list
+                                    // lays rows out at their own width.
+                                    let row = match rows.get(ix) {
+                                        Some(row @ (Row::First | Row::Model { .. })) => {
+                                            h_flex().px(px(6.)).child(this.render_row(ix, row, cx))
+                                        }
+                                        Some(row) => h_flex().child(this.render_row(ix, row, cx)),
+                                        None => h_flex(),
+                                    };
+                                    row.w_full().into_any_element()
+                                }),
+                            )
+                            .h(height),
+                        ),
                     )
                 }
             })
