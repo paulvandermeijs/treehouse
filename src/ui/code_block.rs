@@ -237,33 +237,46 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
         .bg(p.mantle)
         .overflow_hidden()
         .child(
+            // Taller than a code block's header, as the design's diagram
+            // cards are, to make room for the switch.
             h_flex()
-                .h(px(30.))
-                .gap_2()
+                .h(px(38.))
+                .gap(px(10.))
                 .pl_3()
-                .pr_1()
+                .pr(px(6.))
                 .border_b_1()
                 .border_color(p.surface0)
                 .font_family(crate::theme::sans())
-                .text_size(px(12.))
-                .text_color(p.subtext0)
-                .child("mermaid")
+                .text_size(px(13.))
+                .text_color(p.text)
+                .child(div().font_weight(FontWeight::MEDIUM).child("mermaid"))
                 .when_some(crate::mermaid::kind(&mermaid.code), |this, kind| {
                     this.child(
                         div()
-                            .opacity(0.7)
+                            .text_size(px(12.))
+                            .text_color(p.subtext0)
                             .child(SharedString::from(kind.to_string())),
                     )
                 })
                 .child(div().flex_1())
                 .when(mermaid.closed && !failed, |this| {
                     let state = show_source.clone();
+                    // Fixed sizes, as the design has them, rather than the
+                    // kit's, which grow with the text size.
+                    let segment = |id: &'static str, label: &'static str, on: bool| {
+                        Button::new(id)
+                            .child(div().text_size(px(12.)).child(label))
+                            .selected(on)
+                            .h(px(24.))
+                            .px(px(9.))
+                    };
                     this.child(
                         ButtonGroup::new(("mermaid-view", id))
                             .outline()
-                            .xsmall()
-                            .child(Button::new("diagram").label("Diagram").selected(!source_on))
-                            .child(Button::new("source").label("Source").selected(source_on))
+                            .small()
+                            .mr(px(4.))
+                            .child(segment("diagram", "Diagram", !source_on))
+                            .child(segment("source", "Source", source_on))
                             .on_click(move |selected: &Vec<usize>, _, cx| {
                                 let to_source = selected.first() == Some(&1);
                                 state.update(cx, |s, cx| {
@@ -276,7 +289,8 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
                 .child(
                     Button::new(("copy-mermaid", id))
                         .ghost()
-                        .xsmall()
+                        .small()
+                        .size(px(28.))
                         .icon(icon(Lucide::Copy).size(px(14.)))
                         .tooltip("Copy source")
                         .on_click(move |_, _, cx| {
