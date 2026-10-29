@@ -14,7 +14,7 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 - **MCP:** an approval option for MCP tool calls, and a `/mcp` command.
 - **Context popover:** hovering the token count in the status bar shows what's using the context.
 - **Text-size stepper** in Settings › Appearance, in place of the Text size dropdown.
-- **Mermaid diagrams** in replies.
+- **Mermaid diagrams:** save as SVG, and open in the right dock to zoom and pan, as the design has it.
 
 ## Small fixes
 

@@ -42,6 +42,11 @@ Code blocks in the chat and the diff are highlighted for Astro, Bash, CSS, HTML,
 
 Markdown tables have a header row, hairline dividers and a copy button under the table, with **Copy as Markdown** and **Copy as CSV**. Columns whose values are all numbers, dates, sizes or durations are right-aligned once the reply has finished; an alignment marker in the Markdown (`:--:`) wins.
 
+
+### Diagrams
+
+A fenced ` ```mermaid ` block is drawn as its diagram, in the theme's colours: flowcharts, sequence, class, state and ER diagrams, Gantt charts, mind maps and more. **Diagram** and **Source** in the block's header switch between the drawing and the text, and the copy button copies the source. While Pi is still writing the block it shows "Rendering diagram…"; a diagram that can't be drawn shows its source with the reason. A diagram wider than the chat scrolls sideways.
+
 ## Scrolling
 
 With the chat focused, <kbd>Page Up</kbd> and <kbd>Page Down</kbd> scroll a page at a time, and <kbd>Ctrl+U</kbd> and <kbd>Ctrl+D</kbd> half a page, also while typing in the message box. Back at the end, the chat follows new output again.
