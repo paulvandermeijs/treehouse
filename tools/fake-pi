@@ -572,6 +572,11 @@ for line in sys.stdin:
     elif kind == "set_model":
         state["model"] = next((m for m in MODELS if m["id"] == req.get("modelId")
                                and m["provider"] == req.get("provider", m["provider"])), state["model"])
+        # Like Pi, lower the thinking level a model doesn't support; here the
+        # "latest" aliases stop at medium.
+        if state["model"]["id"].endswith("latest") and state["thinking"] in ("high", "xhigh"):
+            state["thinking"] = "medium"
+            emit({"type": "thinking_level_changed", "level": "medium"})
         respond(req, state["model"])
     elif kind == "set_thinking_level":
         state["thinking"] = req.get("level", "high")

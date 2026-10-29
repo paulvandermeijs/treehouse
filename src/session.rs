@@ -381,6 +381,11 @@ impl Session {
         }) {
             self.model = Some(model);
         }
+        if let Some(level) = entries.iter().rev().find_map(|e| {
+            (e["type"] == "thinking_level_change").then(|| e["thinkingLevel"].as_str())?
+        }) {
+            self.thinking = level.to_string();
+        }
         self.sync_texts(cx);
         cx.notify();
     }
@@ -1129,6 +1134,13 @@ impl Session {
                     }
                 }
                 Effect::None => {}
+            }
+            // Pi changes the level itself when a new model doesn't
+            // support the old one.
+            if event["type"] == "thinking_level_changed"
+                && let Some(level) = event.get("level").and_then(Value::as_str)
+            {
+                self.thinking = level.to_string();
             }
             // Commits come from Pi's shell; a card follows the call that made them.
             if event["type"] == "tool_execution_end" && event["toolName"] == "bash" {
