@@ -48,6 +48,10 @@ pub struct Config {
     pub model: Option<String>,
     /// `None` means the same as the chat.
     pub subagent_model: Option<String>,
+    /// `provider/model`s starred in the model picker.
+    pub favorite_models: Vec<String>,
+    /// `provider/model`s picked in a chat, most recent first.
+    pub recent_models: Vec<String>,
     pub thinking: String,
     pub tools: Vec<String>,
 
@@ -74,6 +78,8 @@ impl Default for Config {
             pi_command: "pi".into(),
             model: None,
             subagent_model: None,
+            favorite_models: Vec::new(),
+            recent_models: Vec::new(),
             thinking: "high".into(),
             tools: TOOLS.iter().map(|t| t.to_string()).collect(),
             approval: ApprovalMode::AskBeforeBash,

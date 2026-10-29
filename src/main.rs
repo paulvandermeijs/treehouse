@@ -8,6 +8,7 @@ mod git;
 mod history;
 mod markdown;
 mod mcp;
+mod models;
 mod pi;
 mod session;
 mod setup;

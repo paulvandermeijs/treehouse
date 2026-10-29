@@ -13,11 +13,15 @@ use gpui_kit::component::{IconName, Sizable as _, WindowExt as _, h_flex, v_flex
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::model_picker::{ModelPicker, Pick};
 use crate::actions::SHORTCUTS;
 use crate::approval::ApprovalMode;
 use crate::config::{CompareBase, Config, THINKING_LEVELS, TOOLS, ThemeChoice};
+use crate::models::{Catalog, ModelInfo};
 use crate::pi::auth::{self, Credential, PROVIDERS};
 use crate::theme::{MONO, palette};
+use gpui_kit::component::Selectable;
+use gpui_kit::component::popover::Popover;
 
 /// The sections other views link to; the value is the page index.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -515,27 +519,17 @@ fn defaults_page() -> SettingPage {
                 .item(
                     SettingItem::new(
                         "Model",
-                        SettingField::input(
-                            |cx| Config::global(cx).model.clone().unwrap_or_default().into(),
-                            |v: SharedString, cx| Config::update(cx, |c| c.model = Some(v.to_string()).filter(|m| !m.trim().is_empty())),
-                        ),
+                        SettingField::render(|_, window, cx| model_dropdown(ModelSetting::Chat, window, cx)),
                     )
-                    .description("provider/model for new chats, e.g. anthropic/claude-opus-4-5. Empty uses Pi's default.")
-                    // The value can be long, so the input gets the whole row.
+                    .description("For new chats. Pi's default picks one from your providers.")
                     .layout(Axis::Vertical),
                 )
                 .item(
                     SettingItem::new(
                         "Sub-agent model",
-                        SettingField::input(
-                            |cx| Config::global(cx).subagent_model.clone().unwrap_or_default().into(),
-                            |v: SharedString, cx| {
-                                Config::update(cx, |c| c.subagent_model = Some(v.to_string()).filter(|m| !m.trim().is_empty()))
-                            },
-                        ),
+                        SettingField::render(|_, window, cx| model_dropdown(ModelSetting::SubAgent, window, cx)),
                     )
-                    .description("Cheaper models are often enough. Empty means the same as the chat.")
-                    // The value can be long, so the input gets the whole row.
+                    .description("Cheaper models are often enough.")
                     .layout(Axis::Vertical),
                 )
                 .item(SettingItem::new(
@@ -574,6 +568,247 @@ fn defaults_page() -> SettingPage {
                 ),
         )
         .group(SettingGroup::new().title("Tools").description("What Pi may use").items(tools.collect::<Vec<_>>()))
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum ModelSetting {
+    Chat,
+    SubAgent,
+}
+
+impl ModelSetting {
+    fn get(self, cx: &App) -> Option<String> {
+        let config = Config::global(cx);
+        match self {
+            ModelSetting::Chat => config.model.clone(),
+            ModelSetting::SubAgent => config.subagent_model.clone(),
+        }
+    }
+
+    fn set(self, value: Option<String>, cx: &mut App) {
+        Config::update(cx, |c| match self {
+            ModelSetting::Chat => c.model = value,
+            ModelSetting::SubAgent => c.subagent_model = value,
+        })
+    }
+
+    /// The first option, which leaves the setting empty.
+    fn first_option(self) -> (&'static str, &'static str) {
+        match self {
+            ModelSetting::Chat => ("Pi's default", "Pi picks from your providers"),
+            ModelSetting::SubAgent => ("Same as the chat", "Whatever the chat runs on"),
+        }
+    }
+}
+
+/// A model dropdown's picker and whether it's open.
+struct ModelDropdown {
+    picker: Entity<ModelPicker>,
+    open: bool,
+    /// The closed dropdown's width, which the open list matches.
+    width: Pixels,
+    _subscription: Subscription,
+}
+
+fn model_dropdown(setting: ModelSetting, window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = palette(cx);
+    let key = match setting {
+        ModelSetting::Chat => "model-dropdown",
+        ModelSetting::SubAgent => "subagent-model-dropdown",
+    };
+    let state = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| {
+        let (label, detail) = setting.first_option();
+        let picker = cx.new(|cx| {
+            ModelPicker::new(
+                |cx| {
+                    cx.try_global::<Catalog>()
+                        .map(|c| c.models.clone())
+                        .unwrap_or_default()
+                },
+                move |cx| setting.get(cx),
+                |cx| {
+                    let catalog = cx.try_global::<Catalog>()?;
+                    (!catalog.loaded).then(|| match &catalog.error {
+                        Some(err) => format!("Couldn't list Pi's models: {err}"),
+                        None => "Loading models…".to_string(),
+                    })
+                },
+                move |pick, _, cx| {
+                    setting.set(
+                        match pick {
+                            Pick::First => None,
+                            Pick::Model(model) => Some(model.full_name()),
+                        },
+                        cx,
+                    )
+                },
+                window,
+                cx,
+            )
+            .first_option(label, detail)
+            .max_height(px(260.))
+        });
+        let subscription = cx.subscribe(
+            &picker,
+            |this: &mut ModelDropdown, _, _: &DismissEvent, cx| {
+                this.open = false;
+                cx.notify();
+            },
+        );
+        ModelDropdown {
+            picker,
+            open: false,
+            width: px(480.),
+            _subscription: subscription,
+        }
+    });
+    let (picker, open, width) = {
+        let s = state.read(cx);
+        (s.picker.clone(), s.open, s.width)
+    };
+
+    // The closed dropdown: the model's name and id, or the first option.
+    let value = setting.get(cx);
+    let catalog = cx.try_global::<Catalog>();
+    let known = value.as_ref().and_then(|v| {
+        catalog
+            .and_then(|c| c.models.iter().find(|m| m.full_name() == *v))
+            .cloned()
+    });
+    let model = known
+        .clone()
+        .or_else(|| value.as_deref().and_then(ModelInfo::parse));
+    // A saved model whose provider has no key any more is ignored by Pi.
+    let no_key = model.as_ref().and_then(|m| {
+        (known.is_none() && !auth::credential(&m.provider).is_set()).then(|| m.provider.clone())
+    });
+
+    v_flex()
+        .relative()
+        .w_full()
+        .gap(px(6.))
+        .child(
+            canvas(
+                {
+                    let state = state.downgrade();
+                    move |bounds, _, cx| {
+                        let _ = state.update(cx, |state, _| state.width = bounds.size.width);
+                    }
+                },
+                |_, _, _, _| {},
+            )
+            .absolute()
+            .size_full(),
+        )
+        .child(
+            Popover::new(SharedString::from(format!("{key}-popover")))
+                .anchor(Anchor::TopLeft)
+                .open(open)
+                .on_open_change({
+                    let state = state.downgrade();
+                    move |open, window, cx| {
+                        let open = *open;
+                        if open {
+                            Catalog::load(cx);
+                        }
+                        let _ = state.update(cx, |state, cx| {
+                            state.open = open;
+                            if open {
+                                state
+                                    .picker
+                                    .update(cx, |picker, cx| picker.reset(window, cx));
+                            }
+                            cx.notify();
+                        });
+                    }
+                })
+                .track_focus(&picker.focus_handle(cx))
+                .trigger_style(StyleRefinement::default().w_full())
+                .w(width)
+                .p_0()
+                .bg(p.mantle)
+                .border_color(p.surface1)
+                .rounded(px(10.))
+                .overflow_hidden()
+                .trigger(DropdownTrigger {
+                    id: SharedString::from(format!("{key}-trigger")),
+                    label: match &model {
+                        Some(m) => m.short_label().into(),
+                        None => setting.first_option().0.into(),
+                    },
+                    detail: model.as_ref().map(|m| m.full_name().into()),
+                    open: false,
+                })
+                .child(picker),
+        )
+        .when_some(no_key, |this, provider| {
+            this.child(
+                div()
+                    .text_size(px(12.))
+                    .text_color(p.red)
+                    .child(format!("No key for {provider}")),
+            )
+        })
+        .into_any_element()
+}
+
+/// The closed model dropdown.
+#[derive(IntoElement)]
+struct DropdownTrigger {
+    id: SharedString,
+    label: SharedString,
+    detail: Option<SharedString>,
+    open: bool,
+}
+
+impl Selectable for DropdownTrigger {
+    fn selected(mut self, selected: bool) -> Self {
+        self.open = selected;
+        self
+    }
+
+    fn is_selected(&self) -> bool {
+        self.open
+    }
+}
+
+impl RenderOnce for DropdownTrigger {
+    fn render(self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let p = palette(cx);
+        h_flex()
+            .id(self.id)
+            .w_full()
+            .h(px(34.))
+            .gap(px(8.))
+            .px(px(10.))
+            .rounded(px(6.))
+            .border_1()
+            .border_color(if self.open { p.blue } else { p.surface1 })
+            .bg(p.mantle)
+            .cursor_pointer()
+            .text_size(px(13.))
+            .text_color(p.text)
+            .child(div().flex_none().child(self.label))
+            .when_some(self.detail, |this, detail| {
+                this.child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .font_family(MONO)
+                        .text_size(px(11.5))
+                        .text_color(p.subtext0)
+                        .child(detail),
+                )
+            })
+            .child(div().flex_1())
+            .child(
+                gpui_kit::component::Icon::new(IconName::ChevronDown)
+                    .size(px(14.))
+                    .text_color(p.subtext0),
+            )
+    }
 }
 
 fn approvals_page() -> SettingPage {

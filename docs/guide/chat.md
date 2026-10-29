@@ -15,7 +15,16 @@ Type in the message box and press <kbd>Enter</kbd>. While Pi is working, the sen
 
 ## Model and thinking level
 
-The toolbar under the message box shows the chat's model and thinking level. Click either to change it for this chat, or use <kbd>⌘M</kbd> and **Set thinking level…** in the command palette. Pi's models load once Pi has started, so send a message first.
+The toolbar under the message box shows the chat's model and thinking level. Click either to change it for this chat, or use <kbd>⌘M</kbd> and **Set thinking level…** in the command palette.
+
+The model picker lists the models of every provider you have a key for:
+
+- **Favorites** first, then **Recent**: the last three models you picked that aren't favorites.
+- Then a group per provider. With more than 20 models, only the current model's provider starts open; click a heading to open or close it.
+- Providers that sell other makers' models, such as OpenRouter, split their group by maker.
+- Type to filter: every word must match the model's name, its id or its provider.
+- <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>Enter</kbd> picks, <kbd>Esc</kbd> clears the filter and then closes.
+- Click the star on a row, or press <kbd>⌘D</kbd>, to make it a favorite. Favorites are shared with the dropdowns in Settings.
 
 The defaults for new chats and sub-agents are in **Settings › Agent defaults**. See [Settings](./settings).
 

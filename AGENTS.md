@@ -36,7 +36,7 @@ Data flows one way: **Pi process → `PiClient` → `Session` → `Transcript` i
 - `src/history.rs`: the worktree → Pi session file index (`sessions.json`, with each worktree's sub-agents by tool call id; a new parent session clears them) and reading a session file's current branch. `Transcript::restore` builds the chat from its stored messages, since Pi doesn't replay events; `Session::restore_history` runs it when the chat is first opened or Pi starts.
 - `src/workspace.rs`: projects → worktrees → sub-agent sessions. It creates and removes worktrees through `src/git.rs`, which shells out to `git`, and applies trust decisions to every session.
 - `src/setup.rs`: a new worktree's `.agents/linked` symlinks and `.agents/prepare` script (with `ROOT_WORKTREE_PATH`). `Session::run_setup` runs them as a shell row in the chat (`Transcript::start_setup`), holds messages until it ends, and waits for trust.
-- `src/ui/`: `app.rs` is the root (sidebar, main chat, right dock, dialogs); `chat.rs` is a chat pane, `items.rs` renders each transcript item, `diff.rs` the dock's diff, and `trust.rs`, `settings.rs` and `palette.rs` the dialogs.
+- `src/ui/`: `app.rs` is the root (sidebar, main chat, right dock, dialogs); `chat.rs` is a chat pane, `items.rs` renders each transcript item, `diff.rs` the dock's diff, `model_picker.rs` the model picker (its list comes from `src/models.rs`), and `trust.rs`, `settings.rs` and `palette.rs` the dialogs.
 
 ### The bridge extension
 

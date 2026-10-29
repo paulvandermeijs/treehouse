@@ -78,26 +78,7 @@ pub enum MergeChoice {
     Deny,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct ModelInfo {
-    pub provider: String,
-    pub id: String,
-    pub context_window: Option<u64>,
-}
-
-impl ModelInfo {
-    fn from_json(value: &Value) -> Option<Self> {
-        Some(Self {
-            provider: value.get("provider")?.as_str()?.to_string(),
-            id: value.get("id")?.as_str()?.to_string(),
-            context_window: value.get("contextWindow").and_then(Value::as_u64),
-        })
-    }
-
-    pub fn full_name(&self) -> String {
-        format!("{}/{}", self.provider, self.id)
-    }
-}
+pub use crate::models::ModelInfo;
 
 pub enum SessionEvent {
     /// The parent asked for a sub-agent; the workspace starts it.
@@ -237,14 +218,7 @@ impl Session {
             head_seen: None,
             subagent_requests: HashMap::new(),
             viewed: true,
-            model: model.and_then(|m| {
-                let (provider, id) = m.split_once('/')?;
-                Some(ModelInfo {
-                    provider: provider.into(),
-                    id: id.into(),
-                    context_window: None,
-                })
-            }),
+            model: model.as_deref().and_then(ModelInfo::parse),
             models: Vec::new(),
             thinking: config.thinking.clone(),
             context_tokens: None,
@@ -403,11 +377,7 @@ impl Session {
                 ),
                 _ => return None,
             };
-            Some(ModelInfo {
-                provider: provider.into(),
-                id: id.into(),
-                context_window: None,
-            })
+            ModelInfo::parse(&format!("{provider}/{id}"))
         }) {
             self.model = Some(model);
         }
@@ -1009,7 +979,7 @@ impl Session {
             PiMessage::Response(response) => {
                 // A `!` command can change files, or worktrees, like a turn.
                 let shell = response.command == "bash";
-                self.handle_response(response);
+                self.handle_response(response, cx);
                 if shell {
                     cx.emit(SessionEvent::TurnEnded);
                 }
@@ -1052,7 +1022,7 @@ impl Session {
         }
     }
 
-    fn handle_response(&mut self, response: crate::pi::rpc::Response) {
+    fn handle_response(&mut self, response: crate::pi::rpc::Response, cx: &mut App) {
         if response.command == "bash" {
             let id = response.id.clone().unwrap_or_default();
             let error = (!response.success).then(|| {
@@ -1103,10 +1073,8 @@ impl Session {
                 }
             }
             "get_available_models" => {
-                self.models = data["models"]
-                    .as_array()
-                    .map(|models| models.iter().filter_map(ModelInfo::from_json).collect())
-                    .unwrap_or_default();
+                self.models = crate::models::parse_models(data);
+                crate::models::Catalog::store(self.models.clone(), cx);
             }
             "set_model" => {
                 if let Some(model) = ModelInfo::from_json(data) {

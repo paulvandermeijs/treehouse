@@ -14,10 +14,14 @@ Keys are saved in Pi's own `auth.json`, readable only by you, so a key added her
 
 Used for new worktrees and sub-agents. You can still change the model and thinking level per chat in the toolbar under the message box.
 
+The model fields are the chat's model picker as a dropdown, with **Pi's default** or **Same as the chat** as the first option. Opening one asks Pi for its models. When a saved model's provider has no key any more, the field says so, since Pi then ignores the setting.
+
 | Setting | Key | Default | |
 | --- | --- | --- | --- |
 | Model | `model` | Pi's default | `provider/model`, for example `anthropic/claude-opus-4-5` |
 | Sub-agent model | `subagent_model` | Same as the chat | Cheaper models are often enough |
+| | `favorite_models` | none | Starred in the model picker |
+| | `recent_models` | none | Picked in a chat, most recent first |
 | Thinking level | `thinking` | `high` | `off`, `minimal`, `low`, `medium` or `high` |
 | Approval | `approval` | Ask before bash | See [Approvals](./approvals) |
 | Pi command | `pi_command` | `pi` | The `pi` executable |
