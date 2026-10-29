@@ -13,7 +13,7 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 - **Plan cards:** a built-in skill whose plan shows as a checklist card that updates as Pi works.
 - **MCP:** an approval option for MCP tool calls, and a `/mcp` command.
 - **Context popover:** hovering the token count in the status bar shows what's using the context.
-- **Custom fonts** for the interface and code in Settings, plus the optional text-size stepper.
+- **Text-size stepper** in Settings › Appearance, in place of the Text size dropdown.
 - **Mermaid diagrams** in replies.
 
 ## Small fixes

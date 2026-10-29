@@ -5,8 +5,9 @@
 //! diff greens and reds in Latte); [`Palette`] holds those.
 
 use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
-use gpui_kit::{App, Hsla, Window, rgb};
+use gpui_kit::{App, Global, Hsla, SharedString, Window, rgb};
 use std::borrow::Cow;
+use std::sync::Mutex;
 
 use crate::config::{Config, ThemeChoice};
 
@@ -46,7 +47,123 @@ pub fn init(cx: &mut App) {
             theme.apply_config(&mocha);
         });
     }
+    refresh_installed_fonts(cx);
     apply(Config::global(cx).theme, None, cx);
+}
+
+/// The installed font families, and the fonts in use: the settings' when
+/// they're installed, else the last ones that were, so a half-typed name
+/// doesn't flash through fallback fonts.
+struct Fonts {
+    installed: Vec<String>,
+    ui: SharedString,
+    code: SharedString,
+}
+
+impl Global for Fonts {}
+
+/// Lists the installed fonts again; Settings does when it opens, so a font
+/// installed since is found.
+pub fn refresh_installed_fonts(cx: &mut App) {
+    let installed = cx.text_system().all_font_names();
+    match cx.try_global::<Fonts>() {
+        Some(_) => cx.global_mut::<Fonts>().installed = installed,
+        None => cx.set_global(Fonts {
+            installed,
+            ui: SANS.into(),
+            code: MONO.into(),
+        }),
+    }
+}
+
+pub fn installed_fonts(cx: &App) -> &[String] {
+    cx.try_global::<Fonts>()
+        .map(|f| f.installed.as_slice())
+        .unwrap_or_default()
+}
+
+/// What a font setting resolves to.
+#[derive(Debug, PartialEq)]
+pub enum FontStatus {
+    BuiltIn,
+    Installed,
+    /// Installed under this spelling.
+    Suggest(String),
+    Missing,
+}
+
+pub fn font_status(typed: &str, installed: &[String]) -> FontStatus {
+    let typed = typed.trim();
+    if typed.is_empty() {
+        return FontStatus::BuiltIn;
+    }
+    if installed.iter().any(|name| name == typed) {
+        return FontStatus::Installed;
+    }
+    let squash = |s: &str| -> String {
+        s.chars()
+            .filter(|c| !c.is_whitespace())
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let wanted = squash(typed);
+    match installed.iter().find(|name| squash(name) == wanted) {
+        Some(name) => FontStatus::Suggest(name.clone()),
+        None => FontStatus::Missing,
+    }
+}
+
+/// The font a setting uses now: its own when installed, the built-in one
+/// when empty, else the last one in use.
+fn resolve(typed: &str, built_in: &str, last: &SharedString, installed: &[String]) -> SharedString {
+    match font_status(typed, installed) {
+        FontStatus::BuiltIn => built_in.into(),
+        FontStatus::Installed => typed.trim().to_string().into(),
+        FontStatus::Suggest(_) | FontStatus::Missing => last.clone(),
+    }
+}
+
+/// Puts the interface and code fonts from the settings on the theme.
+pub fn apply_fonts(cx: &mut App) {
+    if cx.try_global::<Fonts>().is_none() {
+        refresh_installed_fonts(cx);
+    }
+    let config = Config::global(cx);
+    let fonts = cx.global::<Fonts>();
+    let ui = resolve(&config.ui_font, SANS, &fonts.ui, &fonts.installed);
+    let code = resolve(&config.code_font, MONO, &fonts.code, &fonts.installed);
+    let fonts = cx.global_mut::<Fonts>();
+    fonts.ui = ui.clone();
+    fonts.code = code.clone();
+    if let Ok(mut in_use) = IN_USE.lock() {
+        *in_use = Some((ui.clone(), code.clone()));
+    }
+    Theme::update(cx, |theme| {
+        theme.font_family = ui;
+        theme.mono_font_family = code;
+    });
+}
+
+/// The interface and code fonts in use, for drawing code that has a
+/// palette but no `App` at hand.
+static IN_USE: Mutex<Option<(SharedString, SharedString)>> = Mutex::new(None);
+
+/// The interface font in use.
+pub fn sans() -> SharedString {
+    IN_USE
+        .lock()
+        .ok()
+        .and_then(|f| f.as_ref().map(|(ui, _)| ui.clone()))
+        .unwrap_or(SharedString::new_static(SANS))
+}
+
+/// The code font in use.
+pub fn mono() -> SharedString {
+    IN_USE
+        .lock()
+        .ok()
+        .and_then(|f| f.as_ref().map(|(_, code)| code.clone()))
+        .unwrap_or(SharedString::new_static(MONO))
 }
 
 /// Switches between Mocha and Latte, or follows the system appearance.
@@ -78,6 +195,8 @@ pub fn apply(choice: ThemeChoice, window: Option<&mut Window>, cx: &mut App) {
     Theme::change(mode, None, cx);
     let size = Config::global(cx).text_size;
     Theme::update(cx, |theme| theme.font_size = gpui_kit::px(size));
+    // Changing the mode loads the theme file's fonts again.
+    apply_fonts(cx);
     cx.refresh_windows();
 }
 
@@ -182,4 +301,50 @@ pub fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
         a: lerp(a.a, b.a),
     }
     .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{FontStatus, font_status, resolve};
+    use gpui_kit::SharedString;
+
+    fn installed() -> Vec<String> {
+        ["IBM Plex Mono", "JetBrains Mono", "Inter"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn font_names_match_exactly_or_suggest_the_systems_spelling() {
+        let installed = installed();
+        assert_eq!(font_status("  ", &installed), FontStatus::BuiltIn);
+        assert_eq!(font_status(" Inter ", &installed), FontStatus::Installed);
+        assert_eq!(
+            font_status("jetbrainsmono", &installed),
+            FontStatus::Suggest("JetBrains Mono".into())
+        );
+        assert_eq!(
+            font_status("Berkeley Mono", &installed),
+            FontStatus::Missing
+        );
+    }
+
+    #[test]
+    fn a_missing_font_keeps_the_last_one_in_use() {
+        let installed = installed();
+        let last = SharedString::from("JetBrains Mono");
+        assert_eq!(
+            resolve("", "IBM Plex Mono", &last, &installed),
+            "IBM Plex Mono"
+        );
+        assert_eq!(
+            resolve("Inter", "IBM Plex Mono", &last, &installed),
+            "Inter"
+        );
+        assert_eq!(
+            resolve("Inte", "IBM Plex Mono", &last, &installed),
+            "JetBrains Mono"
+        );
+    }
 }

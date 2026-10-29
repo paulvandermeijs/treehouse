@@ -15,7 +15,7 @@ use super::icon;
 use crate::actions::{PickerAccept, PickerDismiss, PickerDown, PickerFavorite, PickerUp};
 use crate::config::Config;
 use crate::models::{self, ListOptions, ModelInfo, Row, Section};
-use crate::theme::{MONO, mix, palette};
+use crate::theme::{mix, palette};
 
 /// What was picked.
 #[derive(Clone)]
@@ -368,7 +368,7 @@ impl ModelPicker {
                                     .overflow_hidden()
                                     .whitespace_nowrap()
                                     .text_ellipsis()
-                                    .font_family(MONO)
+                                    .font_family(crate::theme::mono())
                                     .text_size(px(11.5))
                                     .text_color(p.subtext0)
                                     .child(

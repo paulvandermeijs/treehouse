@@ -36,6 +36,10 @@ pub struct Config {
 
     pub theme: ThemeChoice,
     pub text_size: f32,
+    /// An installed font family for the interface; empty uses IBM Plex Sans.
+    pub ui_font: String,
+    /// An installed font family for code; empty uses IBM Plex Mono.
+    pub code_font: String,
     pub keep_diffs_expanded: bool,
     pub always_expand_thinking: bool,
     /// Fold a turn's finished steps into one summary line.
@@ -71,6 +75,8 @@ impl Default for Config {
             pinned: Vec::new(),
             theme: ThemeChoice::Mocha,
             text_size: 14.0,
+            ui_font: String::new(),
+            code_font: String::new(),
             keep_diffs_expanded: false,
             always_expand_thinking: false,
             collapse_steps: true,

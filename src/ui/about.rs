@@ -9,7 +9,7 @@ use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::*;
 use std::sync::Arc;
 
-use crate::theme::{MONO, palette};
+use crate::theme::palette;
 
 const REPOSITORY: &str = "https://github.com/paulvandermeijs/treehouse";
 
@@ -80,7 +80,7 @@ impl Render for About {
                     .child(
                         div()
                             .mt_1()
-                            .font_family(MONO)
+                            .font_family(crate::theme::mono())
                             .text_size(px(12.5))
                             .text_color(p.subtext0)
                             .child(format!("Version {}", version())),

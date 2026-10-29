@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use super::{BAR_HEIGHT, icon};
 use crate::actions::FullScreenDock;
 use crate::git::{self, DiffStat};
-use crate::theme::{MONO, palette};
+use crate::theme::palette;
 
 pub enum DiffPanelEvent {
     Close,
@@ -367,7 +367,7 @@ impl Render for DiffPanel {
                     .child(
                         h_flex()
                             .gap_1()
-                            .font_family(MONO)
+                            .font_family(crate::theme::mono())
                             .text_size(px(12.))
                             .child(
                                 div()

@@ -19,7 +19,7 @@ use crate::approval::ApprovalMode;
 use crate::config::{CompareBase, Config, THINKING_LEVELS, TOOLS, ThemeChoice};
 use crate::models::{Catalog, ModelInfo};
 use crate::pi::auth::{self, Credential, PROVIDERS};
-use crate::theme::{MONO, palette};
+use crate::theme::palette;
 use gpui_kit::component::Selectable;
 use gpui_kit::component::popover::Popover;
 
@@ -32,6 +32,8 @@ pub enum Section {
 }
 
 pub fn open(section: Section, window: &mut Window, cx: &mut App) {
+    // A font installed since the last time is found.
+    crate::theme::refresh_installed_fonts(cx);
     window.open_dialog(cx, move |dialog, _, _| {
         dialog
             .w(px(860.))
@@ -336,7 +338,7 @@ fn provider_row(
             .gap_1()
             .child(
                 div()
-                    .font_family(MONO)
+                    .font_family(crate::theme::mono())
                     .text_size(px(12.5))
                     .text_color(p.subtext1)
                     .child(detail),
@@ -796,7 +798,7 @@ impl RenderOnce for DropdownTrigger {
                         .overflow_hidden()
                         .text_ellipsis()
                         .whitespace_nowrap()
-                        .font_family(MONO)
+                        .font_family(crate::theme::mono())
                         .text_size(px(11.5))
                         .text_color(p.subtext0)
                         .child(detail),
@@ -878,7 +880,7 @@ fn allowed_list(cx: &mut App) -> AnyElement {
                 .gap_3()
                 .child(
                     div()
-                        .font_family(MONO)
+                        .font_family(crate::theme::mono())
                         .text_size(px(12.5))
                         .child(pattern.clone()),
                 )
@@ -1021,6 +1023,23 @@ fn appearance_page() -> SettingPage {
                     },
                 ),
             ))
+            .item(
+                SettingItem::new(
+                    "Interface font",
+                    SettingField::render(|_, window, cx| font_field(FontSetting::Ui, window, cx)),
+                )
+                .description(
+                    "An installed font for menus, the sidebar and messages. Empty uses IBM Plex Sans.",
+                ),
+            )
+            .item(
+                SettingItem::new(
+                    "Code font",
+                    SettingField::render(|_, window, cx| font_field(FontSetting::Code, window, cx)),
+                )
+                .description("For code, ids, diffs and tool output. Empty uses IBM Plex Mono."),
+            )
+            .item(SettingItem::render(|_, _, cx| font_preview(cx)))
             .item(SettingItem::new(
                 "Keep diffs expanded after a turn",
                 SettingField::switch(
@@ -1043,6 +1062,191 @@ fn appearance_page() -> SettingPage {
                 ),
             )),
     )
+}
+
+#[derive(Clone, Copy)]
+enum FontSetting {
+    Ui,
+    Code,
+}
+
+impl FontSetting {
+    fn get(self, cx: &App) -> String {
+        let config = Config::global(cx);
+        match self {
+            FontSetting::Ui => config.ui_font.clone(),
+            FontSetting::Code => config.code_font.clone(),
+        }
+    }
+
+    fn set(self, value: String, cx: &mut App) {
+        Config::update(cx, |c| match self {
+            FontSetting::Ui => c.ui_font = value,
+            FontSetting::Code => c.code_font = value,
+        });
+        crate::theme::apply_fonts(cx);
+    }
+
+    fn built_in(self) -> &'static str {
+        match self {
+            FontSetting::Ui => crate::theme::SANS,
+            FontSetting::Code => crate::theme::MONO,
+        }
+    }
+
+    fn in_use(self) -> SharedString {
+        match self {
+            FontSetting::Ui => crate::theme::sans(),
+            FontSetting::Code => crate::theme::mono(),
+        }
+    }
+}
+
+/// A font field's input; every change is saved and applied.
+struct FontField {
+    input: Entity<InputState>,
+    _subscription: Subscription,
+}
+
+fn font_field(setting: FontSetting, window: &mut Window, cx: &mut App) -> AnyElement {
+    let p = palette(cx);
+    let key = match setting {
+        FontSetting::Ui => "ui-font",
+        FontSetting::Code => "code-font",
+    };
+    let field = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| {
+        let value = setting.get(cx);
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(setting.built_in())
+                .default_value(value)
+        });
+        let subscription = cx.subscribe(
+            &input,
+            move |_: &mut FontField, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    setting.set(input.read(cx).value().to_string(), cx);
+                }
+            },
+        );
+        FontField {
+            input,
+            _subscription: subscription,
+        }
+    });
+    let input = field.read(cx).input.clone();
+    let typed = input.read(cx).value().to_string();
+    let status = crate::theme::font_status(&typed, crate::theme::installed_fonts(cx));
+    let dot = |color: Hsla| div().flex_none().size(px(7.)).rounded_full().bg(color);
+    let line = h_flex()
+        .gap(px(6.))
+        .text_size(px(12.))
+        .text_color(p.subtext0);
+    let line = match &status {
+        crate::theme::FontStatus::BuiltIn => line.child("Built in"),
+        crate::theme::FontStatus::Installed => line.child(dot(p.green)).child("Installed"),
+        crate::theme::FontStatus::Suggest(name) => {
+            let name = name.clone();
+            line.text_color(p.yellow_text)
+                .child(dot(p.yellow))
+                .child("Not found. Use")
+                .child(
+                    h_flex()
+                        .child(
+                            div()
+                                .id(SharedString::from(format!("{key}-suggestion")))
+                                .text_color(p.blue)
+                                .cursor_pointer()
+                                .child(name.clone())
+                                .on_click(move |_, window, cx| {
+                                    // Setting the value sends no change event.
+                                    input.update(cx, |input, cx| {
+                                        input.set_value(name.clone(), window, cx)
+                                    });
+                                    setting.set(name.clone(), cx);
+                                }),
+                        )
+                        .child("?"),
+                )
+        }
+        crate::theme::FontStatus::Missing => line
+            .text_color(p.yellow_text)
+            .child(dot(p.yellow))
+            .child(format!("Not installed; using {}", setting.in_use())),
+    };
+    let field_input = field.read(cx).input.clone();
+    v_flex()
+        .flex_none()
+        // The row gives its title up to 3/5 of the width.
+        .w(px(236.))
+        .gap(px(5.))
+        .child(
+            Input::new(&field_input)
+                .small()
+                .aria_label(match setting {
+                    FontSetting::Ui => "Interface font",
+                    FontSetting::Code => "Code font",
+                })
+                .when(status == crate::theme::FontStatus::Installed, |this| {
+                    this.font_family(typed.trim().to_string())
+                }),
+        )
+        .child(line)
+        .into_any_element()
+}
+
+/// A message with inline code and a code block, in the fonts in use.
+fn font_preview(cx: &mut App) -> AnyElement {
+    let p = palette(cx);
+    let code = crate::theme::mono();
+    v_flex()
+        .w_full()
+        .gap(px(10.))
+        .px(px(16.))
+        .py(px(14.))
+        .rounded(px(8.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .font_family(crate::theme::sans())
+        .child(
+            div()
+                .text_size(px(11.5))
+                .text_color(p.subtext0)
+                .child("Preview"),
+        )
+        .child(
+            h_flex()
+                .flex_wrap()
+                .gap(px(4.))
+                .child("Renamed")
+                .child(
+                    div()
+                        .px(px(5.))
+                        .rounded(px(4.))
+                        .bg(p.surface0)
+                        .font_family(code.clone())
+                        .text_size(px(12.5))
+                        .child("load_config"),
+                )
+                .child("and updated its two callers. Tests pass."),
+        )
+        .child(
+            v_flex()
+                .px(px(12.))
+                .py(px(10.))
+                .rounded(px(6.))
+                .border_1()
+                .border_color(p.surface0)
+                .bg(p.base)
+                .font_family(code)
+                .text_size(px(12.5))
+                .text_color(p.subtext1)
+                .child("fn load_config(path: &Path) -> Config {")
+                .child("    let json = fs::read_to_string(path).unwrap_or(\"{}\".into());")
+                .child("}"),
+        )
+        .into_any_element()
 }
 
 fn shortcuts_page() -> SettingPage {
