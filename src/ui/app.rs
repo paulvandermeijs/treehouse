@@ -303,10 +303,12 @@ impl TreehouseApp {
             Some(Dock::Session(chat)) => Some(chat.clone()),
             _ => None,
         };
+        let dock_full = self.dock_full;
         for chat in self.chats.values() {
             let in_dock = dock_chat.as_ref() == Some(chat);
             chat.update(cx, |chat, cx| {
                 chat.in_dock = in_dock;
+                chat.full_screen = in_dock && dock_full;
                 chat.docked_session = docked;
                 chat.diff_open = diff_open && !in_dock;
                 cx.notify();
@@ -402,6 +404,7 @@ impl TreehouseApp {
             let full = self.dock_full;
             panel.update(cx, |panel, cx| panel.set_full_screen(full, cx));
         }
+        self.sync_chat_flags(cx);
         cx.notify();
     }
 
