@@ -15,17 +15,19 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::items::{GUTTER, avatar, render_items};
+use super::model_picker::{ModelPicker, Pick};
 use super::{BAR_HEIGHT, icon};
 use crate::actions::{
     FullScreenDock, ScrollHalfPageDown, ScrollHalfPageUp, ScrollPageDown, ScrollPageUp,
     ScrollToEnd, ShowDiff, SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
 };
 use crate::config::{Config, THINKING_LEVELS};
-use crate::session::{AgentStatus, Session, SessionEvent, SessionKind};
+use crate::session::{AgentStatus, ModelInfo, Session, SessionEvent, SessionKind};
 use crate::slash::{self, CommandKind, SlashCommand};
 use crate::theme::{MONO, mix, palette};
 use crate::transcript::{ItemId, format_tokens};
 use crate::workspace::Workspace;
+use gpui_kit::component::popover::Popover;
 
 pub enum ChatEvent {
     /// Open a session, in the right dock when `dock` is set.
@@ -81,6 +83,8 @@ pub struct ChatView {
     /// Escape closed the slash menu; it stays closed until the text changes.
     slash_dismissed: bool,
     slash_scroll: ScrollHandle,
+    model_picker: Entity<ModelPicker>,
+    picker_open: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -108,7 +112,51 @@ impl ChatView {
         let initials = crate::git::user_name(&cwd)
             .map(|name| initials(&name))
             .unwrap_or_else(|| "You".chars().take(2).collect());
+        let model_picker = cx.new(|cx| {
+            let models = session.downgrade();
+            let current = session.downgrade();
+            let waiting = session.downgrade();
+            let picked = session.downgrade();
+            ModelPicker::new(
+                move |cx| {
+                    models
+                        .upgrade()
+                        .map(|s| s.read(cx).models.clone())
+                        .unwrap_or_default()
+                },
+                move |cx| {
+                    let session = current.upgrade()?;
+                    session.read(cx).model.as_ref().map(ModelInfo::full_name)
+                },
+                move |cx| {
+                    let session = waiting.upgrade()?;
+                    let session = session.read(cx);
+                    Some(match &session.start_error {
+                        Some(_) => "Pi didn't start, so there are no models to list".to_string(),
+                        None => "Loading models…".to_string(),
+                    })
+                },
+                move |pick, _, cx| {
+                    let (Pick::Model(model), Some(session)) = (pick, picked.upgrade()) else {
+                        return;
+                    };
+                    crate::models::remember(&model.full_name(), cx);
+                    session.update(cx, |s, cx| s.set_model(&model, cx));
+                },
+                window,
+                cx,
+            )
+        });
         let subscriptions = vec![
+            cx.subscribe_in(
+                &model_picker,
+                window,
+                |view, _, _: &DismissEvent, window, cx| {
+                    view.picker_open = false;
+                    view.composer.focus_handle(cx).focus(window, cx);
+                    cx.notify();
+                },
+            ),
             cx.subscribe_in(
                 &composer,
                 window,
@@ -169,8 +217,21 @@ impl ChatView {
             slash_selected: 0,
             slash_dismissed: false,
             slash_scroll: ScrollHandle::new(),
+            model_picker,
+            picker_open: false,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// Opens the model picker on the current model, starting Pi for its
+    /// model list if it isn't running yet.
+    pub fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.session.update(cx, |s, cx| s.load_models(cx));
+        self.model_picker
+            .update(cx, |picker, cx| picker.reset(window, cx));
+        self.model_picker.focus_handle(cx).focus(window, cx);
+        self.picker_open = true;
+        cx.notify();
     }
 
     /// The project this chat's worktree belongs to, when Pi runs it
@@ -1071,10 +1132,18 @@ impl ChatView {
         let config = Config::global(cx);
         let narrow = self.in_dock;
 
+        // The catalogue's name, which the session's own record may lack.
         let model_label = session
             .model
             .as_ref()
-            .map(|m| m.id.clone())
+            .map(|m| {
+                session
+                    .models
+                    .iter()
+                    .find(|known| *known == m)
+                    .unwrap_or(m)
+                    .short_label()
+            })
             .unwrap_or_else(|| "Default model".into());
         let provider = session.model.as_ref().map(|m| m.provider.clone());
         let thinking = capitalize(&session.thinking);
@@ -1085,8 +1154,6 @@ impl ChatView {
         };
         let context = session.context_tokens;
         let window_size = session.model.as_ref().and_then(|m| m.context_window);
-        let models = session.models.clone();
-        let current_model = session.model.clone();
         let current_thinking = session.thinking.clone();
         let session_entity = self.session.clone();
         let read_only = self.untrusted_project(cx).is_some();
@@ -1103,48 +1170,52 @@ impl ChatView {
             .border_color(p.surface0)
             .text_size(px(13.))
             .child(
-                Button::new("model")
-                    .ghost()
-                    .small()
-                    .icon(icon(Lucide::Sparkles))
-                    .child(
-                        h_flex()
-                            .gap(px(6.))
-                            .child(SharedString::from(model_label))
-                            .when_some(provider.filter(|_| !narrow), |this, provider| {
-                                this.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(p.subtext0)
-                                        .child(provider),
-                                )
-                            }),
-                    )
-                    .on_click({
-                        let session = session_entity.clone();
-                        move |_, _, cx| session.update(cx, |s, cx| s.load_models(cx))
-                    })
-                    .dropdown_menu_with_anchor(Anchor::BottomLeft, {
-                        let session = session_entity.clone();
-                        move |menu, _, _| {
-                            let mut menu = menu.scrollable(true).max_h(px(360.));
-                            if models.is_empty() {
-                                menu = menu.label("Send a message to load Pi's models");
-                            }
-                            for model in models.iter() {
-                                let checked = current_model.as_ref() == Some(model);
-                                let (session, model) = (session.clone(), model.clone());
-                                menu = menu.item(
-                                    PopupMenuItem::new(model.full_name())
-                                        .checked(checked)
-                                        .on_click(move |_, _, cx| {
-                                            session.update(cx, |s, cx| s.set_model(&model, cx))
-                                        }),
-                                );
-                            }
-                            menu
+                Popover::new("model-picker")
+                    .anchor(Anchor::BottomLeft)
+                    // Clear of the bar's top border, not just the button.
+                    .offset(px(16.))
+                    .open(self.picker_open)
+                    .on_open_change({
+                        let view = cx.entity().downgrade();
+                        move |open, window, cx| {
+                            let _ = view.update(cx, |view, cx| {
+                                if *open {
+                                    view.open_model_picker(window, cx);
+                                } else {
+                                    view.picker_open = false;
+                                    cx.notify();
+                                }
+                            });
                         }
-                    }),
+                    })
+                    .track_focus(&self.model_picker.focus_handle(cx))
+                    .w(px(480.))
+                    .p_0()
+                    .bg(p.mantle)
+                    .border_color(p.surface1)
+                    .rounded(px(10.))
+                    .overflow_hidden()
+                    .trigger(
+                        Button::new("model")
+                            .ghost()
+                            .small()
+                            .icon(icon(Lucide::Sparkles))
+                            .tooltip("Change model")
+                            .child(
+                                h_flex()
+                                    .gap(px(6.))
+                                    .child(SharedString::from(model_label))
+                                    .when_some(provider.filter(|_| !narrow), |this, provider| {
+                                        this.child(
+                                            div()
+                                                .text_size(px(12.))
+                                                .text_color(p.subtext0)
+                                                .child(provider),
+                                        )
+                                    }),
+                            ),
+                    )
+                    .child(self.model_picker.clone()),
             )
             .child(
                 Button::new("thinking")

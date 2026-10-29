@@ -136,9 +136,21 @@ def respond(req, data=None):
     emit(msg)
 
 
+# Two providers, one of them a reseller whose ids and names carry the maker,
+# so the model picker's groups can be tried.
 MODELS = [
     {"id": "claude-opus-4-5", "name": "Claude Opus 4.5", "provider": "anthropic", "contextWindow": 200000},
     {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5", "provider": "anthropic", "contextWindow": 200000},
+    {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5", "provider": "anthropic", "contextWindow": 200000},
+    {"id": "anthropic/claude-sonnet-4.6", "name": "Anthropic: Claude Sonnet 4.6", "provider": "openrouter",
+     "contextWindow": 1000000},
+    {"id": "anthropic/claude-haiku-4.5", "name": "Anthropic: Claude Haiku 4.5", "provider": "openrouter",
+     "contextWindow": 200000},
+    {"id": "~anthropic/claude-haiku-latest", "name": "Anthropic: Claude Haiku Latest", "provider": "openrouter",
+     "contextWindow": 200000},
+    {"id": "google/gemini-3.1-pro-preview", "name": "Google: Gemini 3.1 Pro Preview", "provider": "openrouter",
+     "contextWindow": 1048576},
+    {"id": "z-ai/glm-5.3-flash", "name": "Z.AI: GLM 5.3 Flash", "provider": "openrouter", "contextWindow": 202752},
 ]
 COMMANDS = [
     {"name": "skill:pdf-tools", "description": "Extract text and tables from PDF files", "source": "skill",
@@ -554,7 +566,8 @@ for line in sys.stdin:
     elif kind == "get_available_models":
         respond(req, {"models": MODELS})
     elif kind == "set_model":
-        state["model"] = next((m for m in MODELS if m["id"] == req.get("modelId")), state["model"])
+        state["model"] = next((m for m in MODELS if m["id"] == req.get("modelId")
+                               and m["provider"] == req.get("provider", m["provider"])), state["model"])
         respond(req, state["model"])
     elif kind == "set_thinking_level":
         state["thinking"] = req.get("level", "high")

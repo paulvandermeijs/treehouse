@@ -6,6 +6,7 @@ mod chat;
 mod code_block;
 mod diff;
 mod items;
+mod model_picker;
 mod palette;
 mod settings;
 mod sidebar;

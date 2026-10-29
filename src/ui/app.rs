@@ -960,11 +960,10 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
         cx,
         lifecycle_handler(Lifecycle::FinishBranch),
     );
-    route::<ChangeModel>(window, app.clone(), cx, |_, window, cx| {
-        window.push_notification(
-            "Pick a model from the model button under the message box.",
-            cx,
-        )
+    route::<ChangeModel>(window, app.clone(), cx, |app, window, cx| {
+        if let Some(chat) = app.main.clone() {
+            chat.update(cx, |chat, cx| chat.open_model_picker(window, cx));
+        }
     });
     route::<SetThinkingLevel>(window, app, cx, |_, window, cx| {
         window.push_notification(
