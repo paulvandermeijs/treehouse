@@ -110,14 +110,27 @@ impl TreehouseApp {
             switcher_state: cx.new(|cx| CommandState::new(window, cx)),
             _subscriptions: subscriptions,
         };
-        let first = this
-            .workspace
-            .read(cx)
-            .projects
-            .iter()
-            .flat_map(|p| p.worktrees.iter())
-            .next()
-            .map(|w| w.session.clone());
+        let first = {
+            let workspace = this.workspace.read(cx);
+            let worktree = state
+                .open_worktree
+                .as_deref()
+                .and_then(|path| workspace.worktree(path));
+            match worktree {
+                Some(worktree) => state
+                    .open_subagent
+                    .as_ref()
+                    .and_then(|id| worktree.subagents.iter().find(|s| &s.tool_call_id == id))
+                    .map(|s| s.session.clone())
+                    .or_else(|| Some(worktree.session.clone())),
+                None => workspace
+                    .projects
+                    .iter()
+                    .flat_map(|p| p.worktrees.iter())
+                    .next()
+                    .map(|w| w.session.clone()),
+            }
+        };
         if let Some(session) = first {
             this.open_session(session, false, window, cx);
             if state.diff_open {
@@ -145,11 +158,11 @@ impl TreehouseApp {
         if !self.collapsed.remove(&key) {
             self.collapsed.insert(key);
         }
-        self.save_state();
+        self.save_state(cx);
         cx.notify();
     }
 
-    fn save_state(&self) {
+    fn save_state(&self, cx: &App) {
         let folded = |fold: Fold| {
             let mut paths: Vec<PathBuf> = self
                 .collapsed
@@ -160,7 +173,20 @@ impl TreehouseApp {
             paths.sort();
             paths
         };
+        let workspace = self.workspace.read(cx);
+        let open = self.main_session_id(cx).and_then(|id| {
+            let worktree = workspace.worktree_of(id)?;
+            let subagent = worktree
+                .subagents
+                .iter()
+                .find(|s| s.session.entity_id() == id)
+                .map(|s| s.tool_call_id.clone());
+            Some((worktree.path.clone(), subagent))
+        });
+        let (open_worktree, open_subagent) = open.unzip();
         UiState {
+            open_worktree,
+            open_subagent: open_subagent.flatten(),
             collapsed_projects: folded(Fold::Project),
             collapsed_worktrees: folded(Fold::Worktree),
             sidebar_open: self.sidebar_open,
@@ -342,7 +368,7 @@ impl TreehouseApp {
     /// Runs whenever the dock changes, so it also saves whether the diff is
     /// open.
     fn sync_chat_flags(&mut self, cx: &mut Context<Self>) {
-        self.save_state();
+        self.save_state(cx);
         let docked = self.docked_session_id(cx);
         let diff_open = matches!(self.dock, Some(Dock::Diff(_)));
         let dock_chat = match &self.dock {
@@ -1012,7 +1038,7 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
     });
     route::<ToggleSidebar>(window, app.clone(), cx, |app, _, cx| {
         app.sidebar_open = !app.sidebar_open;
-        app.save_state();
+        app.save_state(cx);
         cx.notify();
     });
     route::<ToggleFullScreen>(window, app.clone(), cx, |_, window, _| {

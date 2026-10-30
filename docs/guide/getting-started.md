@@ -66,7 +66,7 @@ Treehouse uses Pi's own configuration and credentials. A key added in **Settings
 | Treehouse settings | `~/.config/treehouse/settings.json` |
 | Pi sessions and the bridge extension | `~/.local/share/treehouse/` |
 | Which session belongs to which worktree | `~/.local/share/treehouse/sessions.json` |
-| What's collapsed in the sidebar, and whether the diff is open | `~/.local/share/treehouse/ui.json` |
+| The open chat, what's collapsed in the sidebar, and whether the diff is open | `~/.local/share/treehouse/ui.json` |
 | Project trust | `~/.pi/agent/trust.json` (shared with Pi) |
 | Provider keys | `~/.pi/agent/auth.json` (shared with Pi) |
 

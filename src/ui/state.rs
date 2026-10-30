@@ -1,6 +1,7 @@
-//! Window state that comes back after a restart: what's folded in the
-//! sidebar, whether the sidebar and the diff are open. Kept apart from the
-//! settings, in `ui.json` in the data folder, since nobody edits it by hand.
+//! Window state that comes back after a restart: the open chat, what's
+//! folded in the sidebar, whether the sidebar and the diff are open. Kept
+//! apart from the settings, in `ui.json` in the data folder, since nobody
+//! edits it by hand.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -10,6 +11,11 @@ use crate::config::Config;
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UiState {
+    /// The worktree whose chat is on the main screen.
+    pub open_worktree: Option<PathBuf>,
+    /// Set when that chat is one of the worktree's sub-agents: its
+    /// `subagent` tool call.
+    pub open_subagent: Option<String>,
     pub collapsed_projects: Vec<PathBuf>,
     pub collapsed_worktrees: Vec<PathBuf>,
     pub sidebar_open: bool,
@@ -19,6 +25,8 @@ pub struct UiState {
 impl Default for UiState {
     fn default() -> Self {
         Self {
+            open_worktree: None,
+            open_subagent: None,
             collapsed_projects: Vec::new(),
             collapsed_worktrees: Vec::new(),
             sidebar_open: true,
@@ -80,6 +88,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("ui.json");
         let state = UiState {
+            open_worktree: Some("/code/app/.worktrees/fix".into()),
+            open_subagent: Some("call_1".into()),
             collapsed_projects: vec!["/code/app".into()],
             collapsed_worktrees: vec!["/code/app/.worktrees/fix".into()],
             sidebar_open: false,
