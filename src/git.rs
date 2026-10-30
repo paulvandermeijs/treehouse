@@ -235,6 +235,56 @@ pub fn diff_since(worktree: &Path, base: &str) -> Result<String> {
     Ok(patch)
 }
 
+/// Counts the changes `diff_since` would show, without building the patch:
+/// the sidebar only needs the numbers.
+pub fn diff_stat_since(worktree: &Path, base: &str) -> Result<DiffStat> {
+    let merge_base = git(worktree, &["merge-base", base, "HEAD"])
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|_| "HEAD".to_string());
+    let numstat = git(
+        worktree,
+        &[
+            "diff",
+            "--numstat",
+            "--no-color",
+            "--no-ext-diff",
+            &merge_base,
+        ],
+    )?;
+    let mut stat = numstat_totals(&numstat);
+    let untracked = git(
+        worktree,
+        &["ls-files", "--others", "--exclude-standard", "-z"],
+    )?;
+    // As in `diff_since`: nested repositories and binary files are left out.
+    for path in untracked
+        .split('\0')
+        .filter(|p| !p.is_empty() && !p.ends_with('/'))
+    {
+        let Ok(content) = std::fs::read(worktree.join(path)) else {
+            continue;
+        };
+        if content.contains(&0) {
+            continue;
+        }
+        stat.files += 1;
+        stat.additions += String::from_utf8_lossy(&content).lines().count();
+    }
+    Ok(stat)
+}
+
+/// Adds up `git diff --numstat`; a binary file counts, without lines.
+fn numstat_totals(numstat: &str) -> DiffStat {
+    let mut stat = DiffStat::default();
+    for line in numstat.lines().filter(|l| !l.is_empty()) {
+        let mut fields = line.split('\t');
+        stat.files += 1;
+        stat.additions += fields.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+        stat.deletions += fields.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+    }
+    stat
+}
+
 /// A merge into the base branch that passed its checks.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MergePlan {
@@ -371,7 +421,12 @@ pub struct Commit {
 }
 
 pub fn head(repo: &Path) -> Option<String> {
-    git(repo, &["rev-parse", "HEAD"])
+    rev_parse(repo, "HEAD")
+}
+
+/// The commit `rev` names.
+pub fn rev_parse(repo: &Path, rev: &str) -> Option<String> {
+    git(repo, &["rev-parse", "--verify", "--quiet", rev])
         .ok()
         .map(|s| s.trim().to_string())
 }
@@ -482,18 +537,23 @@ pub fn branch_state(worktree: &Path, branch: &str, base: Option<&str>) -> Branch
     }
     // New changes after a merge are work that hasn't landed yet.
     state.merged = state.uncommitted == 0 && landed(worktree, branch, base);
-    let merging = git(
-        worktree,
-        &["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
-    )
-    .is_ok();
-    if merging || rebasing(worktree) {
+    if syncing(worktree) {
         let conflicts = git(worktree, &["diff", "--name-only", "--diff-filter=U"])
             .map(|out| out.lines().count())
             .unwrap_or(0);
         state.merging = Some(conflicts);
     }
     state
+}
+
+/// Stopped in a merge or a rebase: one git call for all three markers.
+fn syncing(worktree: &Path) -> bool {
+    let paths = ["MERGE_HEAD", "rebase-merge", "rebase-apply"];
+    let args: Vec<&str> = std::iter::once("rev-parse")
+        .chain(paths.iter().flat_map(|p| ["--git-path", *p]))
+        .collect();
+    git(worktree, &args)
+        .is_ok_and(|out| out.lines().any(|path| worktree.join(path.trim()).exists()))
 }
 
 fn rebasing(worktree: &Path) -> bool {
@@ -604,6 +664,36 @@ pub fn unified_patch(path: &str, old: Option<&str>, new: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numstat_adds_up_lines_and_counts_binary_files() {
+        let stat = numstat_totals("3\t1\tsrc/a.rs\n-\t-\tlogo.png\n10\t0\tdocs/b.md\n");
+        assert_eq!((stat.files, stat.additions, stat.deletions), (3, 13, 1));
+        assert_eq!(numstat_totals("").files, 0);
+    }
+
+    #[test]
+    fn the_quick_stat_matches_the_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        let run = |args: &[&str]| git(repo, args).unwrap();
+        run(&["config", "user.email", "t@example.com"]);
+        run(&["config", "user.name", "Test"]);
+        run(&["checkout", "-b", "main"]);
+        std::fs::write(repo.join("a.txt"), "one\ntwo\nthree\n").unwrap();
+        std::fs::write(repo.join("gone.txt"), "x\ny\n").unwrap();
+        run(&["add", "."]);
+        run(&["commit", "-m", "init"]);
+        run(&["checkout", "-b", "feat"]);
+        std::fs::write(repo.join("a.txt"), "one\n2\nthree\nfour\n").unwrap();
+        run(&["commit", "-am", "change"]);
+        std::fs::remove_file(repo.join("gone.txt")).unwrap();
+        std::fs::write(repo.join("new.txt"), "a\nb\nc\n").unwrap();
+        std::fs::write(repo.join("image.bin"), [0u8, 1, 2]).unwrap();
+        let patch = diff_since(repo, "main").unwrap();
+        assert_eq!(diff_stat_since(repo, "main").unwrap(), diff_stat(&patch));
+    }
 
     #[test]
     fn parses_porcelain_worktree_list() {

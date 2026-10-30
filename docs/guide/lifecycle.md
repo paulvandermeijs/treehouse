@@ -72,7 +72,7 @@ Worktree rows in the sidebar show small markers before the status dot:
 | `↓5` | 5 commits on the base that this branch lacks |
 | ✓ | Merged into the base; the name dims |
 
-Hover them for the full story, such as "1 ahead, 3 behind main · 1 uncommitted file". A branch level with its base shows nothing, and the main worktree only shows changes. They're refreshed after a turn in any of the project's worktrees, and after a merge.
+Hover them for the full story, such as "1 ahead, 3 behind main · 1 uncommitted file". A branch level with its base shows nothing, and the main worktree only shows changes. A worktree's markers are refreshed as Pi works in it and when its turn ends; the others follow when their base branch moves, and every worktree after a merge.
 
 ## Read-only projects
 
