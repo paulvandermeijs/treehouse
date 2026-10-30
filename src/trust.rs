@@ -123,7 +123,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = dir.path().join("agent/trust.json");
         let clients = dir.path().join("code/clients");
-        let api = clients.join("gadero-api");
+        let api = clients.join("orbit-api");
         std::fs::create_dir_all(&api).unwrap();
 
         assert_eq!(lookup_in(&store, &api), Trust::Undecided);
