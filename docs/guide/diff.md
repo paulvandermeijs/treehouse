@@ -25,4 +25,4 @@ The same base is used for the `+/−` counts in the sidebar and status cards.
 
 ## The right dock
 
-The dock holds the diff or a second chat. <kbd>⌘&#92;</kbd> opens and closes it. <kbd>⌘</kbd>-click a worktree or sub-agent in the sidebar, or press <kbd>⌘Enter</kbd> in the switcher, to open its chat there.
+The dock holds the diff or a second chat. <kbd>⌘&#92;</kbd> opens and closes it. If the diff was open when you quit, it opens again on the next start. <kbd>⌘</kbd>-click a worktree or sub-agent in the sidebar, or press <kbd>⌘Enter</kbd> in the switcher, to open its chat there.

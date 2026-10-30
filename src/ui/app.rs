@@ -13,6 +13,7 @@ use super::chat::{ChatEvent, ChatView};
 use super::diagram::{DiagramEvent, DiagramPanel};
 use super::diff::{DiffPanel, DiffPanelEvent};
 use super::settings::Section;
+use super::state::UiState;
 use super::{icon, palette as command_palette, settings, sidebar};
 use crate::actions::*;
 use crate::config::{Config, ThemeChoice};
@@ -79,14 +80,30 @@ impl TreehouseApp {
                 }
             }),
         ];
+        let state = UiState::load();
+        let collapsed = {
+            // Projects and worktrees removed since are forgotten.
+            let workspace = workspace.read(cx);
+            let projects = state
+                .collapsed_projects
+                .iter()
+                .filter(|path| workspace.projects.iter().any(|p| &&p.path == path))
+                .map(|path| (Fold::Project, path.clone()));
+            let worktrees = state
+                .collapsed_worktrees
+                .iter()
+                .filter(|path| workspace.worktree(path).is_some())
+                .map(|path| (Fold::Worktree, path.clone()));
+            projects.chain(worktrees).collect()
+        };
         let mut this = Self {
             workspace,
             focus_handle: cx.focus_handle(),
             main: None,
             dock: None,
             dock_full: false,
-            sidebar_open: true,
-            collapsed: Default::default(),
+            sidebar_open: state.sidebar_open,
+            collapsed,
             chats: HashMap::new(),
             trust_asked: Default::default(),
             palette_state: cx.new(|cx| CommandState::new(window, cx)),
@@ -103,6 +120,9 @@ impl TreehouseApp {
             .map(|w| w.session.clone());
         if let Some(session) = first {
             this.open_session(session, false, window, cx);
+            if state.diff_open {
+                this.show_diff(window, cx);
+            }
         }
         // Start typing straight into the open chat's message box.
         match &this.main {
@@ -125,7 +145,28 @@ impl TreehouseApp {
         if !self.collapsed.remove(&key) {
             self.collapsed.insert(key);
         }
+        self.save_state();
         cx.notify();
+    }
+
+    fn save_state(&self) {
+        let folded = |fold: Fold| {
+            let mut paths: Vec<PathBuf> = self
+                .collapsed
+                .iter()
+                .filter(|(f, _)| *f == fold)
+                .map(|(_, path)| path.clone())
+                .collect();
+            paths.sort();
+            paths
+        };
+        UiState {
+            collapsed_projects: folded(Fold::Project),
+            collapsed_worktrees: folded(Fold::Worktree),
+            sidebar_open: self.sidebar_open,
+            diff_open: matches!(self.dock, Some(Dock::Diff(_))),
+        }
+        .save();
     }
 
     pub fn main_session_id(&self, cx: &App) -> Option<EntityId> {
@@ -298,7 +339,10 @@ impl TreehouseApp {
         }
     }
 
+    /// Runs whenever the dock changes, so it also saves whether the diff is
+    /// open.
     fn sync_chat_flags(&mut self, cx: &mut Context<Self>) {
+        self.save_state();
         let docked = self.docked_session_id(cx);
         let diff_open = matches!(self.dock, Some(Dock::Diff(_)));
         let dock_chat = match &self.dock {
@@ -968,6 +1012,7 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
     });
     route::<ToggleSidebar>(window, app.clone(), cx, |app, _, cx| {
         app.sidebar_open = !app.sidebar_open;
+        app.save_state();
         cx.notify();
     });
     route::<ToggleFullScreen>(window, app.clone(), cx, |_, window, _| {

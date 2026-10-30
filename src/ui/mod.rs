@@ -11,6 +11,7 @@ mod model_picker;
 mod palette;
 mod settings;
 mod sidebar;
+mod state;
 mod status_card;
 mod trust;
 
