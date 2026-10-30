@@ -1620,7 +1620,7 @@ fn render_commits(view: &ChatView, card: &CommitCard, cx: &mut Context<ChatView>
                             div()
                                 .text_size(px(13.5))
                                 .font_medium()
-                                .child(format!("{count} on {}", view.branch)),
+                                .child(format!("{count} on {}", view.branch(cx))),
                         )
                         .child(
                             div()
@@ -1958,7 +1958,7 @@ fn render_approval(
 ) -> AnyElement {
     let p = palette(cx);
     let session = view.session.clone();
-    let branch = view.branch.clone();
+    let branch = view.branch(cx);
     let request_id = approval.request_id.clone();
     let detail = match approval.tool_name.as_str() {
         "bash" => approval.input["command"].as_str().unwrap_or("").to_string(),

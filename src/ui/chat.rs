@@ -79,7 +79,6 @@ pub struct ChatView {
     pub docked_session: Option<EntityId>,
     pub diff_open: bool,
     pub initials: SharedString,
-    pub branch: SharedString,
     /// The highlighted slash command.
     slash_selected: usize,
     /// Escape closed the slash menu; it stays closed until the text changes.
@@ -186,11 +185,6 @@ impl ChatView {
             cx.subscribe(&session, |_, _, _: &SessionEvent, cx| cx.notify()),
             cx.observe(&workspace, |_, _, cx| cx.notify()),
         ];
-        let branch = workspace
-            .read(cx)
-            .worktree_of(session.entity_id())
-            .map(|w| w.branch.clone())
-            .unwrap_or_default();
         // A chat restored from Pi's session file opens at its latest message.
         let scroll = ScrollHandle::new();
         scroll.scroll_to_bottom();
@@ -216,7 +210,6 @@ impl ChatView {
             docked_session: None,
             diff_open: false,
             initials: initials.into(),
-            branch,
             slash_selected: 0,
             slash_dismissed: false,
             slash_scroll: ScrollHandle::new(),
@@ -810,10 +803,10 @@ impl ChatView {
 
         let title: SharedString = match &session.kind {
             SessionKind::SubAgent { title, .. } => title.clone(),
-            SessionKind::Worktree => self.branch.clone(),
+            SessionKind::Worktree => self.branch(cx),
         };
         let description = match (&session.kind, worktree, project) {
-            (SessionKind::SubAgent { .. }, _, _) => format!("sub-agent of {}", self.branch),
+            (SessionKind::SubAgent { .. }, _, _) => format!("sub-agent of {}", self.branch(cx)),
             (_, Some(w), Some(project)) if w.is_main => project.name.to_string(),
             (_, Some(w), Some(project)) => format!("{} · worktree from {}", project.name, w.base),
             _ => String::new(),
@@ -871,7 +864,7 @@ impl ChatView {
                         .ghost()
                         .small()
                         .icon(icon(IconName::ChevronLeft))
-                        .tooltip(format!("Back to {} chat", self.branch))
+                        .tooltip(format!("Back to {} chat", self.branch(cx)))
                         .on_click(cx.listener(|_, _, _, cx| cx.emit(ChatEvent::Back))),
                 )
             })
@@ -1019,6 +1012,16 @@ impl ChatView {
         Some(rest.starts_with('!'))
     }
 
+    /// The worktree's branch, read each time: it changes when someone checks
+    /// out another branch in the worktree.
+    pub fn branch(&self, cx: &App) -> SharedString {
+        self.workspace
+            .read(cx)
+            .worktree_of(self.session.entity_id())
+            .map(|w| w.branch.clone())
+            .unwrap_or_default()
+    }
+
     /// Where a `!` command runs: `project/branch`.
     fn shell_location(&self, cx: &App) -> String {
         let workspace = self.workspace.read(cx);
@@ -1027,7 +1030,7 @@ impl ChatView {
             .and_then(|w| workspace.project_of(&w.path))
             .map(|p| p.name.to_string())
             .unwrap_or_default();
-        format!("{project}/{}", self.branch)
+        format!("{project}/{}", self.branch(cx))
     }
 
     fn render_shell_hint(&self, excluded: bool, cx: &App) -> impl IntoElement {
