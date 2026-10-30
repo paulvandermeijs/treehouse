@@ -48,12 +48,12 @@ pub fn fence_closed(block: &str) -> bool {
         .is_some_and(|last| last.trim().starts_with(marker))
 }
 
-/// Renders a diagram in the palette's colours, once per source, theme and
-/// display scale.
-pub fn render(source: &str, p: &Palette, scale: f32) -> Rendered {
+/// Renders a diagram in the palette's colours on `background`, once per
+/// source, colours and display scale.
+pub fn render(source: &str, p: &Palette, background: Hsla, scale: f32) -> Rendered {
     static CACHE: Mutex<Option<HashMap<u64, Rendered>>> = Mutex::new(None);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (source, hex(p.mantle), scale.to_bits()).hash(&mut hasher);
+    (source, hex(p.text), hex(background), scale.to_bits()).hash(&mut hasher);
     let key = hasher.finish();
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let cache = cache.get_or_insert_with(HashMap::new);
@@ -62,7 +62,7 @@ pub fn render(source: &str, p: &Palette, scale: f32) -> Rendered {
     }
     // The renderer is young; a panic in it mustn't take the app down.
     let options = RenderOptions {
-        theme: theme(p),
+        theme: theme(p, background),
         ..RenderOptions::default()
     };
     let rendered = match std::panic::catch_unwind(|| render_strict(source, options)) {
@@ -124,7 +124,7 @@ fn hex(color: Hsla) -> String {
 
 /// Catppuccin, as the design has it: nodes in Surface 0, borders in
 /// Lavender, lines in Subtext 0.
-fn theme(p: &Palette) -> Theme {
+fn theme(p: &Palette, background: Hsla) -> Theme {
     let mut theme = Theme::modern();
     theme.font_family = format!("{}, sans-serif", crate::theme::sans());
     theme.primary_color = hex(p.surface0);
@@ -133,11 +133,11 @@ fn theme(p: &Palette) -> Theme {
     theme.line_color = hex(p.subtext0);
     theme.secondary_color = hex(p.surface1);
     theme.tertiary_color = hex(p.mantle);
-    theme.edge_label_background = hex(p.mantle);
-    theme.cluster_background = hex(p.mantle);
+    theme.edge_label_background = hex(background);
+    theme.cluster_background = hex(background);
     theme.cluster_border = hex(p.surface1);
-    // The card's own colour, so the diagram has no box of its own.
-    theme.background = hex(p.mantle);
+    // What it's drawn on, so the diagram has no box of its own.
+    theme.background = hex(background);
     theme.sequence_actor_fill = hex(p.surface0);
     theme.sequence_actor_border = hex(p.lavender);
     theme.sequence_actor_line = hex(p.subtext0);

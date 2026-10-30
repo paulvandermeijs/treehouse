@@ -165,7 +165,7 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
     let source_on = *show_source.read(cx);
     let rendered = mermaid
         .closed
-        .then(|| crate::mermaid::render(&mermaid.code, &p, window.scale_factor()));
+        .then(|| crate::mermaid::render(&mermaid.code, &p, p.mantle, window.scale_factor()));
     let failed = matches!(rendered, Some(Err(_)));
     let copied = mermaid.code.clone();
     let source = |error_line: Option<SharedString>| {
@@ -296,7 +296,26 @@ fn render_mermaid(mermaid: &Mermaid, id: usize, window: &mut Window, cx: &mut Ap
                         .on_click(move |_, _, cx| {
                             cx.write_to_clipboard(ClipboardItem::new_string(copied.to_string()))
                         }),
-                ),
+                )
+                .when(mermaid.closed && !failed, |this| {
+                    let source = mermaid.code.to_string();
+                    this.child(
+                        Button::new(("open-mermaid", id))
+                            .ghost()
+                            .small()
+                            .size(px(28.))
+                            .icon(icon(Lucide::MoveUpRight).size(px(14.)))
+                            .tooltip("Open in the right dock")
+                            .on_click(move |_, window, cx| {
+                                window.dispatch_action(
+                                    Box::new(crate::actions::OpenDiagram {
+                                        source: source.clone(),
+                                    }),
+                                    cx,
+                                )
+                            }),
+                    )
+                }),
         )
         .child(body)
         .into_any_element()

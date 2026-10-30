@@ -50,6 +50,9 @@ gpui_kit::assets::icon_assets!(
         RefreshCw,
         Flag,
         Check,
+        MoveUpRight,
+        ZoomIn,
+        ZoomOut,
     ]
 );
 
