@@ -67,7 +67,7 @@ Deleting removes the worktree's folder and stops its chat and sub-agents. The br
 
 Each worktree and sub-agent has a status dot: working, needs input, failed, finished or idle. A worktree shows its most urgent status, so a collapsed worktree still tells you a sub-agent is waiting.
 
-The projects and worktrees you collapse stay collapsed when you restart Treehouse, and so does the sidebar itself.
+Treehouse opens the chat you had open when you quit, and the projects and worktrees you collapsed stay collapsed, as does the sidebar itself.
 
 Before the dot, markers show where the worktree's branch stands: uncommitted changes, commits ahead of and behind the base, or merged. See [Where each branch stands](./lifecycle#where-each-branch-stands).
 
