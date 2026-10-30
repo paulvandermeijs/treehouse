@@ -4,6 +4,7 @@ use anyhow::Result;
 use gpui_kit::{
     AppContext as _, Context, Entity, EntityId, EventEmitter, SharedString, Subscription,
 };
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::config::{CompareBase, Config};
@@ -56,6 +57,14 @@ pub enum WorkspaceEvent {
 
 pub struct Workspace {
     pub projects: Vec<Project>,
+    /// Worktrees whose stat is being read, and those asked for again
+    /// meanwhile: they get one more read once it's done, so the last
+    /// request, such as the end of a turn, always shows.
+    refreshing: HashSet<PathBuf>,
+    refresh_again: HashSet<PathBuf>,
+    /// The commit each base branch was at, by project and base: when it
+    /// moves, every worktree compared with it is behind by more.
+    base_heads: HashMap<(PathBuf, String), String>,
 }
 
 impl EventEmitter<WorkspaceEvent> for Workspace {}
@@ -64,6 +73,9 @@ impl Workspace {
     pub fn new(cx: &mut Context<Self>) -> Self {
         let mut this = Self {
             projects: Vec::new(),
+            refreshing: HashSet::new(),
+            refresh_again: HashSet::new(),
+            base_heads: HashMap::new(),
         };
         for path in Config::global(cx).projects.clone() {
             this.load_project(path, cx);
@@ -462,7 +474,7 @@ impl Workspace {
             }
             SessionEvent::TurnEnded => {
                 let cwd = session.read(cx).cwd.clone();
-                self.refresh_project(&cwd, cx);
+                self.refresh_after_turn(cwd, cx);
             }
             SessionEvent::StatusChanged => self.report_finished_subagents(cx),
         }
@@ -701,6 +713,62 @@ impl Workspace {
         }
     }
 
+    /// After a turn, or a step of one: its own worktree, any worktree made
+    /// meanwhile, and the others only if a base branch moved.
+    fn refresh_after_turn(&mut self, worktree: PathBuf, cx: &mut Context<Self>) {
+        let Some(project) = self.project_of(&worktree).map(|p| p.path.clone()) else {
+            return;
+        };
+        self.sync_worktrees(project.clone(), cx);
+        self.refresh_stat(worktree.clone(), cx);
+        let bases: Vec<String> = self
+            .project_of(&worktree)
+            .map(|p| {
+                p.worktrees
+                    .iter()
+                    .map(|w| w.base.clone())
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        cx.spawn(async move |this, cx| {
+            let heads = cx
+                .background_spawn({
+                    let project = project.clone();
+                    async move {
+                        bases
+                            .into_iter()
+                            .filter_map(|base| Some((git::rev_parse(&project, &base)?, base)))
+                            .collect::<Vec<_>>()
+                    }
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                let moved: Vec<String> = heads
+                    .into_iter()
+                    .filter_map(|(head, base)| {
+                        let key = (project.clone(), base.clone());
+                        (this.base_heads.insert(key, head.clone()).as_ref() != Some(&head))
+                            .then_some(base)
+                    })
+                    .collect();
+                let others: Vec<PathBuf> = this
+                    .projects
+                    .iter()
+                    .filter(|p| p.path == project)
+                    .flat_map(|p| p.worktrees.iter())
+                    .filter(|w| w.path != worktree && moved.contains(&w.base))
+                    .map(|w| w.path.clone())
+                    .collect();
+                for path in others {
+                    this.refresh_stat(path, cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     /// Picks up worktrees made outside Treehouse, by Pi or in a terminal, and
     /// branches renamed there, by reading git's worktree list again.
     fn sync_worktrees(&mut self, project: PathBuf, cx: &mut Context<Self>) {
@@ -765,11 +833,16 @@ impl Workspace {
         else {
             return;
         };
+        if self.refreshing.contains(&worktree) {
+            self.refresh_again.insert(worktree);
+            return;
+        }
+        self.refreshing.insert(worktree.clone());
         cx.spawn(async move |this, cx| {
             let path = worktree.clone();
             let (stat, state) = cx
                 .background_spawn(async move {
-                    let stat = git::diff_since(&path, &base).map(|patch| git::diff_stat(&patch));
+                    let stat = git::diff_stat_since(&path, &base);
                     let base = (!is_main).then_some(base.as_str());
                     (stat, git::branch_state(&path, &branch, base))
                 })
@@ -780,6 +853,10 @@ impl Workspace {
                         worktree.stat = stat;
                     }
                     worktree.state = state;
+                }
+                this.refreshing.remove(&worktree);
+                if this.refresh_again.remove(&worktree) {
+                    this.refresh_stat(worktree.clone(), cx);
                 }
                 cx.emit(WorkspaceEvent::DiffChanged(worktree));
                 cx.notify();
