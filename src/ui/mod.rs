@@ -4,6 +4,7 @@ mod about;
 mod app;
 mod chat;
 mod code_block;
+mod diagram;
 mod diff;
 mod items;
 mod model_picker;

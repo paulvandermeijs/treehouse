@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::chat::{ChatEvent, ChatView};
+use super::diagram::{DiagramEvent, DiagramPanel};
 use super::diff::{DiffPanel, DiffPanelEvent};
 use super::settings::Section;
 use super::{icon, palette as command_palette, settings, sidebar};
@@ -22,6 +23,7 @@ use crate::workspace::{Workspace, WorkspaceEvent};
 enum Dock {
     Diff(Entity<DiffPanel>),
     Session(Entity<ChatView>),
+    Diagram(Entity<DiagramPanel>),
 }
 
 /// What a sidebar disclosure folds.
@@ -388,6 +390,23 @@ impl TreehouseApp {
         cx.notify();
     }
 
+    /// Shows a Mermaid diagram in the right dock, to zoom and pan.
+    fn open_diagram(&mut self, source: String, window: &mut Window, cx: &mut Context<Self>) {
+        let panel = cx.new(|_| DiagramPanel::new(source.into()));
+        self._subscriptions.push(cx.subscribe_in(
+            &panel,
+            window,
+            |app, _, event: &DiagramEvent, _, cx| match event {
+                DiagramEvent::Close => app.close_dock(cx),
+            },
+        ));
+        let full = self.dock_full;
+        panel.update(cx, |panel, cx| panel.set_full_screen(full, cx));
+        self.dock = Some(Dock::Diagram(panel));
+        self.sync_chat_flags(cx);
+        cx.notify();
+    }
+
     fn close_dock(&mut self, cx: &mut Context<Self>) {
         self.dock = None;
         self.dock_full = false;
@@ -400,9 +419,15 @@ impl TreehouseApp {
             return;
         }
         self.dock_full = !self.dock_full;
-        if let Some(Dock::Diff(panel)) = &self.dock {
-            let full = self.dock_full;
-            panel.update(cx, |panel, cx| panel.set_full_screen(full, cx));
+        let full = self.dock_full;
+        match &self.dock {
+            Some(Dock::Diff(panel)) => {
+                panel.update(cx, |panel, cx| panel.set_full_screen(full, cx))
+            }
+            Some(Dock::Diagram(panel)) => {
+                panel.update(cx, |panel, cx| panel.set_full_screen(full, cx))
+            }
+            _ => {}
         }
         self.sync_chat_flags(cx);
         cx.notify();
@@ -784,7 +809,8 @@ impl TreehouseApp {
         let dock_gone = match &self.dock {
             Some(Dock::Session(chat)) => belongs(chat, cx),
             Some(Dock::Diff(panel)) => &panel.read(cx).worktree == worktree,
-            None => false,
+            // A diagram holds its own copy of the source.
+            Some(Dock::Diagram(_)) | None => false,
         };
         if dock_gone {
             self.close_dock(cx);
@@ -925,6 +951,18 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
             app.show_diff(window, cx)
         }
     });
+    // Carries the diagram, so it can't go through `route`.
+    cx.on_action({
+        let app = app.clone();
+        move |action: &OpenDiagram, cx| {
+            let (app, source) = (app.clone(), action.source.clone());
+            cx.defer(move |cx| {
+                let _ = window.update(cx, |_, window, cx| {
+                    app.update(cx, |app, cx| app.open_diagram(source, window, cx))
+                });
+            });
+        }
+    });
     route::<FullScreenDock>(window, app.clone(), cx, |app, _, cx| {
         app.toggle_full_screen(cx)
     });
@@ -990,6 +1028,7 @@ impl Render for TreehouseApp {
         let dock: Option<AnyElement> = match &self.dock {
             Some(Dock::Diff(panel)) => Some(panel.clone().into_any_element()),
             Some(Dock::Session(chat)) => Some(chat.clone().into_any_element()),
+            Some(Dock::Diagram(panel)) => Some(panel.clone().into_any_element()),
             None => None,
         };
         let full = self.dock_full && dock.is_some();
@@ -1003,6 +1042,7 @@ impl Render for TreehouseApp {
             match &self.dock {
                 Some(Dock::Diff(panel)) => panel.entity_id(),
                 Some(Dock::Session(chat)) => chat.entity_id(),
+                Some(Dock::Diagram(panel)) => panel.entity_id(),
                 None => unreachable!(),
             }
         } else {
@@ -1023,6 +1063,10 @@ impl Render for TreehouseApp {
             Some(Dock::Session(chat)) => {
                 let lead = lead.filter(|_| chat.entity_id() == beside);
                 chat.update(cx, |chat, _| chat.sidebar_lead = lead);
+            }
+            Some(Dock::Diagram(panel)) => {
+                let lead = lead.filter(|_| panel.entity_id() == beside);
+                panel.update(cx, |panel, _| panel.sidebar_lead = lead);
             }
             None => {}
         }

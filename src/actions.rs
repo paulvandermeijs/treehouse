@@ -47,6 +47,13 @@ actions!(
     ]
 );
 
+/// Opens a Mermaid diagram in the right dock.
+#[derive(Clone, PartialEq, serde::Deserialize, gpui_kit::Action)]
+#[action(namespace = treehouse, no_json)]
+pub struct OpenDiagram {
+    pub source: String,
+}
+
 /// Shortcuts as the design lists them, with Ctrl in place of ⌘ off macOS.
 pub const SHORTCUTS: [(&str, &str); 9] = [
     ("Command palette", "secondary-k"),

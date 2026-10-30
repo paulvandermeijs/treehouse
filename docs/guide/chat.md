@@ -47,6 +47,8 @@ Markdown tables have a header row, hairline dividers and a copy button under the
 
 A fenced ` ```mermaid ` block is drawn as its diagram, in the theme's colours: flowcharts, sequence, class, state and ER diagrams, Gantt charts, mind maps and more. **Diagram** and **Source** in the block's header switch between the drawing and the text, and the copy button copies the source. While Pi is still writing the block it shows "Rendering diagram…"; a diagram that can't be drawn shows its source with the reason. A diagram wider than the chat is scaled down to fit.
 
+The arrow in the header opens the diagram in the right dock, fitted to the panel. Drag or scroll to move it, hold <kbd>⌘</kbd> (<kbd>Ctrl</kbd>) while scrolling or use the zoom buttons to zoom, and click the percentage to fit it again. The dock's full-screen button gives it the whole window.
+
 ## Scrolling
 
 With the chat focused, <kbd>Page Up</kbd> and <kbd>Page Down</kbd> scroll a page at a time, and <kbd>Ctrl+U</kbd> and <kbd>Ctrl+D</kbd> half a page, also while typing in the message box. Back at the end, the chat follows new output again.

@@ -32,6 +32,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/pi/auth.rs` | Reads and writes provider keys in Pi's `auth.json` |
 | `assets/pi/treehouse.ts` | The Pi extension Treehouse loads into every session (see below) |
 | `src/session.rs` | One Pi session: its process, transcript, status, model and pending approvals |
+| `src/ui/diagram.rs` | A Mermaid diagram in the right dock, to zoom and pan |
 | `src/mermaid.rs` | Draws mermaid blocks with mermaid-rs-renderer, in the theme's colours |
 | `src/models.rs` | The model picker's list: favorites, recent, provider and maker groups, filtering; and the model list for Settings |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
