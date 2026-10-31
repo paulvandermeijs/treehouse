@@ -63,6 +63,14 @@ Everything the chat shows as history must come back from Pi's session file after
 - A dialog opened while `TreehouseApp` is still being constructed panics; defer it (`window.defer`).
 - In `#[cfg(test)]` modules, import items by name rather than `use super::*` when the parent glob-imports `gpui_kit::*`; the glob causes a recursion error.
 
+## Git history
+
+`master` has a linear history: merge commits are not allowed.
+
+- Bring a branch up to date with `git rebase origin/master`, never `git merge`. Don't push with `git pull` either unless it rebases (`git pull --rebase`).
+- Land a branch on `master` by fast-forwarding it: `git push origin HEAD:master` after rebasing, or `git merge --ff-only`. If `master` has moved on, rebase again and repeat; never create a merge commit to get past it.
+- Check before pushing: `git log --merges origin/master..HEAD` must print nothing.
+
 ## Versions and releases
 
 Treehouse follows [semver](https://semver.org). Before pushing to `master`, bump `version` in `Cargo.toml`: the minor version for new features, the patch version for fixes (while it's 0.x, breaking changes bump the minor version too). Run `cargo build` so `Cargo.lock` follows. Changes that don't touch the app itself, such as docs, tests or CI, don't need a bump.
