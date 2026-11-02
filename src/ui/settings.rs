@@ -216,6 +216,7 @@ fn new_key_placeholder(id: &str) -> &'static str {
         "anthropic" => "Paste an API key (sk-ant-…)",
         "openai" => "Paste an API key (sk-…)",
         "google" => "Paste an API key (AIza…)",
+        "xai" => "Paste an API key (xai-…)",
         "openrouter" => "Paste an API key (sk-or-…)",
         _ => "Paste an API key",
     }

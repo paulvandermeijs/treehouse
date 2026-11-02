@@ -4,11 +4,15 @@ use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
 /// The providers Settings › Providers lists, with their key variables.
-pub const PROVIDERS: [(&str, &str, &str); 4] = [
+/// OpenCode's two plans share a variable, but Pi keeps a key per plan.
+pub const PROVIDERS: [(&str, &str, &str); 7] = [
     ("anthropic", "Anthropic", "ANTHROPIC_API_KEY"),
     ("openai", "OpenAI", "OPENAI_API_KEY"),
     ("google", "Google", "GEMINI_API_KEY"),
+    ("xai", "xAI (Grok)", "XAI_API_KEY"),
     ("openrouter", "OpenRouter", "OPENROUTER_API_KEY"),
+    ("opencode", "OpenCode Zen", "OPENCODE_API_KEY"),
+    ("opencode-go", "OpenCode Go", "OPENCODE_API_KEY"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
