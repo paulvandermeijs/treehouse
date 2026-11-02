@@ -4,9 +4,13 @@ Open Settings with <kbd>⌘,</kbd> (<kbd>Ctrl+,</kbd>), the gear at the bottom o
 
 ## Providers
 
-API keys for Anthropic, OpenAI, Google, xAI (Grok), OpenRouter, OpenCode Zen and OpenCode Go, one row per provider showing where its key comes from: saved in Pi's own `auth.json`, signed in with Pi (OAuth), read from the environment (such as `$ANTHROPIC_API_KEY`), or not set up.
+The providers you've set up, one row each, showing where the key comes from: saved in Pi's own `auth.json`, signed in with Pi (OAuth), or read from the environment (such as `$ANTHROPIC_API_KEY`). A provider whose variable is set appears on its own.
 
-A provider without a key has a field in its row: paste the key and press <kbd>Enter</kbd> or **Save**. Nothing is saved when you leave the field. The key shows as dots; the eye button shows it while you check it. A saved key shows masked, with **Replace** and **Remove**; **Add key** on a provider read from the environment saves a key that's used instead of the variable. **Sign out** asks first, since signing in again needs `pi` in a terminal.
+To add one, pick it in **Add a provider…** under the list and press **Add**. The dropdown holds every other provider, with its variable: Anthropic, OpenAI, Google, xAI (Grok), Mistral, DeepSeek, OpenRouter, OpenCode Zen and Go, Vercel AI Gateway, Groq, Cerebras, Together AI, Fireworks, Z.ai, Moonshot AI and Hugging Face. Type to search it. Add gives the provider a row with the cursor in its key field; **Cancel**, or closing Settings without saving, takes it away again.
+
+Paste the key and press <kbd>Enter</kbd> or **Save**. Nothing is saved when you leave the field. The key shows as dots; the eye button shows it while you check it. A saved key shows masked, with **Replace** and **Remove**; removing it puts the provider back in the dropdown. **Add key** on a provider read from the environment saves a key that's used instead of the variable. **Sign out** asks first, since signing in again needs `pi` in a terminal.
+
+Providers that need a cloud account or a browser sign-in, such as Bedrock or Copilot, are set up with `pi` in a terminal and then show here as signed in.
 
 Keys are saved in Pi's own `auth.json`, readable only by you, so a key added here also works for `pi` in a terminal.
 

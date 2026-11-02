@@ -22,6 +22,7 @@ use crate::pi::auth::{self, Credential, PROVIDERS};
 use crate::theme::palette;
 use gpui_kit::component::Selectable;
 use gpui_kit::component::popover::Popover;
+use gpui_kit::component::select::{SearchableVec, Select, SelectEvent, SelectItem, SelectState};
 
 /// The sections other views link to; the value is the page index.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -222,31 +223,247 @@ fn new_key_placeholder(id: &str) -> &'static str {
     }
 }
 
-/// Every provider in one bordered list, a row each: its state and the place
-/// to change it, so saving a key changes the row in place.
+/// What the page holds between renders: the dropdown of providers to add,
+/// and the rows Add made that have no key yet. Nothing here is saved, so
+/// closing Settings drops an added row.
+struct ProvidersPage {
+    select: Entity<SelectState<SearchableVec<ProviderChoice>>>,
+    /// The ids the dropdown holds, to refill it only when they change.
+    offered: Vec<&'static str>,
+    /// In the order they were added; a row leaves once its key is saved.
+    added: Vec<&'static str>,
+    /// The added row whose input takes focus on its first render.
+    focus: Option<&'static str>,
+    _subscription: Subscription,
+}
+
+impl ProvidersPage {
+    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let select = cx.new(|cx| {
+            SelectState::new(SearchableVec::new(Vec::new()), None, window, cx).searchable(true)
+        });
+        let _subscription = cx.subscribe(&select, |_, _, _: &SelectEvent<_>, cx| cx.notify());
+        Self {
+            select,
+            offered: Vec::new(),
+            added: Vec::new(),
+            focus: None,
+            _subscription,
+        }
+    }
+
+    fn picked(&self, cx: &App) -> Option<&'static str> {
+        self.select.read(cx).selected_value().copied()
+    }
+
+    fn add(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.picked(cx) else { return };
+        self.added.push(id);
+        self.focus = Some(id);
+        self.select
+            .update(cx, |select, cx| select.set_selected_index(None, window, cx));
+        cx.notify();
+    }
+
+    fn cancel(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.added.retain(|added| *added != id);
+        self.select
+            .update(cx, |select, cx| select.focus(window, cx));
+        cx.notify();
+    }
+}
+
+/// A provider in the dropdown: its name, with its variable on the right for
+/// someone who'd rather set that.
+#[derive(Clone)]
+struct ProviderChoice {
+    id: &'static str,
+    name: &'static str,
+    var: &'static str,
+}
+
+impl SelectItem for ProviderChoice {
+    type Value = &'static str;
+
+    fn title(&self) -> SharedString {
+        self.name.into()
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        h_flex()
+            .w_full()
+            .justify_between()
+            .gap_2()
+            .child(div().flex_1().child(self.name))
+            .child(
+                div()
+                    .font_family(crate::theme::mono())
+                    .text_size(px(11.))
+                    .text_color(palette(cx).subtext0)
+                    .child(self.var),
+            )
+    }
+
+    fn value(&self) -> &&'static str {
+        &self.id
+    }
+
+    fn matches(&self, query: &str) -> bool {
+        let query = query.to_lowercase();
+        self.name.to_lowercase().contains(&query) || self.id.contains(&query)
+    }
+}
+
+fn provider(id: &str) -> (&'static str, &'static str, &'static str) {
+    *PROVIDERS
+        .iter()
+        .find(|(p, _, _)| *p == id)
+        .expect("a provider from PROVIDERS")
+}
+
+/// The rows to show, and the providers the dropdown offers. Rows are the
+/// configured providers in `PROVIDERS` order, then the added ones in the
+/// order they were added; the dropdown holds the rest, by name.
+fn arrange(
+    configured: &[&'static str],
+    added: &[&'static str],
+) -> (Vec<&'static str>, Vec<&'static str>) {
+    let mut rows: Vec<&'static str> = PROVIDERS
+        .iter()
+        .map(|&(id, _, _)| id)
+        .filter(|id| configured.contains(id) && !added.contains(id))
+        .collect();
+    rows.extend(added.iter().copied());
+    let mut offered: Vec<&'static str> = PROVIDERS
+        .iter()
+        .map(|&(id, _, _)| id)
+        .filter(|id| !configured.contains(id) && !added.contains(id))
+        .collect();
+    offered.sort_by_key(|id| provider(id).1.to_lowercase());
+    (rows, offered)
+}
+
+/// The configured providers in one bordered list, a row each: its state and
+/// the place to change it, so saving a key changes the row in place. The
+/// others wait in the dropdown under it.
 fn providers_list(window: &mut Window, cx: &mut App) -> AnyElement {
     let p = palette(cx);
-    let rows: Vec<AnyElement> = PROVIDERS
+    let page = window.use_keyed_state("providers-page", cx, ProvidersPage::new);
+    let credentials = auth::credentials();
+    let configured: Vec<&'static str> = credentials
         .iter()
-        .enumerate()
-        .map(|(ix, &(id, name, var))| provider_row(ix, id, name, var, window, cx))
+        .filter(|(_, c)| c.is_set())
+        .map(|(id, _)| *id)
         .collect();
+    // A saved key turns an added row into an ordinary one, in its place.
+    page.update(cx, |page, _| {
+        page.added.retain(|id| !configured.contains(id))
+    });
+    let (rows, offered) = arrange(&configured, &page.read(cx).added);
+    if page.read(cx).offered != offered {
+        let choices: Vec<ProviderChoice> = offered
+            .iter()
+            .map(|id| {
+                let (id, name, var) = provider(id);
+                ProviderChoice { id, name, var }
+            })
+            .collect();
+        page.update(cx, |page, cx| {
+            page.offered = offered.clone();
+            page.select.update(cx, |select, cx| {
+                select.set_items(SearchableVec::new(choices), window, cx)
+            });
+        });
+    }
+
+    let (added, picked, select) = {
+        let page = page.read(cx);
+        (page.added.clone(), page.picked(cx), page.select.clone())
+    };
+    let list: AnyElement = if rows.is_empty() {
+        div()
+            .w_full()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(p.surface1)
+            .px_4()
+            .py(px(18.))
+            .text_size(px(13.))
+            .text_color(p.subtext0)
+            .child("No providers yet. Add one to start chatting.")
+            .into_any_element()
+    } else {
+        let rows: Vec<AnyElement> = rows
+            .iter()
+            .enumerate()
+            .map(|(ix, &id)| {
+                let (id, name, var) = provider(id);
+                let credential = credentials
+                    .iter()
+                    .find(|(c, _)| *c == id)
+                    .map(|(_, c)| c.clone())
+                    .unwrap_or(Credential::Missing);
+                let added = added.contains(&id);
+                provider_row(ix, id, name, var, credential, added, &page, window, cx)
+            })
+            .collect();
+        v_flex()
+            .w_full()
+            .rounded(px(8.))
+            .border_1()
+            .border_color(p.surface0)
+            .bg(p.mantle)
+            .overflow_hidden()
+            .children(rows)
+            .into_any_element()
+    };
+
     v_flex()
         .w_full()
-        .rounded(px(8.))
-        .border_1()
-        .border_color(p.surface0)
-        .bg(p.mantle)
-        .overflow_hidden()
-        .children(rows)
+        .gap(px(14.))
+        .child(list)
+        .when(!offered.is_empty(), |this| {
+            this.child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        div().w(px(300.)).flex_none().child(
+                            Select::new(&select)
+                                .small()
+                                .w_full()
+                                .menu_width(px(300.))
+                                .placeholder("Add a provider…")
+                                .search_placeholder("Search providers")
+                                .accessibility_label("Provider to add"),
+                        ),
+                    )
+                    .child(
+                        Button::new("add-provider")
+                            .small()
+                            .label("Add")
+                            .when(picked.is_some(), |this| this.primary())
+                            .disabled(picked.is_none())
+                            .on_click({
+                                let page = page.clone();
+                                move |_, window, cx| page.update(cx, |p, cx| p.add(window, cx))
+                            }),
+                    ),
+            )
+        })
         .into_any_element()
 }
 
+/// One provider's row. `added` is a row Add made that has no key yet: it
+/// keeps its input open, with Cancel to drop it again.
+#[allow(clippy::too_many_arguments)]
 fn provider_row(
     ix: usize,
     id: &'static str,
     name: &'static str,
     var: &'static str,
+    credential: Credential,
+    added: bool,
+    page: &Entity<ProvidersPage>,
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
@@ -256,7 +473,13 @@ fn provider_row(
         cx,
         move |window, cx| KeyRow::new(id, window, cx),
     );
-    let credential = auth::credential(id);
+    if page.read(cx).focus == Some(id) {
+        page.update(cx, |page, _| page.focus = None);
+        let input = row.read(cx).input.clone();
+        window.defer(cx, move |window, cx| {
+            input.update(cx, |input, cx| input.focus(window, cx))
+        });
+    }
     let (editing, confirm_sign_out, error, typed, input) = {
         let r = row.read(cx);
         (
@@ -368,7 +591,7 @@ fn provider_row(
                         move |_, window, cx| row.update(cx, |r, cx| r.save(id, window, cx))
                     }),
             )
-            .when(editing, |this| {
+            .when(editing || added, |this| {
                 this.child(
                     Button::new(("cancel-key", ix))
                         .ghost()
@@ -376,7 +599,13 @@ fn provider_row(
                         .label("Cancel")
                         .on_click({
                             let row = row.clone();
-                            move |_, window, cx| row.update(cx, |r, cx| r.cancel(window, cx))
+                            let page = page.clone();
+                            move |_, window, cx| {
+                                row.update(cx, |r, cx| r.cancel(window, cx));
+                                if added {
+                                    page.update(cx, |p, cx| p.cancel(id, window, cx));
+                                }
+                            }
                         }),
                 )
             })
@@ -472,6 +701,8 @@ fn provider_row(
         .px_4()
         .py(px(14.))
         .when(ix > 0, |this| this.border_t_1().border_color(p.surface0))
+        // Tinted while unsaved, so it's clear which row Add made.
+        .when(added, |this| this.bg(p.blue.opacity(0.06)))
         .child(
             v_flex()
                 .w(px(150.))
@@ -1273,5 +1504,33 @@ fn capitalize(s: &str) -> String {
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::arrange;
+    use crate::pi::auth::PROVIDERS;
+
+    #[test]
+    fn configured_rows_keep_their_order_and_added_ones_follow() {
+        let (rows, _) = arrange(&["openrouter", "anthropic"], &["mistral", "groq"]);
+        assert_eq!(rows, ["anthropic", "openrouter", "mistral", "groq"]);
+    }
+
+    #[test]
+    fn the_dropdown_offers_the_rest_by_name() {
+        let (rows, offered) = arrange(&["openrouter"], &["mistral"]);
+        assert_eq!(rows.len() + offered.len(), PROVIDERS.len());
+        assert!(!offered.contains(&"openrouter") && !offered.contains(&"mistral"));
+        assert_eq!(&offered[..3], ["anthropic", "cerebras", "deepseek"]);
+        assert_eq!(offered.last(), Some(&"zai"));
+    }
+
+    #[test]
+    fn nothing_set_up_offers_everything() {
+        let (rows, offered) = arrange(&[], &[]);
+        assert!(rows.is_empty());
+        assert_eq!(offered.len(), PROVIDERS.len());
     }
 }

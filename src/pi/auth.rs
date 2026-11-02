@@ -3,16 +3,32 @@
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
-/// The providers Settings › Providers lists, with their key variables.
+/// The providers Settings › Providers offers, with their key variables, in
+/// the order the page and the model picker list them. Only Pi's built-in
+/// providers that take a single API key.
 /// OpenCode's two plans share a variable, but Pi keeps a key per plan.
-pub const PROVIDERS: [(&str, &str, &str); 7] = [
+pub const PROVIDERS: [(&str, &str, &str); 17] = [
     ("anthropic", "Anthropic", "ANTHROPIC_API_KEY"),
     ("openai", "OpenAI", "OPENAI_API_KEY"),
     ("google", "Google", "GEMINI_API_KEY"),
     ("xai", "xAI (Grok)", "XAI_API_KEY"),
+    ("mistral", "Mistral", "MISTRAL_API_KEY"),
+    ("deepseek", "DeepSeek", "DEEPSEEK_API_KEY"),
     ("openrouter", "OpenRouter", "OPENROUTER_API_KEY"),
     ("opencode", "OpenCode Zen", "OPENCODE_API_KEY"),
     ("opencode-go", "OpenCode Go", "OPENCODE_API_KEY"),
+    (
+        "vercel-ai-gateway",
+        "Vercel AI Gateway",
+        "AI_GATEWAY_API_KEY",
+    ),
+    ("groq", "Groq", "GROQ_API_KEY"),
+    ("cerebras", "Cerebras", "CEREBRAS_API_KEY"),
+    ("together", "Together AI", "TOGETHER_API_KEY"),
+    ("fireworks", "Fireworks", "FIREWORKS_API_KEY"),
+    ("zai", "Z.ai", "ZAI_API_KEY"),
+    ("moonshotai", "Moonshot AI", "MOONSHOT_API_KEY"),
+    ("huggingface", "Hugging Face", "HF_TOKEN"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,7 +77,19 @@ fn write(map: Map<String, Value>) -> std::io::Result<()> {
 }
 
 pub fn credential(provider: &str) -> Credential {
+    credential_in(&read(), provider)
+}
+
+/// Every provider's credential, from one read of `auth.json`.
+pub fn credentials() -> Vec<(&'static str, Credential)> {
     let map = read();
+    PROVIDERS
+        .iter()
+        .map(|&(id, _, _)| (id, credential_in(&map, id)))
+        .collect()
+}
+
+fn credential_in(map: &Map<String, Value>, provider: &str) -> Credential {
     match map.get(provider) {
         Some(entry) if entry["type"] == "api_key" => {
             Credential::Stored(mask(entry["key"].as_str().unwrap_or_default()))
