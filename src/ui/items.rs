@@ -309,7 +309,7 @@ fn open_link(url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &m
         return;
     }
     let note = match crate::links::classify(url) {
-        LinkAction::Open => return cx.open_url(url.trim()),
+        LinkAction::Open(url) => return cx.open_url(&url),
         LinkAction::Confirm => return confirm_link(url, window, cx),
         LinkAction::Refuse {
             scheme: Some(scheme),

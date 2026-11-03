@@ -10,8 +10,10 @@ use url::Url;
 /// What to do with a clicked link.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LinkAction {
-    /// A web or mail link, safe to hand to the browser or mail app.
-    Open,
+    /// A web or mail link, safe to hand to the browser or mail app: the
+    /// URL as parsed, which is what was checked, rather than the text as
+    /// written, which the system might read differently.
+    Open(String),
     /// Some other scheme (`file:`, `vscode:`, `ftp:` …): only with the
     /// user's say-so, and showing the full target.
     Confirm,
@@ -32,7 +34,7 @@ pub fn classify(url: &str) -> LinkAction {
         return LinkAction::Refuse { scheme: None };
     };
     match parsed.scheme() {
-        "http" | "https" | "mailto" => LinkAction::Open,
+        "http" | "https" | "mailto" => LinkAction::Open(parsed.to_string()),
         scheme if REFUSED.contains(&scheme) => LinkAction::Refuse {
             scheme: Some(scheme.to_string()),
         },
@@ -73,13 +75,37 @@ mod tests {
 
     #[test]
     fn opens_web_and_mail_links() {
-        assert_eq!(classify("https://example.com/a?b=c#d"), LinkAction::Open);
-        assert_eq!(classify("http://localhost:3000"), LinkAction::Open);
-        assert_eq!(classify("HTTPS://EXAMPLE.COM"), LinkAction::Open);
-        assert_eq!(classify("  https://example.com \n"), LinkAction::Open);
-        assert_eq!(classify("mailto:someone@example.com"), LinkAction::Open);
-        assert_eq!(classify("MailTo:someone@example.com"), LinkAction::Open);
-        assert_eq!(classify("mailto:"), LinkAction::Open);
+        assert!(matches!(
+            classify("https://example.com/a?b=c#d"),
+            LinkAction::Open(_)
+        ));
+        assert!(matches!(
+            classify("http://localhost:3000"),
+            LinkAction::Open(_)
+        ));
+        assert!(matches!(
+            classify("HTTPS://EXAMPLE.COM"),
+            LinkAction::Open(_)
+        ));
+        assert_eq!(
+            classify("  https://example.com \n"),
+            LinkAction::Open("https://example.com/".into())
+        );
+        // What opens is what was checked: tabs and newlines the parser drops
+        // don't reach the system.
+        assert_eq!(
+            classify("ht\ttps://example.com/a"),
+            LinkAction::Open("https://example.com/a".into())
+        );
+        assert!(matches!(
+            classify("mailto:someone@example.com"),
+            LinkAction::Open(_)
+        ));
+        assert!(matches!(
+            classify("MailTo:someone@example.com"),
+            LinkAction::Open(_)
+        ));
+        assert!(matches!(classify("mailto:"), LinkAction::Open(_)));
     }
 
     #[test]
