@@ -6,6 +6,7 @@ mod assets;
 mod config;
 mod git;
 mod history;
+mod links;
 mod markdown;
 mod mcp;
 mod mermaid;

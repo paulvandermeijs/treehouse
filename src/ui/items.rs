@@ -18,6 +18,7 @@ use serde_json::Value;
 
 use super::chat::ChatView;
 use super::icon;
+use crate::links::LinkAction;
 use crate::session::{
     AgentStatus, ApprovalChoice, MergeChoice, PendingApproval, PendingMerge, Session,
 };
@@ -293,9 +294,48 @@ fn render_text(
     div().pl(px(GUTTER)).child(body).into_any_element()
 }
 
+/// A link clicked in the chat. Without this, the kit hands every URL to the
+/// system, `file:` and app schemes included, so `links::classify` decides.
+fn open_link(url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &mut App) {
+    // The buttons the kit opens links with; a right click opens nothing.
+    let opens = match event {
+        ClickEvent::Mouse(click) => {
+            matches!(click.up.button, MouseButton::Left | MouseButton::Middle)
+        }
+        ClickEvent::Keyboard(_) => true,
+        ClickEvent::Touch(click) => !click.long_press,
+    };
+    if !opens {
+        return;
+    }
+    let note = match crate::links::classify(url) {
+        LinkAction::Open => return cx.open_url(url.trim()),
+        LinkAction::Confirm => return confirm_link(url, window, cx),
+        LinkAction::Refuse {
+            scheme: Some(scheme),
+        } => format!("Treehouse doesn't open {scheme}: links."),
+        LinkAction::Refuse { scheme: None } => {
+            format!("Didn't open {url}: it isn't a full web address.")
+        }
+    };
+    gpui_kit::component::WindowExt::push_notification(window, note, cx);
+}
+
+/// A link that isn't web or mail, such as `file:` or another app's scheme.
+/// For now it never opens and the note shows its full target, since the link
+/// text can hide it. The confirm dialog being designed will replace this
+/// body, opening the link only when the user agrees.
+fn confirm_link(url: &str, window: &mut Window, cx: &mut App) {
+    gpui_kit::component::WindowExt::push_notification(
+        window,
+        format!("Didn't open {url}: Treehouse only opens web and mail links for now."),
+        cx,
+    );
+}
+
 /// Pi's Markdown as the design has it: code blocks drawn by our own plugin,
 /// inline code without the kit's tint, and tables with a mantle header,
-/// hairline rows and a copy menu.
+/// hairline rows and a copy menu. Every link in it goes through `open_link`.
 fn markdown_style(text: TextView, cx: &App) -> AnyElement {
     let p = palette(cx);
     let table = StyleRefinement::default()
@@ -324,6 +364,7 @@ fn markdown_style(text: TextView, cx: &App) -> AnyElement {
             .table_cell(table_cell),
     )
     .plugin(super::code_block::CodeBlocks)
+    .on_link_click(open_link)
     .table_actions(|table, _, _| {
         let (markdown, csv) = (table.markdown.clone(), table_csv(table));
         h_flex().justify_end().child(
@@ -791,7 +832,12 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
         .into_any_element(),
         SignInState::Waiting => {
             let ready = sign_in.request_id.is_some();
-            let url = sign_in.url.clone();
+            // The page asks for credentials, so the button only opens https
+            // (or http on this machine); any other address shows as text.
+            let (url, unsafe_url) = match sign_in.url.clone() {
+                Some(url) if crate::links::is_safe_sign_in_url(&url) => (Some(url), None),
+                other => (None, other),
+            };
             let input = view.redirect_input.clone();
             v_flex()
                 .id(("sign-in", id.0))
@@ -815,12 +861,30 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
                     div()
                         .text_size(px(13.))
                         .text_color(p.subtext0)
-                        .child(if url.is_some() {
+                        .child(if url.is_some() || unsafe_url.is_some() {
                             "Finish signing in in your browser. If the browser can't reach this machine, paste the address it ended up on."
                         } else {
                             "Starting the sign-in…"
                         }),
                 )
+                .when_some(unsafe_url, |this, url| {
+                    this.child(
+                        v_flex()
+                            .gap_1()
+                            .text_size(px(13.))
+                            .child(
+                                div()
+                                    .text_color(p.subtext0)
+                                    .child("This sign-in link isn't https, so Treehouse won't open it."),
+                            )
+                            .child(
+                                div()
+                                    .font_family(crate::theme::mono())
+                                    .text_size(px(12.5))
+                                    .child(SharedString::from(url)),
+                            ),
+                    )
+                })
                 .when(ready, |this| {
                     let (session_paste, session_cancel) = (session.clone(), session.clone());
                     let paste = input.clone();

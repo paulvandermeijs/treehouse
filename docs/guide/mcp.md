@@ -8,6 +8,8 @@ Pi reaches MCP tools through its `codemode` and `tool_search` tools, so Treehous
 
 When a server needs a sign-in, the chat shows it with a **Sign in** button. That runs Pi's `/mcp login <server>`: Pi opens your browser, and the card waits for the sign-in to finish.
 
+The card's **Open sign-in page** button opens the page again. It only appears for an `https` page, or a plain `http` one on this machine (`localhost`, `127.0.0.1`); any other address shows as text, and Treehouse won't open it.
+
 If the browser can't reach this machine (in a remote session, for example), copy the address the browser ended up on, paste it into the card and click **Use address**.
 
 ## Servers that refuse Pi
