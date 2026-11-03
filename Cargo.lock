@@ -6720,6 +6720,7 @@ dependencies = [
  "gpui-kit",
  "image",
  "libc",
+ "markdown",
  "mermaid-rs-renderer",
  "resvg 0.45.1",
  "serde",

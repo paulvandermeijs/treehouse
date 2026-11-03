@@ -19,7 +19,7 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3, 4, 7 and 8 are fixed. Fix 2 and 6 before auto mode.
 
-- **2 · Links (high):** links in the chat open only for http, https and mailto, and the MCP sign-in page only for https (or http on this machine); other links show their target in a note and don't open. Left: a confirm dialog for the rest (`confirm_link` in `ui/items.rs`), design pending.
+- **2 · Links (high):** done but for the hover: every link should show its full target in a tooltip (a globe for links that open, a warning sign for ones that ask, "· not github.com" when the text names another site). gpui-kit's `TextView` has no link hover hook or tooltip, so it needs one upstream; drawing links through an inline Markdown plugin instead would lose their wrapping and selection.
 - **5 · MCP calls (medium):** they run without asking in Ask before bash. Ask by default, with Always allow per server or tool. (Overlaps the MCP item above.)
 - **6 · Approval cards (medium):** only the tool and path show for anything but bash. Show the diff for edit and write, and the arguments for other tools.
 - **9 · New worktrees (medium):** Pi starts worktrees with a task without asking, and a trusted project's `.agents/prepare` runs at once. Show the task on the card; ask in auto mode.

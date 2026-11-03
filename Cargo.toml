@@ -26,6 +26,8 @@ gpui-kit = { version = "0.8.0", features = [
     "tree-sitter-yaml",
 ] }
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Reads the link text behind a clicked link; the version gpui-kit parses with.
+markdown = "1.0.0"
 mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"

@@ -36,7 +36,17 @@ Once Pi moves on, a turn's steps fold into one line, such as "Worked for 2m 14s 
 
 ### Links
 
-Clicking a link in the chat opens it only if it's a web (`http`, `https`) or mail (`mailto`) link. Anything else, such as a `file://` link or another app's scheme like `vscode://`, doesn't open; a note shows the link's full target instead, since a link's text can hide where it leads. `javascript:` and `data:` links, and links that aren't full addresses, never open.
+Clicking a web (`http`, `https`) or mail (`mailto`) link in the chat opens it straight away. Other links ask first, in a dialog that shows the full target, since a link's text can hide where it leads:
+
+- **A file on your computer** (`file://`): **Open this file?** shows the path, and warns when opening it runs it, as with a `.command`, `.app`, `.sh`, `.exe`, `.bat`, `.ps1`, `.jar`, `.pkg` or `.dmg` file or a file marked executable. **Show in Finder** (**Show in folder** on Linux and Windows) shows the file without opening it.
+- **Another app's link**, such as `vscode://`: **Open this link in another app?** names the scheme and shows the link.
+- **A web link whose text names another site**, such as a link that reads `github.com/login` but goes to `github-login.example.net`: **This link goes somewhere else** shows the address with its real site picked out. Links whose text is plain words don't compare anything.
+
+**Cancel** is the default: Enter and Esc both close the dialog without opening anything, so opening always takes a click on **Open**. Each link asks again the next time.
+
+`javascript:`, `data:` and `vbscript:` links, and links that aren't full addresses, never open; a note says so.
+
+An MCP sign-in page opens only if it's https, or http on this machine. Any other sign-in address shows as text with **Copy link**, so you can check it and open it yourself.
 
 ### Code and syntax highlighting
 

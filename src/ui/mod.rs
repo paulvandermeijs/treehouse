@@ -7,6 +7,7 @@ mod code_block;
 mod diagram;
 mod diff;
 mod items;
+mod link_confirm;
 mod model_picker;
 mod palette;
 mod settings;

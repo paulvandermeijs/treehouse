@@ -226,10 +226,14 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             // Centre the avatar on the first line, which grows with the text
             // size (GPUI's default line height is 1.618 × the text size).
             .child(avatar(&view.initials, &p).mt(first_line_offset(cx)))
-            .child(div().flex_1().min_w_0().child(markdown_style(
-                TextView::markdown(("user-text", id.0), SharedString::from(text.clone())),
-                cx,
-            )))
+            .child(div().flex_1().min_w_0().child({
+                let source = SharedString::from(text.clone());
+                markdown_style(
+                    TextView::markdown(("user-text", id.0), source.clone()),
+                    source,
+                    cx,
+                )
+            }))
             .into_any_element(),
         Item::Text { id, text, .. } => render_text(view, *id, text, false, cx),
         Item::Thinking {
@@ -271,6 +275,9 @@ fn render_text(
     muted: bool,
     cx: &mut Context<ChatView>,
 ) -> AnyElement {
+    // The item's text is the source the streamed view is synced from, so it
+    // holds every link the view shows.
+    let source = SharedString::from(text.to_string());
     let view_of = |text: TextView, cx: &App| {
         markdown_style(
             if muted {
@@ -278,6 +285,7 @@ fn render_text(
             } else {
                 text
             },
+            source.clone(),
             cx,
         )
     };
@@ -296,7 +304,14 @@ fn render_text(
 
 /// A link clicked in the chat. Without this, the kit hands every URL to the
 /// system, `file:` and app schemes included, so `links::classify` decides.
-fn open_link(url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &mut App) {
+/// `source` is the message's Markdown, where the link's text is read from.
+fn open_link(
+    source: &str,
+    url: &SharedString,
+    event: &ClickEvent,
+    window: &mut Window,
+    cx: &mut App,
+) {
     // The buttons the kit opens links with; a right click opens nothing.
     let opens = match event {
         ClickEvent::Mouse(click) => {
@@ -308,9 +323,10 @@ fn open_link(url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &m
     if !opens {
         return;
     }
-    let note = match crate::links::classify(url) {
+    let texts = crate::links::link_texts(source, url);
+    let note = match crate::links::classify(url, &texts) {
         LinkAction::Open(url) => return cx.open_url(&url),
-        LinkAction::Confirm => return confirm_link(url, window, cx),
+        LinkAction::Ask(ask) => return super::link_confirm::open(ask, window, cx),
         LinkAction::Refuse {
             scheme: Some(scheme),
         } => format!("Treehouse doesn't open {scheme}: links."),
@@ -321,22 +337,11 @@ fn open_link(url: &SharedString, event: &ClickEvent, window: &mut Window, cx: &m
     gpui_kit::component::WindowExt::push_notification(window, note, cx);
 }
 
-/// A link that isn't web or mail, such as `file:` or another app's scheme.
-/// For now it never opens and the note shows its full target, since the link
-/// text can hide it. The confirm dialog being designed will replace this
-/// body, opening the link only when the user agrees.
-fn confirm_link(url: &str, window: &mut Window, cx: &mut App) {
-    gpui_kit::component::WindowExt::push_notification(
-        window,
-        format!("Didn't open {url}: Treehouse only opens web and mail links for now."),
-        cx,
-    );
-}
-
 /// Pi's Markdown as the design has it: code blocks drawn by our own plugin,
 /// inline code without the kit's tint, and tables with a mantle header,
-/// hairline rows and a copy menu. Every link in it goes through `open_link`.
-fn markdown_style(text: TextView, cx: &App) -> AnyElement {
+/// hairline rows and a copy menu. Every link in it goes through `open_link`,
+/// which reads link texts from `source`, the Markdown the view shows.
+fn markdown_style(text: TextView, source: SharedString, cx: &App) -> AnyElement {
     let p = palette(cx);
     let table = StyleRefinement::default()
         .border_1()
@@ -364,7 +369,7 @@ fn markdown_style(text: TextView, cx: &App) -> AnyElement {
             .table_cell(table_cell),
     )
     .plugin(super::code_block::CodeBlocks)
-    .on_link_click(open_link)
+    .on_link_click(move |url, event, window, cx| open_link(&source, url, event, window, cx))
     .table_actions(|table, _, _| {
         let (markdown, csv) = (table.markdown.clone(), table_csv(table));
         h_flex().justify_end().child(
@@ -838,6 +843,7 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
                 Some(url) if crate::links::is_safe_sign_in_url(&url) => (Some(url), None),
                 other => (None, other),
             };
+            let copy_url = unsafe_url.clone();
             let input = view.redirect_input.clone();
             v_flex()
                 .id(("sign-in", id.0))
@@ -918,6 +924,22 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
                                         .icon(icon(Lucide::ExternalLink))
                                         .label("Open sign-in page")
                                         .on_click(move |_, _, cx| cx.open_url(&url)),
+                                )
+                            })
+                            // So a page Treehouse won't open can still be
+                            // checked and opened by hand.
+                            .when_some(copy_url, |this, url| {
+                                this.child(
+                                    Button::new(("sign-in-copy", id.0))
+                                        .outline()
+                                        .small()
+                                        .icon(icon(Lucide::Copy))
+                                        .label("Copy link")
+                                        .on_click(move |_, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                url.clone(),
+                                            ))
+                                        }),
                                 )
                             })
                             .child(

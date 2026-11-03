@@ -20,6 +20,7 @@ The first word of a message picks the script:
 | `MCP` | MCP tool calls |
 | `Code` | Code blocks |
 | `Table` | A table |
+| `Links` | A web link, one whose text names another site, a `file:` link to a `.command` script, a `vscode:` link and a `javascript:` link |
 | `Mermaid` | Mermaid diagrams, one with a mistake |
 | anything else | A worktree turn with tools, an approval and a sub-agent |
 
@@ -27,7 +28,7 @@ The first word of a message picks the script:
 
 It lists models from two providers, one of them OpenRouter with its makers in the ids, for the model picker. Set `FAKE_PI_MANY_MODELS=1` to add 360 more, as long as OpenRouter's real list.
 
-It also handles `/mcp login`, and `!` shell commands, which it runs for real through Pi's `bash` RPC. Set `FAKE_PI_MCP=1` to make it report an MCP server that needs a sign-in.
+It also handles `/mcp login`, and `!` shell commands, which it runs for real through Pi's `bash` RPC. Set `FAKE_PI_MCP=1` to make it report an MCP server that needs a sign-in, and `FAKE_PI_MCP_URL` to give its sign-in page another address, such as a plain http one.
 
 It saves the chat to a session file in Pi's format (`--session-dir`, `--session`), so restoring history can be tried too. Extend it when a feature needs a new Pi behaviour to test against.
 
