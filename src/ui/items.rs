@@ -1466,7 +1466,7 @@ fn render_merge_approval(
                     Button::new("merge")
                         .primary()
                         .small()
-                        .label("Merge ⏎")
+                        .label("Merge")
                         .on_click(choose(MergeChoice::FastForward)),
                 )
                 .child(

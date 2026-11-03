@@ -9,7 +9,7 @@ use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, SharedString
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::approval::{AllowedPattern, Decision, Policy, ToolCallRequest, propose_pattern};
 use crate::config::Config;
@@ -55,6 +55,22 @@ pub struct PendingApproval {
     /// The "Always allow" pattern proposed for a bash command.
     pub pattern: Option<String>,
     pub asked: Instant,
+}
+
+/// How long a card must have been on screen before Enter on an empty message
+/// box approves it. Without it, a second Enter pressed quickly after sending
+/// a message could approve a call that only just appeared and wasn't read.
+pub const ENTER_APPROVES_AFTER: Duration = Duration::from_secs(1);
+
+impl PendingApproval {
+    /// Whether Enter on an empty message box may approve this call by now.
+    pub fn enter_may_approve(&self, now: Instant) -> bool {
+        shown_long_enough(self.asked, now)
+    }
+}
+
+fn shown_long_enough(asked: Instant, now: Instant) -> bool {
+    now.saturating_duration_since(asked) >= ENTER_APPROVES_AFTER
 }
 
 /// A merge into the base branch that passed its checks and waits for the
@@ -1421,7 +1437,22 @@ fn run_setup_blocking(
 
 #[cfg(test)]
 mod tests {
-    use super::AgentStatus;
+    use super::{AgentStatus, ENTER_APPROVES_AFTER, shown_long_enough};
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn enter_waits_a_second_after_a_card_appears() {
+        let asked = Instant::now();
+        assert!(!shown_long_enough(asked, asked));
+        assert!(!shown_long_enough(
+            asked,
+            asked + Duration::from_millis(999)
+        ));
+        assert!(shown_long_enough(asked, asked + ENTER_APPROVES_AFTER));
+        assert!(shown_long_enough(asked, asked + Duration::from_secs(5)));
+        // A clock reading from before the card never counts as long enough.
+        assert!(!shown_long_enough(asked + Duration::from_secs(1), asked));
+    }
 
     #[test]
     fn most_urgent_status_wins() {

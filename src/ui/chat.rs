@@ -751,20 +751,19 @@ impl ChatView {
     fn send(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let message = self.composer.read(cx).value().to_string();
         if message.trim().is_empty() {
-            // Enter on an empty message box runs the waiting command.
+            // Enter on an empty message box runs the waiting command, once its
+            // card has been up long enough to be read. It never merges: that
+            // takes the merge card's own buttons.
             let waiting = self
                 .session
                 .read(cx)
                 .approvals
                 .first()
+                .filter(|a| a.enter_may_approve(std::time::Instant::now()))
                 .map(|a| a.request_id.clone());
             if let Some(request_id) = waiting {
                 self.session.update(cx, |s, cx| {
                     s.resolve_approval(&request_id, crate::session::ApprovalChoice::Run, cx)
-                });
-            } else if self.session.read(cx).merge.is_some() {
-                self.session.update(cx, |s, cx| {
-                    s.resolve_merge(crate::session::MergeChoice::FastForward, cx)
                 });
             }
             return;

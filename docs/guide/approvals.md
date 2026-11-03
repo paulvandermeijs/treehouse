@@ -4,7 +4,7 @@ Pi has no tool approval of its own. Treehouse's [bridge extension](/development/
 
 When it has to ask, the chat shows the call with three buttons:
 
-- **Run** runs it this once.
+- **Run** (<kbd>Enter</kbd> in an empty message box) runs it this once. Enter is ignored for the first second after the card appears, so a quick second Enter after sending a message doesn't approve a call you haven't read.
 - **Always allow** runs it and saves a pattern so similar commands run without asking.
 - **Deny** (<kbd>Esc</kbd>) refuses it; Pi is told the user denied it.
 

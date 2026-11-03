@@ -43,7 +43,7 @@ If any check fails, the merge is refused with the reason, and Pi can fix what it
 
 When the checks pass, the chat asks you, whatever your [approval setting](./approvals):
 
-- **Merge** (<kbd>Enter</kbd>) fast-forwards the base to the branch.
+- **Merge** fast-forwards the base to the branch. Enter never merges; use the buttons.
 - **Squash into one** adds a single commit to the base with all of the branch's changes, using a message Pi wrote. Hover the button to read it.
 - **Deny** leaves everything as it was.
 
