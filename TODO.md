@@ -15,6 +15,21 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 - **Text-size stepper** in Settings › Appearance, in place of the Text size dropdown.
 - **Mermaid diagrams:** save as SVG, as the design has it.
 
+## Security
+
+Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3, 4 and 8 are fixed. Fix 2, 6 and 7 before auto mode.
+
+- **2 · Links (high):** links in Pi's replies open any URL through the system, `file://` and app schemes included, and the text can hide the target. Open http, https and mailto ourselves, show the target, refuse or confirm the rest; require https for the MCP sign-in page.
+- **5 · MCP calls (medium):** they run without asking in Ask before bash. Ask by default, with Always allow per server or tool. (Overlaps the MCP item above.)
+- **6 · Approval cards (medium):** only the tool and path show for anything but bash. Show the diff for edit and write, and the arguments for other tools.
+- **7 · Enter approves (medium):** Enter on an empty message box approves the first waiting call, or fast-forwards a merge, even one that just appeared. Ignore Enter for a second after a card appears; never merge by Enter.
+- **9 · New worktrees (medium):** Pi starts worktrees with a task without asking, and a trusted project's `.agents/prepare` runs at once. Show the task on the card; ask in auto mode.
+- **10 · Trust prompt (low):** say what trusting runs: the project's `.pi` extensions, its MCP servers and `.agents/prepare`.
+- **11 · File writes (low):** create `auth.json` 0600 from the start, and write settings, trust and the session index through a temporary file and a rename.
+- **12 · Chat histories (low):** create Treehouse's data folder 0700; tool output can hold secrets.
+- **13 · CI (low):** a workflow for pull requests, a weekly `cargo audit` or `cargo deny`, and Dependabot for crates and actions.
+- **14 · Branch names (low):** check names from Pi with `git check-ref-format --branch` before `git worktree add`.
+
 ## Small fixes
 
 - Two sub-agents running at once may still edit the same file, though the `subagent` tool asks Pi not to. If that shows up in practice, flag the overlap on their cards in the parent's chat.

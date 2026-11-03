@@ -13,6 +13,7 @@ mod models;
 mod pi;
 mod session;
 mod setup;
+mod shell;
 mod shell_env;
 mod slash;
 mod steps;
