@@ -2,10 +2,24 @@
 
 Pi has no tool approval of its own. Treehouse's [bridge extension](/development/#the-bridge-extension) sends every tool call to Treehouse first, and Treehouse decides from your settings whether it runs straight away or waits for you.
 
-When it has to ask, the chat shows the call with three buttons:
+When it has to ask, the chat shows a card with what the call would do:
 
-- **Run** (<kbd>Enter</kbd> in an empty message box) runs it this once. Enter is ignored for the first second after the card appears, so a quick second Enter after sending a message doesn't approve a call you haven't read.
-- **Always allow** runs it and saves a pattern so similar commands run without asking.
+- **Bash** shows the whole command.
+- **Edit** shows the change as a diff of the file, with line numbers and the lines added and removed.
+- **Write** shows the diff against the file as it is now, or, for a new file, its content and its length.
+- **MCP tools** show the server and the tool, as in *slack · send_message*, with a reminder that an MCP server can change things outside Treehouse.
+- **Other tools** (read, grep, scripts…) list every argument by name. Objects and lists show as indented JSON.
+
+Long diffs show their first 12 lines and **Show all N lines**; a value over 6 lines or 400 characters is cut, saying how much is left, with **Show the whole …**. Both open the card in place.
+
+A path that leads out of the worktree through a symlink, such as a `.env` that `.agents/linked` shares, names both the path Pi gave and where it really goes, and the diff's header shows the real file. A file that `.agents/linked` shares says so: a change there reaches every worktree of the project.
+
+The info icon at the right of the card's header says which setting asked, such as **Ask before every tool call** or **Pushing**, and where to change it.
+
+The buttons:
+
+- The first one names the action: **Run** for bash, **Edit**, **Write** or **Create** for files, **Allow** for other tools. It runs the call this once, as does <kbd>Enter</kbd> in an empty message box. Enter is ignored for the first second after the card appears, so a quick second Enter after sending a message doesn't approve a call you haven't read.
+- **Always allow** (bash only) runs it and saves a pattern so similar commands run without asking.
 - **Deny** (<kbd>Esc</kbd>) refuses it; Pi is told the user denied it.
 
 A worktree waiting for approval shows it in the sidebar, and its status card has a **Review** button.

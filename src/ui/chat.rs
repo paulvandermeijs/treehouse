@@ -61,6 +61,9 @@ pub struct ChatView {
     open_steps: HashSet<ItemId>,
     /// Merged cards whose "Keep it" was clicked: no more clean-up offer.
     pub kept: HashSet<ItemId>,
+    /// Parts of approval cards shown in full, by request id and part: the
+    /// diff, or one argument.
+    approval_open: HashSet<(String, String)>,
     scroll: ScrollHandle,
     follow_tail: bool,
     /// Where each history row was last painted, to count those below the
@@ -200,6 +203,7 @@ impl ChatView {
             toggled: HashSet::new(),
             open_steps: HashSet::new(),
             kept: HashSet::new(),
+            approval_open: HashSet::new(),
             scroll,
             follow_tail: true,
             row_bounds: Default::default(),
@@ -535,6 +539,18 @@ impl ChatView {
 
     pub fn is_expanded(&self, id: ItemId, default: bool) -> bool {
         default != self.toggled.contains(&id)
+    }
+
+    pub fn approval_part_open(&self, request_id: &str, part: &str) -> bool {
+        self.approval_open
+            .contains(&(request_id.to_string(), part.to_string()))
+    }
+
+    pub fn open_approval_part(&mut self, request_id: &str, part: &str, cx: &mut Context<Self>) {
+        self.approval_open
+            .insert((request_id.to_string(), part.to_string()));
+        self.follow_tail = false;
+        cx.notify();
     }
 
     pub fn steps_open(&self, first: ItemId) -> bool {

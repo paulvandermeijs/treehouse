@@ -12,6 +12,7 @@ mod mcp;
 mod mermaid;
 mod models;
 mod pi;
+mod preview;
 mod session;
 mod setup;
 mod shell;

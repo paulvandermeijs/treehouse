@@ -59,6 +59,17 @@ pub fn linked_paths(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// Whether a path, relative to the worktree, is one `.agents/linked` shares
+/// with every worktree, or inside one.
+pub fn is_linked(worktree: &Path, path: &Path) -> bool {
+    let Ok(text) = std::fs::read_to_string(worktree.join(LINKED)) else {
+        return false;
+    };
+    linked_paths(&text)
+        .iter()
+        .any(|linked| path.starts_with(linked))
+}
+
 /// Links every path `.agents/linked` lists to the main worktree's copy.
 pub fn link_all(root: &Path, worktree: &Path) -> Vec<Link> {
     let Ok(text) = std::fs::read_to_string(worktree.join(LINKED)) else {

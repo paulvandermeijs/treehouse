@@ -15,6 +15,7 @@ The first word of a message picks the script:
 | `Fail` | A failed edit and a provider error |
 | `Retry` | A connection error that Pi retries |
 | `Approve` | A long approval pattern |
+| `Cards` | One of each approval card: an edit, writes through a link and to a new file, an MCP call, a long script, piped code |
 | `Long` | A long-running command |
 | `Mangle` | A garbled tool name |
 | `MCP` | MCP tool calls |

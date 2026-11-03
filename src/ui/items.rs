@@ -18,7 +18,10 @@ use serde_json::Value;
 
 use super::chat::ChatView;
 use super::icon;
+use super::trust::display_path;
+use crate::approval::Reason;
 use crate::links::LinkAction;
+use crate::preview::{Arg, FileAction, FileChange, Preview, mcp_parts};
 use crate::session::{
     AgentStatus, ApprovalChoice, MergeChoice, PendingApproval, PendingMerge, Session,
 };
@@ -1203,9 +1206,7 @@ pub(super) fn describe(tool: &ToolCall) -> ToolText {
             result: None,
         },
         name if name.starts_with("mcp__") => {
-            // `mcp__<server>__<tool>`
-            let rest = &name[5..];
-            let (server, tool_name) = rest.split_once("__").unwrap_or(("", rest));
+            let (server, tool_name) = mcp_parts(name).unwrap_or_default();
             ToolText {
                 icon: Lucide::Plug,
                 running: "Using",
@@ -1299,7 +1300,13 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         ToolStatus::AwaitingApproval if tool.name == "treehouse_merge" => {
             "Wants to merge".into_any_element()
         }
-        ToolStatus::AwaitingApproval => "Wants to run".into_any_element(),
+        ToolStatus::AwaitingApproval => match tool.name.as_str() {
+            "bash" => "Wants to run",
+            "edit" => "Wants to edit",
+            "write" => "Wants to write",
+            _ => "Wants to use",
+        }
+        .into_any_element(),
         _ => text.done.into_any_element(),
     };
     let lead: AnyElement = if running {
@@ -1425,6 +1432,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .find(|a| a.tool_call_id == tool.call_id)
         .cloned();
 
+    let awaiting = approval.is_some();
     let merge = view
         .session
         .read(cx)
@@ -1449,7 +1457,8 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .when_some(merge, |this, merge| this.child(render_merge_approval(view, &merge, cx)))
         .when_some(merged, |this, merged| this.child(render_merged(view, id, &merged, cx)))
         .when_some(refused, |this, refused| this.child(warning_card(&refused, &p)))
-        .when(expanded, |this| match tool.name.as_str() {
+        // An approval card shows the call itself.
+        .when(expanded && !awaiting, |this| match tool.name.as_str() {
             "bash" => this.child(render_bash_output(tool, &p)),
             "edit" | "write" if failed => this.child(error_card(
                 "The text to replace wasn't found in the file, so nothing changed. Pi usually reads the file again and retries.",
@@ -1952,36 +1961,7 @@ fn render_mini_diff(
                 break;
             }
             shown += 1;
-            let (bg, fg, sign) = match line.kind {
-                LineKind::Add => (Some(mix(p.green, p.base, 0.12)), p.add, "+"),
-                LineKind::Delete => (Some(mix(p.red, p.base, 0.12)), p.delete, "-"),
-                LineKind::Context => (None, p.subtext0, ""),
-            };
-            rows.push(
-                h_flex()
-                    .font_family(crate::theme::mono())
-                    .text_size(px(12.5))
-                    .line_height(px(22.))
-                    .whitespace_nowrap()
-                    .when_some(bg, |this, bg| this.bg(bg))
-                    .child(
-                        div()
-                            .w(px(40.))
-                            .pr_2()
-                            .text_right()
-                            .text_color(fg)
-                            .child(line.number.map(|n| n.to_string()).unwrap_or_default()),
-                    )
-                    .child(div().w(px(18.)).text_center().text_color(fg).child(sign))
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .overflow_hidden()
-                            .child(SharedString::from(line.text.clone())),
-                    )
-                    .into_any_element(),
-            );
+            rows.push(diff_line(line, true, &p));
         }
     }
     let total_lines: usize = hunks.iter().map(|h| h.lines.len()).sum();
@@ -2037,6 +2017,43 @@ fn render_mini_diff(
         .into_any_element()
 }
 
+/// Diff lines an approval card shows before "Show all".
+const APPROVAL_DIFF_LINES: usize = 12;
+
+/// One line of a diff in the chat: its number, sign and text.
+fn diff_line(line: &Line, numbered: bool, p: &Palette) -> AnyElement {
+    let (bg, fg, sign) = match line.kind {
+        LineKind::Add => (Some(mix(p.green, p.base, 0.12)), p.add, "+"),
+        LineKind::Delete => (Some(mix(p.red, p.base, 0.12)), p.delete, "-"),
+        LineKind::Context => (None, p.subtext0, ""),
+    };
+    h_flex()
+        .font_family(crate::theme::mono())
+        .text_size(px(12.5))
+        .line_height(px(22.))
+        .whitespace_nowrap()
+        .when_some(bg, |this, bg| this.bg(bg))
+        .child(
+            div()
+                .w(px(40.))
+                .pr_2()
+                .text_right()
+                .text_color(fg)
+                .when(numbered, |this| {
+                    this.child(line.number.map(|n| n.to_string()).unwrap_or_default())
+                }),
+        )
+        .child(div().w(px(18.)).text_center().text_color(fg).child(sign))
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .child(SharedString::from(line.text.clone())),
+        )
+        .into_any_element()
+}
+
 fn render_approval(
     view: &ChatView,
     approval: &PendingApproval,
@@ -2046,18 +2063,98 @@ fn render_approval(
     let session = view.session.clone();
     let branch = view.branch(cx);
     let request_id = approval.request_id.clone();
-    let detail = match approval.tool_name.as_str() {
-        "bash" => approval.input["command"].as_str().unwrap_or("").to_string(),
-        _ => approval.input["path"]
-            .as_str()
-            .map(|p| format!("{} {p}", approval.tool_name))
-            .unwrap_or_else(|| approval.tool_name.clone()),
+
+    let mono_name = |name: String| {
+        div()
+            .font_family(crate::theme::mono())
+            .text_size(px(12.5))
+            .text_color(p.subtext1)
+            .child(name)
     };
-    let what = if approval.tool_name == "bash" {
-        "a command"
-    } else {
-        "a tool"
+    let (title, name, primary): (&str, Option<String>, &str) = match &*approval.preview {
+        Preview::Command(_) => ("Wants to run a command", None, "Run ⏎"),
+        Preview::File(change) => match change.action {
+            FileAction::Edit => ("Wants to edit a file", None, "Edit ⏎"),
+            FileAction::Write => ("Wants to write a file", None, "Write ⏎"),
+            FileAction::Create => ("Wants to create a file", None, "Create ⏎"),
+        },
+        Preview::Args(_) => (
+            "Wants to use",
+            Some(match mcp_parts(&approval.tool_name) {
+                Some(("", tool)) => tool.to_string(),
+                Some((server, tool)) => format!("{server} · {tool}"),
+                None => approval.tool_name.clone(),
+            }),
+            "Allow ⏎",
+        ),
     };
+
+    let sub: Option<AnyElement> = match &*approval.preview {
+        Preview::Command(_) => Some(sub_line(
+            &[(&format!("Pi wants to run this in {branch}:"), false)],
+            &p,
+        )),
+        Preview::File(change) => {
+            let verb = match change.action {
+                FileAction::Edit => "change",
+                _ => "write",
+            };
+            match (&change.link_target, change.outside) {
+                (Some(target), _) => Some(sub_line(
+                    &[
+                        (&format!("Pi wants to {verb} "), false),
+                        (&change.path, true),
+                        (", which links to ", false),
+                        (&display_path(target), true),
+                        (&format!(", outside {branch}:"), false),
+                    ],
+                    &p,
+                )),
+                (None, true) => Some(sub_line(
+                    &[
+                        (&format!("Pi wants to {verb} "), false),
+                        (&change.path, true),
+                        (&format!(", outside {branch}:"), false),
+                    ],
+                    &p,
+                )),
+                // A new file's header already says what it is.
+                _ if change.action == FileAction::Create => None,
+                _ => Some(sub_line(
+                    &[(&format!("Pi wants to change this in {branch}:"), false)],
+                    &p,
+                )),
+            }
+        }
+        Preview::Args(_) if approval.tool_name.starts_with("mcp__") => Some(sub_line(
+            &[(
+                "An MCP server outside Treehouse; this can change things there.",
+                false,
+            )],
+            &p,
+        )),
+        Preview::Args(_) => None,
+    };
+
+    let body: Option<AnyElement> = match &*approval.preview {
+        Preview::Command(command) => Some(
+            div()
+                .px_3()
+                .py_2()
+                .rounded(px(6.))
+                .bg(p.mantle)
+                .border_1()
+                .border_color(p.surface0)
+                .font_family(crate::theme::mono())
+                .text_size(px(12.5))
+                .child(SharedString::from(format!("$ {command}")))
+                .into_any_element(),
+        ),
+        Preview::File(change) => Some(render_approval_diff(view, &request_id, change, cx)),
+        Preview::Args(args) if args.is_empty() => None,
+        Preview::Args(args) => Some(render_approval_args(view, &request_id, args, cx)),
+    };
+    let shared = matches!(&*approval.preview, Preview::File(change) if change.shared);
 
     v_flex()
         .mt_1()
@@ -2074,26 +2171,23 @@ fn render_approval(
                 .text_size(px(13.5))
                 .font_medium()
                 .child(icon(Lucide::Shield).text_color(p.blue))
-                .child(format!("Wants to run {what}")),
+                .child(title)
+                .when_some(name, |this, name| this.child(mono_name(name)))
+                .child(div().flex_1())
+                .child(why_asking(&request_id, approval.reason, &p)),
         )
-        .child(
-            div()
-                .text_size(px(13.))
-                .text_color(p.subtext0)
-                .child(format!("Pi wants to run this in {branch}:")),
-        )
-        .child(
-            div()
-                .px_3()
-                .py_2()
-                .rounded(px(6.))
-                .bg(p.mantle)
-                .border_1()
-                .border_color(p.surface0)
-                .font_family(crate::theme::mono())
-                .text_size(px(12.5))
-                .child(SharedString::from(format!("$ {detail}"))),
-        )
+        .children(sub)
+        .children(body)
+        .when(shared, |this| {
+            this.child(
+                h_flex()
+                    .gap_2()
+                    .text_size(px(12.5))
+                    .text_color(p.yellow_text)
+                    .child(icon(Lucide::TriangleAlert).size(px(14.)))
+                    .child("This file is shared with every worktree of the project."),
+            )
+        })
         .child(
             h_flex()
                 .gap_2()
@@ -2102,7 +2196,7 @@ fn render_approval(
                     Button::new(("approve", approval.tool_call_id.len()))
                         .primary()
                         .small()
-                        .label("Run ⏎")
+                        .label(primary)
                         .on_click({
                             let (session, id) = (session.clone(), request_id.clone());
                             move |_, _, cx| {
@@ -2153,6 +2247,264 @@ fn render_approval(
                         }),
                 ),
         )
+        .into_any_element()
+}
+
+/// The line under a card's header, with paths and names picked out.
+fn sub_line(parts: &[(&str, bool)], p: &Palette) -> AnyElement {
+    let mut text = String::new();
+    let mut highlights = Vec::new();
+    for (part, code) in parts {
+        let start = text.len();
+        text.push_str(part);
+        if *code {
+            highlights.push((
+                start..text.len(),
+                HighlightStyle {
+                    color: Some(p.subtext1),
+                    ..Default::default()
+                },
+            ));
+        }
+    }
+    div()
+        .text_size(px(13.))
+        .text_color(p.subtext0)
+        .child(StyledText::new(text).with_highlights(highlights))
+        .into_any_element()
+}
+
+/// The info icon that says which setting asked; quiet until hovered.
+fn why_asking(request_id: &str, reason: Reason, p: &Palette) -> AnyElement {
+    div()
+        .id(SharedString::from(format!("why-{request_id}")))
+        .flex_none()
+        .size(px(22.))
+        .rounded(px(4.))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(p.subtext0)
+        .hover(|s| s.bg(p.surface0).text_color(p.text))
+        .child(icon(Lucide::Info).size(px(14.)))
+        .tooltip(move |window, cx| {
+            gpui_kit::component::tooltip::Tooltip::element(move |_, cx| {
+                let p = palette(cx);
+                let (text, highlight) = match reason.rule() {
+                    Some((rule, page)) => {
+                        let lead = "Asking because ";
+                        (
+                            format!("{lead}{rule} is on. Change it in Settings › {page}."),
+                            Some(lead.len()..lead.len() + rule.len()),
+                        )
+                    }
+                    None => (
+                        "Asking because the command runs code Treehouse can't read, so it can't tell whether it deletes or pushes.".to_string(),
+                        None,
+                    ),
+                };
+                div()
+                    .max_w(px(300.))
+                    .text_size(px(12.))
+                    .child(StyledText::new(text).with_highlights(highlight.map(|range| {
+                        (
+                            range,
+                            HighlightStyle {
+                                color: Some(p.yellow_text),
+                                font_weight: Some(FontWeight::MEDIUM),
+                                ..Default::default()
+                            },
+                        )
+                    })))
+            })
+            .build(window, cx)
+        })
+        .into_any_element()
+}
+
+/// The change a file tool would make, capped until "Show all".
+fn render_approval_diff(
+    view: &ChatView,
+    request_id: &str,
+    change: &FileChange,
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let hunks = parse_hunks(&change.patch);
+    let total: usize = hunks.iter().map(|h| h.lines.len()).sum();
+    let open = view.approval_part_open(request_id, "diff");
+    let limit = if open {
+        usize::MAX
+    } else {
+        APPROVAL_DIFF_LINES
+    };
+
+    let shown_path = match &change.link_target {
+        Some(target) => display_path(target),
+        None => change.path.clone(),
+    };
+    let note = match change.action {
+        FileAction::Create => Some(match change.lines {
+            1 => "new file · 1 line".to_string(),
+            n => format!("new file · {n} lines"),
+        }),
+        FileAction::Write => Some(match change.lines {
+            1 => "replaces 1 line ·".to_string(),
+            n => format!("replaces {n} lines ·"),
+        }),
+        FileAction::Edit => None,
+    };
+    let header = h_flex()
+        .gap_2()
+        .px_3()
+        .py(px(6.))
+        .border_b_1()
+        .border_color(p.surface0)
+        .text_size(px(12.))
+        .text_color(p.subtext0)
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .text_ellipsis()
+                .whitespace_nowrap()
+                .font_family(crate::theme::mono())
+                .text_color(p.text)
+                .child(shown_path),
+        )
+        .when_some(note, |this, note| this.child(note))
+        .when(change.action != FileAction::Create, |this| {
+            this.child(counts(change.additions, change.deletions, &p))
+        });
+
+    let mut rows = Vec::new();
+    let mut shown = 0;
+    for hunk in &hunks {
+        if shown >= limit {
+            break;
+        }
+        // Where each hunk starts, once there's more than one.
+        if hunks.len() > 1 && change.numbered {
+            rows.push(
+                div()
+                    .px_3()
+                    .py(px(3.))
+                    .text_size(px(12.))
+                    .text_color(p.subtext0)
+                    .child(SharedString::from(hunk.header.clone()))
+                    .into_any_element(),
+            );
+        }
+        for line in hunk.lines.iter().take(limit - shown) {
+            rows.push(diff_line(line, change.numbered, &p));
+            shown += 1;
+        }
+    }
+
+    let id = request_id.to_string();
+    div()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .overflow_hidden()
+        .child(header)
+        .children(rows)
+        .when(shown < total, |this| {
+            this.child(
+                div()
+                    .id(SharedString::from(format!("show-diff-{request_id}")))
+                    .px_3()
+                    .py(px(5.))
+                    .border_t_1()
+                    .border_color(p.surface0)
+                    .text_size(px(12.))
+                    .text_color(p.blue)
+                    .cursor_pointer()
+                    .hover(|s| s.underline())
+                    .child(format!("Show all {total} lines"))
+                    .on_click(
+                        cx.listener(move |view, _, _, cx| view.open_approval_part(&id, "diff", cx)),
+                    ),
+            )
+        })
+        .into_any_element()
+}
+
+/// Every argument by name, long values cut until asked for.
+fn render_approval_args(
+    view: &ChatView,
+    request_id: &str,
+    args: &[Arg],
+    cx: &mut Context<ChatView>,
+) -> AnyElement {
+    let p = palette(cx);
+    let mut grid = v_flex().gap_1().px_3().py_2();
+    let mut links = Vec::new();
+    for arg in args {
+        let open = view.approval_part_open(request_id, &arg.name);
+        let value: AnyElement = match (&arg.cut, open) {
+            (Some((start, more)), false) => {
+                let id = request_id.to_string();
+                let name = arg.name.clone();
+                links.push(
+                    div()
+                        .id(SharedString::from(format!(
+                            "show-{request_id}-{}",
+                            arg.name
+                        )))
+                        .px_3()
+                        .py(px(5.))
+                        .border_t_1()
+                        .border_color(p.surface0)
+                        .font_family(crate::theme::sans())
+                        .text_size(px(12.))
+                        .text_color(p.blue)
+                        .cursor_pointer()
+                        .hover(|s| s.underline())
+                        .child(format!("Show the whole {}", arg.name))
+                        .on_click(cx.listener(move |view, _, _, cx| {
+                            view.open_approval_part(&id, &name, cx)
+                        }))
+                        .into_any_element(),
+                );
+                v_flex()
+                    .child(SharedString::from(start.clone()))
+                    .child(div().text_color(p.subtext0).child(more.clone()))
+                    .into_any_element()
+            }
+            _ => div()
+                .child(SharedString::from(arg.value.clone()))
+                .into_any_element(),
+        };
+        grid = grid.child(
+            h_flex()
+                .items_start()
+                .gap_3()
+                .child(
+                    div()
+                        .flex_none()
+                        .w(px(120.))
+                        .overflow_hidden()
+                        .text_ellipsis()
+                        .whitespace_nowrap()
+                        .text_color(p.subtext0)
+                        .child(SharedString::from(arg.name.clone())),
+                )
+                .child(div().flex_1().min_w_0().text_color(p.text).child(value)),
+        );
+    }
+    div()
+        .rounded(px(6.))
+        .border_1()
+        .border_color(p.surface0)
+        .bg(p.mantle)
+        .overflow_hidden()
+        .font_family(crate::theme::mono())
+        .text_size(px(12.5))
+        .child(grid)
+        .children(links)
         .into_any_element()
 }
 

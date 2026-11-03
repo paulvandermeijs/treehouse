@@ -11,9 +11,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::approval::{AllowedPattern, Decision, Policy, ToolCallRequest, propose_pattern};
+use crate::approval::{AllowedPattern, Decision, Policy, Reason, ToolCallRequest, propose_pattern};
 use crate::config::Config;
 use crate::pi::rpc::{LaunchOptions, PiClient, PiMessage, command, str_field};
+use crate::preview::Preview;
 use crate::transcript::{Effect, Item, ItemId, RunState, SignInState, ToolStatus, Transcript};
 
 /// Sidebar and card status, most urgent first.
@@ -55,6 +56,11 @@ pub struct PendingApproval {
     /// The "Always allow" pattern proposed for a bash command.
     pub pattern: Option<String>,
     pub asked: Instant,
+    /// The setting that made it ask.
+    pub reason: Reason,
+    /// What the card shows; shared, as the chat clones the approval on
+    /// every frame.
+    pub preview: std::sync::Arc<Preview>,
 }
 
 /// How long a card must have been on screen before Enter on an empty message
@@ -1237,7 +1243,7 @@ impl Session {
                 });
                 match decision {
                     Decision::Allow => self.answer(&request_id, Some("allow")),
-                    Decision::Ask => {
+                    Decision::Ask(reason) => {
                         let pattern = (tool_name == "bash")
                             .then(|| input["command"].as_str().map(propose_pattern))
                             .flatten();
@@ -1245,6 +1251,11 @@ impl Session {
                             tool.status = ToolStatus::AwaitingApproval;
                             tool.args = input.clone();
                         }
+                        // Before it runs: an edit's diff is against the
+                        // file as it is now.
+                        let preview = std::sync::Arc::new(crate::preview::preview(
+                            &tool_name, &input, &self.cwd, reason,
+                        ));
                         self.approvals.push(PendingApproval {
                             request_id,
                             tool_call_id,
@@ -1252,6 +1263,8 @@ impl Session {
                             input,
                             pattern,
                             asked: Instant::now(),
+                            reason,
+                            preview,
                         });
                     }
                 }

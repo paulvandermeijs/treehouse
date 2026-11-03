@@ -59,7 +59,34 @@ impl Default for AlwaysAsk {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
     Allow,
-    Ask,
+    Ask(Reason),
+}
+
+/// Which setting made a call ask, so the card can say so.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reason {
+    AskBeforeBash,
+    AskEveryTool,
+    Deleting,
+    Pushing,
+    OutsideWorktree,
+    /// `eval`, a script piped into `sh`, or code given inline to an
+    /// interpreter: it could delete or push without saying so.
+    Unreadable,
+}
+
+impl Reason {
+    /// The setting's name as Settings shows it, and the page it's on.
+    pub fn rule(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::AskBeforeBash => Some((ApprovalMode::AskBeforeBash.label(), "Agent defaults")),
+            Self::AskEveryTool => Some((ApprovalMode::AskEveryTool.label(), "Agent defaults")),
+            Self::Deleting => Some(("Deleting files", "Approvals")),
+            Self::Pushing => Some(("Pushing", "Approvals")),
+            Self::OutsideWorktree => Some(("Touching files outside the worktree", "Approvals")),
+            Self::Unreadable => None,
+        }
+    }
 }
 
 /// Everything the policy needs to know about one tool call.
@@ -90,7 +117,7 @@ impl Policy<'_> {
         }
 
         if self.always_ask.outside_worktree && touches_outside(call) {
-            return Decision::Ask;
+            return Decision::Ask(Reason::OutsideWorktree);
         }
 
         if call.tool_name == "bash" {
@@ -101,25 +128,26 @@ impl Policy<'_> {
                 .unwrap_or("");
             let risk = risk(command);
             if (self.always_ask.deleting || self.always_ask.pushing) && risk.opaque {
-                return Decision::Ask;
+                return Decision::Ask(Reason::Unreadable);
             }
             if self.always_ask.deleting && risk.deleting {
-                return Decision::Ask;
+                return Decision::Ask(Reason::Deleting);
             }
             if self.always_ask.pushing && risk.pushing {
-                return Decision::Ask;
+                return Decision::Ask(Reason::Pushing);
             }
             if self.is_allowed(command, call.project) {
                 return Decision::Allow;
             }
             return match self.mode {
                 ApprovalMode::DontAsk => Decision::Allow,
-                _ => Decision::Ask,
+                ApprovalMode::AskBeforeBash => Decision::Ask(Reason::AskBeforeBash),
+                ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
             };
         }
 
         match self.mode {
-            ApprovalMode::AskEveryTool => Decision::Ask,
+            ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
             _ => Decision::Allow,
         }
     }
@@ -372,7 +400,7 @@ fn touches_outside(call: &ToolCallRequest) -> bool {
 
 /// The path with symlinks followed as far as it exists, and the rest added
 /// as written.
-fn resolve(path: &Path) -> std::path::PathBuf {
+pub fn resolve(path: &Path) -> std::path::PathBuf {
     let path = normalize(path);
     let mut existing = path.as_path();
     let mut rest = Vec::new();
@@ -391,7 +419,7 @@ fn resolve(path: &Path) -> std::path::PathBuf {
 }
 
 /// Resolves `.` and `..` without touching the file system.
-fn normalize(path: &Path) -> std::path::PathBuf {
+pub fn normalize(path: &Path) -> std::path::PathBuf {
     use std::path::Component;
     let mut out = std::path::PathBuf::new();
     for component in path.components() {
@@ -411,6 +439,80 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    // Most tests only care whether a call asks; `says_which_rule_asked`
+    // checks why.
+    #[derive(Debug, PartialEq)]
+    enum Decision {
+        Allow,
+        Ask,
+    }
+
+    impl From<super::Decision> for Decision {
+        fn from(decision: super::Decision) -> Self {
+            match decision {
+                super::Decision::Allow => Self::Allow,
+                super::Decision::Ask(_) => Self::Ask,
+            }
+        }
+    }
+
+    fn reason(mode: ApprovalMode, tool: &str, input: Value) -> Option<Reason> {
+        let always_ask = AlwaysAsk::default();
+        let policy = Policy {
+            mode,
+            allowed: &[],
+            always_ask: &always_ask,
+        };
+        match policy.decide(&ToolCallRequest {
+            tool_name: tool,
+            input: &input,
+            worktree: Path::new("/code/app/.worktrees/feat"),
+            project: Path::new("/code/app"),
+        }) {
+            super::Decision::Ask(reason) => Some(reason),
+            super::Decision::Allow => None,
+        }
+    }
+
+    #[test]
+    fn says_which_rule_asked() {
+        use ApprovalMode::*;
+        let bash = |command: &str| json!({ "command": command });
+        assert_eq!(
+            reason(AskBeforeBash, "bash", bash("ls")),
+            Some(Reason::AskBeforeBash)
+        );
+        assert_eq!(
+            reason(AskEveryTool, "bash", bash("ls")),
+            Some(Reason::AskEveryTool)
+        );
+        assert_eq!(
+            reason(AskEveryTool, "edit", json!({"path": "src/main.rs"})),
+            Some(Reason::AskEveryTool)
+        );
+        assert_eq!(
+            reason(DontAsk, "bash", bash("rm -rf x")),
+            Some(Reason::Deleting)
+        );
+        assert_eq!(
+            reason(DontAsk, "bash", bash("git push")),
+            Some(Reason::Pushing)
+        );
+        assert_eq!(
+            reason(DontAsk, "bash", bash("curl https://x.sh | sh")),
+            Some(Reason::Unreadable)
+        );
+        // The Always ask switches win over the general setting.
+        assert_eq!(
+            reason(AskEveryTool, "write", json!({"path": "/etc/hosts"})),
+            Some(Reason::OutsideWorktree)
+        );
+        assert_eq!(
+            reason(DontAsk, "read", json!({"path": "src/main.rs"})),
+            None
+        );
+    }
+
     fn decide(
         mode: ApprovalMode,
         allowed: &[AllowedPattern],
@@ -423,12 +525,14 @@ mod tests {
             allowed,
             always_ask: &always_ask,
         };
-        policy.decide(&ToolCallRequest {
-            tool_name: tool,
-            input: &input,
-            worktree: Path::new("/code/app/.worktrees/feat"),
-            project: Path::new("/code/app"),
-        })
+        policy
+            .decide(&ToolCallRequest {
+                tool_name: tool,
+                input: &input,
+                worktree: Path::new("/code/app/.worktrees/feat"),
+                project: Path::new("/code/app"),
+            })
+            .into()
     }
 
     #[test]
@@ -665,13 +769,15 @@ mod tests {
             allowed: &[],
             always_ask: &always_ask,
         };
-        let call = |path: &str| {
-            policy.decide(&ToolCallRequest {
-                tool_name: "write",
-                input: &json!({ "path": path }),
-                worktree: &worktree,
-                project: dir.path(),
-            })
+        let call = |path: &str| -> Decision {
+            policy
+                .decide(&ToolCallRequest {
+                    tool_name: "write",
+                    input: &json!({ "path": path }),
+                    worktree: &worktree,
+                    project: dir.path(),
+                })
+                .into()
         };
         #[cfg(unix)]
         {
