@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crate::approval::{
-    AllowedPattern, AllowedTool, Decision, McpCalls, Policy, Reason, ToolCallRequest, mcp_calls,
-    propose_pattern,
+    AllowedPattern, AllowedTool, ApprovalMode, Decision, McpCalls, Policy, Reason, ToolCallRequest,
+    mcp_calls, propose_pattern,
 };
 use crate::config::Config;
 use crate::pi::rpc::{LaunchOptions, PiClient, PiMessage, command, str_field};
@@ -64,6 +64,8 @@ pub struct PendingApproval {
     pub asked: Instant,
     /// The setting that made it ask.
     pub reason: Reason,
+    /// Auto mode's reason for asking, or why it couldn't check.
+    pub auto_reason: Option<String>,
     /// What the card shows; shared, as the chat clones the approval on
     /// every frame.
     pub preview: std::sync::Arc<Preview>,
@@ -158,6 +160,14 @@ pub struct Session {
     texts: HashMap<ItemId, (Entity<TextViewState>, usize)>,
     pub approvals: Vec<PendingApproval>,
     pub merge: Option<PendingMerge>,
+    /// The approval mode picked for this chat in the status bar; `None`
+    /// follows the setting.
+    pub approval_mode: Option<ApprovalMode>,
+    /// Auto mode's asks since it last let a call run.
+    auto_asks: u32,
+    /// Auto mode paused after too many asks in a row; every call asks until
+    /// the user resumes it. Live state, not history.
+    pub auto_paused: bool,
     /// The worktree's HEAD as last seen during the current run, and the time
     /// (Unix seconds) the run started, for the cards listing its commits.
     head_seen: Option<(String, u64)>,
@@ -251,6 +261,9 @@ impl Session {
             texts: HashMap::new(),
             approvals: Vec::new(),
             merge: None,
+            approval_mode: None,
+            auto_asks: 0,
+            auto_paused: false,
             head_seen: None,
             subagent_requests: HashMap::new(),
             viewed: true,
@@ -885,6 +898,23 @@ impl Session {
         }
     }
 
+    /// The approval mode this chat runs in.
+    pub fn approval_mode(&self, cx: &App) -> ApprovalMode {
+        self.approval_mode.unwrap_or(Config::global(cx).approval)
+    }
+
+    pub fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {
+        self.approval_mode = Some(mode);
+        self.resume_auto(cx);
+    }
+
+    /// Lets auto mode check calls again after it paused.
+    pub fn resume_auto(&mut self, cx: &mut Context<Self>) {
+        self.auto_paused = false;
+        self.auto_asks = 0;
+        cx.notify();
+    }
+
     /// The user decided on a pending tool call.
     pub fn resolve_approval(
         &mut self,
@@ -942,6 +972,142 @@ impl Session {
         }
         self.answer(request_id, Some(&answer));
         cx.emit(SessionEvent::StatusChanged);
+        cx.notify();
+    }
+
+    /// Puts a call in front of the user as an approval card.
+    #[allow(clippy::too_many_arguments)]
+    fn ask_user(
+        &mut self,
+        request_id: String,
+        tool_call_id: String,
+        tool_name: String,
+        input: Value,
+        reason: Reason,
+        auto_reason: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        let config = Config::global(cx);
+        let policy = Policy {
+            mode: self.approval_mode(cx),
+            allowed: &config.allowed,
+            allowed_tools: &config.allowed_tools,
+            always_ask: &config.always_ask,
+        };
+        let mcp_tools = match mcp_calls(&tool_name, &input) {
+            Some(McpCalls::Tools(tools)) => tools
+                .into_iter()
+                .map(|(server, tool)| McpTool {
+                    allowed: policy.tool_allowed(&server, &tool, &self.project),
+                    server,
+                    tool,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        let pattern = (tool_name == "bash")
+            .then(|| input["command"].as_str().and_then(propose_pattern))
+            .flatten();
+        if let Some(tool) = self.transcript.tool_mut(&tool_call_id) {
+            tool.status = ToolStatus::AwaitingApproval;
+            tool.checking = false;
+            tool.args = input.clone();
+        }
+        // Before it runs: an edit's diff is against the file as it is now.
+        let preview = std::sync::Arc::new(crate::preview::preview(
+            &tool_name, &input, &self.cwd, reason,
+        ));
+        self.approvals.push(PendingApproval {
+            request_id,
+            tool_call_id,
+            tool_name,
+            input,
+            pattern,
+            mcp_tools,
+            asked: Instant::now(),
+            reason,
+            auto_reason,
+            preview,
+        });
+        cx.emit(SessionEvent::StatusChanged);
+    }
+
+    /// What auto mode's checks are told about a call.
+    fn auto_plan(&self, tool: &str, input: &Value, cx: &App) -> Value {
+        let user_messages = self
+            .transcript
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                Item::User { text, .. } => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+        let agents = std::fs::read_to_string(self.cwd.join("AGENTS.md"))
+            .or_else(|_| std::fs::read_to_string(self.cwd.join("CLAUDE.md")))
+            .ok();
+        crate::auto::plan(
+            &Config::global(cx).auto,
+            &crate::auto::CallContext {
+                tool,
+                input,
+                worktree: &self.cwd,
+                branch: crate::auto::branch(&self.cwd),
+                base: self.base.as_deref(),
+                user_messages,
+                status: crate::auto::wants_status(tool)
+                    .then(|| crate::auto::status(&self.cwd))
+                    .flatten(),
+                agents,
+                chat_model: self.model.as_ref().map(ModelInfo::full_name),
+            },
+        )
+    }
+
+    /// Auto mode's checks decided: the call runs, or asks the user.
+    fn apply_verdict(
+        &mut self,
+        request_id: String,
+        verdict: crate::auto::Verdict,
+        cx: &mut Context<Self>,
+    ) {
+        let Some((name, input)) = self
+            .transcript
+            .tool(&verdict.tool_call_id)
+            .map(|tool| (tool.name.clone(), tool.args.clone()))
+        else {
+            self.answer(&request_id, Some("deny:Treehouse lost track of this call"));
+            return;
+        };
+        if verdict.allow == Some(true) {
+            self.auto_asks = 0;
+            self.transcript.mark_auto(
+                &verdict.tool_call_id,
+                &name,
+                crate::auto::AutoAllowed::from_verdict(&verdict),
+            );
+            self.flush_saves();
+            self.answer(&request_id, Some("allow"));
+            cx.notify();
+            return;
+        }
+        let (reason, why) = match verdict.allow {
+            Some(_) => (Reason::Auto, verdict.reason.clone()),
+            None => (Reason::AutoUnchecked, verdict.error.clone()),
+        };
+        self.auto_asks += 1;
+        if Config::global(cx).auto.pause_after_asks && self.auto_asks >= crate::auto::PAUSE_AFTER {
+            self.auto_paused = true;
+        }
+        self.ask_user(
+            request_id,
+            verdict.tool_call_id,
+            name,
+            input,
+            reason,
+            why,
+            cx,
+        );
         cx.notify();
     }
 
@@ -1259,30 +1425,20 @@ impl Session {
                 let tool_name = str_field(&payload, "toolName");
                 let tool_call_id = str_field(&payload, "toolCallId");
                 let input = payload["input"].clone();
+                let mode = self.approval_mode(cx);
                 let config = Config::global(cx);
-                let policy = Policy {
-                    mode: config.approval,
+                let decision = Policy {
+                    mode,
                     allowed: &config.allowed,
                     allowed_tools: &config.allowed_tools,
                     always_ask: &config.always_ask,
-                };
-                let decision = policy.decide(&ToolCallRequest {
+                }
+                .decide(&ToolCallRequest {
                     tool_name: &tool_name,
                     input: &input,
                     worktree: &self.cwd,
                     project: &self.project,
                 });
-                let mcp_tools = match mcp_calls(&tool_name, &input) {
-                    Some(McpCalls::Tools(tools)) => tools
-                        .into_iter()
-                        .map(|(server, tool)| McpTool {
-                            allowed: policy.tool_allowed(&server, &tool, &self.project),
-                            server,
-                            tool,
-                        })
-                        .collect(),
-                    _ => Vec::new(),
-                };
                 match decision {
                     Decision::Allow => self.answer(&request_id, Some("allow")),
                     Decision::AlwaysAllowed => {
@@ -1291,30 +1447,34 @@ impl Session {
                         self.flush_saves();
                         self.answer(&request_id, Some("allow"));
                     }
-                    Decision::Ask(reason) => {
-                        let pattern = (tool_name == "bash")
-                            .then(|| input["command"].as_str().and_then(propose_pattern))
-                            .flatten();
+                    Decision::Check if self.auto_paused => self.ask_user(
+                        request_id,
+                        tool_call_id,
+                        tool_name,
+                        input,
+                        Reason::AutoPaused,
+                        None,
+                        cx,
+                    ),
+                    Decision::Check => {
+                        let plan = self.auto_plan(&tool_name, &input, cx);
                         if let Some(tool) = self.transcript.tool_mut(&tool_call_id) {
-                            tool.status = ToolStatus::AwaitingApproval;
+                            tool.checking = true;
                             tool.args = input.clone();
                         }
-                        // Before it runs: an edit's diff is against the
-                        // file as it is now.
-                        let preview = std::sync::Arc::new(crate::preview::preview(
-                            &tool_name, &input, &self.cwd, reason,
-                        ));
-                        self.approvals.push(PendingApproval {
-                            request_id,
-                            tool_call_id,
-                            tool_name,
-                            input,
-                            pattern,
-                            mcp_tools,
-                            asked: Instant::now(),
-                            reason,
-                            preview,
-                        });
+                        self.answer(&request_id, Some(&format!("check:{plan}")));
+                    }
+                    Decision::Ask(reason) => {
+                        self.ask_user(request_id, tool_call_id, tool_name, input, reason, None, cx)
+                    }
+                }
+            }
+            ("input", "treehouse:verdict") => {
+                match serde_json::from_value::<crate::auto::Verdict>(payload) {
+                    Ok(verdict) => self.apply_verdict(request_id, verdict, cx),
+                    // Nothing can run on a verdict that can't be read.
+                    Err(_) => {
+                        self.answer(&request_id, Some("deny:Auto mode's check couldn't be read"))
                     }
                 }
             }
@@ -1342,7 +1502,9 @@ impl Session {
             ("notify", _) => {
                 let message = str_field(event, "message");
                 let kind = str_field(event, "notifyType");
-                if let Some((server, url)) = crate::mcp::parse_sign_in_url(&message) {
+                if let Some(list) = message.strip_prefix("treehouse:classifiers ") {
+                    crate::models::Catalog::store_classifiers(list, cx);
+                } else if let Some((server, url)) = crate::mcp::parse_sign_in_url(&message) {
                     self.transcript.sign_in(&server).url = Some(url);
                 } else if let Some((server, detail)) = crate::mcp::parse_signed_in(&message) {
                     self.transcript

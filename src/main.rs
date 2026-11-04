@@ -3,6 +3,7 @@
 mod actions;
 mod approval;
 mod assets;
+mod auto;
 mod config;
 mod files;
 mod git;

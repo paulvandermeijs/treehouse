@@ -425,14 +425,21 @@ impl Workspace {
                 };
                 // Without a sub-agent model setting, a sub-agent uses whatever
                 // its parent runs on, including a model picked in the chat.
-                let (parent_model, parent_thinking, parent_trusted) = {
+                let (parent_model, parent_thinking, parent_trusted, parent_mode) = {
                     let s = session.read(cx);
-                    (s.model.clone(), s.thinking.clone(), s.trusted)
+                    (
+                        s.model.clone(),
+                        s.thinking.clone(),
+                        s.trusted,
+                        s.approval_mode,
+                    )
                 };
                 let inherit = Config::global(cx).subagent_model.is_none();
                 let child = cx.new(|cx| {
                     let mut child = Session::new(kind, cwd.clone(), project, cx);
                     child.trusted = parent_trusted;
+                    // Sub-agents use their chat's approval mode.
+                    child.approval_mode = parent_mode;
                     if inherit {
                         child.model = parent_model.or(child.model);
                         child.thinking = parent_thinking;

@@ -88,6 +88,7 @@ pub const MCP_ATTENTION_ENTRY: &str = "treehouse:mcp-attention";
 pub const SIGN_IN_ENTRY: &str = "treehouse:sign-in";
 pub const HANDOVER_ENTRY: &str = "treehouse:handover";
 pub const ALWAYS_ALLOWED_ENTRY: &str = "treehouse:always-allowed";
+pub const AUTO_ENTRY: &str = "treehouse:auto";
 
 /// A finished setup row, as it's saved.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -202,6 +203,10 @@ pub struct ToolCall {
     pub previous_content: Option<String>,
     /// It ran without asking because the user always allowed its MCP tool.
     pub always_allowed: bool,
+    /// Auto mode's checks are looking at it.
+    pub checking: bool,
+    /// Auto mode let it run without asking.
+    pub auto: Option<crate::auto::AutoAllowed>,
 }
 
 impl ToolCall {
@@ -311,6 +316,8 @@ pub struct Transcript {
     /// Always-allowed marks restored before their tool call, which a
     /// session file can hold in either order.
     always_allowed: std::collections::HashSet<String>,
+    /// The same for auto mode's marks.
+    auto_allowed: HashMap<String, crate::auto::AutoAllowed>,
     cwd: PathBuf,
 }
 
@@ -330,6 +337,7 @@ impl Transcript {
             stamps: HashMap::new(),
             clock: None,
             always_allowed: Default::default(),
+            auto_allowed: HashMap::new(),
             cwd: cwd.into(),
         }
     }
@@ -389,6 +397,17 @@ impl Transcript {
                     Some(tool) => tool.always_allowed = true,
                     None => {
                         self.always_allowed.insert(call_id);
+                    }
+                }
+            }
+            Some(AUTO_ENTRY) => {
+                let call_id = str_field(data, "toolCallId");
+                if let Ok(auto) = serde_json::from_value::<crate::auto::AutoAllowed>(data.clone()) {
+                    match self.tool_mut(&call_id) {
+                        Some(tool) => tool.auto = Some(auto),
+                        None => {
+                            self.auto_allowed.insert(call_id, auto);
+                        }
                     }
                 }
             }
@@ -753,6 +772,17 @@ impl Transcript {
         ));
     }
 
+    /// Auto mode let a call run; saved so its row still says so, and why,
+    /// after a restart.
+    pub fn mark_auto(&mut self, call_id: &str, name: &str, auto: crate::auto::AutoAllowed) {
+        let mut saved = serde_json::to_value(&auto).unwrap_or_default();
+        saved["toolCallId"] = Value::from(call_id);
+        self.saves.push((AUTO_ENTRY, saved));
+        let tool = self.ensure_tool(call_id, name);
+        tool.checking = false;
+        tool.auto = Some(auto);
+    }
+
     pub fn take_saves(&mut self) -> Vec<(&'static str, Value)> {
         std::mem::take(&mut self.saves)
     }
@@ -949,6 +979,8 @@ impl Transcript {
                 duration: None,
                 previous_content: None,
                 always_allowed: self.always_allowed.remove(call_id),
+                checking: false,
+                auto: self.auto_allowed.remove(call_id),
             }));
         }
         self.tool_mut(call_id).unwrap()
@@ -1383,6 +1415,30 @@ mod tests {
             })
             .collect();
         assert_eq!(marked, [true, true, false]);
+    }
+
+    #[test]
+    fn auto_marks_come_back_with_their_reason() {
+        let call = json!({"type": "message", "message": {"role": "assistant", "timestamp": 1, "content": [
+            {"type": "toolCall", "id": "a", "name": "bash", "arguments": {"command": "npm test"}}
+        ]}});
+        let mark = json!({"type": "custom", "customType": AUTO_ENTRY, "data": {
+            "toolCallId": "a", "careful": true, "reason": "You asked to run the tests."
+        }});
+        for entries in [[call.clone(), mark.clone()], [mark, call]] {
+            let mut t = Transcript::new("/tmp");
+            t.restore(&entries);
+            let Some(Item::Tool(tool)) = t.items().first() else {
+                panic!("no tool row");
+            };
+            assert_eq!(
+                tool.auto,
+                Some(crate::auto::AutoAllowed {
+                    careful: true,
+                    reason: Some("You asked to run the tests.".into())
+                })
+            );
+        }
     }
 
     #[test]

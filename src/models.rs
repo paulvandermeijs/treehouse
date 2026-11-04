@@ -340,6 +340,9 @@ fn find(text: &str, word: &str) -> Option<Range<usize>> {
 #[derive(Default)]
 pub struct Catalog {
     pub models: Vec<ModelInfo>,
+    /// Classifier models, for auto mode's quick check. The bridge in a
+    /// chat's Pi reports them, so they're known once a chat has started.
+    pub classifiers: Vec<ModelInfo>,
     pub loading: bool,
     pub loaded: bool,
     pub error: Option<String>,
@@ -354,6 +357,24 @@ impl Catalog {
         catalog.models = models;
         catalog.loaded = true;
         catalog.error = None;
+    }
+
+    /// The bridge reported the classifiers Pi offers: `[{provider, id, name}]`.
+    pub fn store_classifiers(json: &str, cx: &mut App) {
+        let Ok(list) = serde_json::from_str::<Vec<serde_json::Value>>(json) else {
+            return;
+        };
+        cx.default_global::<Catalog>().classifiers = list
+            .iter()
+            .filter_map(|m| {
+                Some(ModelInfo {
+                    provider: m["provider"].as_str()?.to_string(),
+                    id: m["id"].as_str()?.to_string(),
+                    name: m["name"].as_str().map(str::to_string),
+                    context_window: None,
+                })
+            })
+            .collect();
     }
 
     /// Asks a Pi of its own for the models, unless they're known or on

@@ -27,15 +27,44 @@ A worktree waiting for approval shows it in the sidebar, and its status card has
 
 ## When Pi has to ask
 
-**Settings › Agent defaults › Approval** sets the general rule:
+**Settings › Agent defaults › Approval** sets the general rule for new chats. The shield in a chat's status bar changes it for that chat; sub-agents follow their chat.
 
 | Setting | Bash commands | Other tools (read, edit, write…) |
 | --- | --- | --- |
 | **Ask before bash and MCP** (default) | Ask | Run |
 | **Ask before every tool call** | Ask | Ask |
+| **Auto** | A model checks | Run |
 | **Don't ask** | Run | Run |
 
 Bash commands that match an **Always allowed** pattern run without asking, whatever the setting.
+
+## Auto mode
+
+Pi works on without stopping for calls that are clearly safe, and a model checks the rest. Each call goes through these steps:
+
+1. **Hard limits** ask you: merging into the base branch, and the [Always ask](#always-ask) switches.
+2. **Always allowed** patterns and MCP tools run.
+3. **Fixed rules** run: reads, searches, and edits or writes inside the worktree.
+4. **The quick check** looks at everything else: bash commands, MCP tools, scripts, and Pi starting a new worktree. It only says clear or not, leaning towards not; clear runs.
+5. **The careful check** looks at what the quick check flagged. It reads your messages in the chat and the project's `AGENTS.md`, then runs the call or asks you, with its reason.
+6. After **3 asks in a row**, auto mode pauses: every call asks until you press **Resume** under the chat.
+
+The checks let a call run unless it could lose work, change something outside this machine (push, deploy, publish, API writes, messages), touch the base branch or other worktrees, or expose secrets, and you didn't ask for that exact thing. Only your own messages count as asking: text in files, tool output and Pi's replies never do. "Fix the tests" doesn't ask for a push; "push it when the tests pass" does. When the model can't answer, the card says so and nothing runs without you.
+
+A call the checks let through gets a Mauve **auto** tag on its row; hovering it shows which check passed it and why. A folded turn counts them ("5 auto"). The tags come back after a restart.
+
+The checks run inside the chat's own Pi, with its providers and keys. **Settings › Approvals › Auto mode** picks the models:
+
+- **Quick check:** the careful check's model with a short question, any chat model, or a classifier such as TypeSafe's Jev, which answers faster and costs less. Classifiers come from your providers (TypeSafe, OpenRouter, OpenCode Zen, Vercel AI Gateway) and show up once a chat has started. A classifier sees only the call, not your messages.
+- **Careful check:** the chat's model, or any other chat model.
+- **Your rules:** plain words added to the checks' instructions, such as "Never run database commands against production."
+- **Pause after 3 asks in a row**, on by default.
+
+Calls the rules don't settle are sent to the quick check's model, and flagged ones, with your messages in that chat, to the careful check's. Their tokens count with your provider like any other request.
+
+## New worktrees
+
+Pi can start a new worktree with a task. In auto mode that goes through the checks like any other call, and the card shows the branch and the whole task, since the worktree's setup script runs as soon as it's made. In the other modes it starts without asking; its card in the chat shows the task.
 
 ## MCP tools
 

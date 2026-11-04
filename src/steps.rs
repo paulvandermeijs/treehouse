@@ -266,6 +266,8 @@ mod tests {
             duration: None,
             previous_content: None,
             always_allowed: false,
+            checking: false,
+            auto: None,
         })
     }
 

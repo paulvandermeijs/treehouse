@@ -18,6 +18,7 @@ The first word of a message picks the script:
 | `Cards` | One of each approval card: an edit, writes through a link and to a new file, an MCP call, a long script, piped code |
 | `Long` | A long-running command |
 | `Mangle` | A garbled tool name |
+| `Auto` | Auto mode's outcomes: a call the quick check clears, one the careful check allows, one it asks about, one it couldn't check, and a new worktree; three asks in a row pause auto mode. Pick Auto in the status bar first |
 | `MCP` | MCP tool calls: a tool search, a tool, and scripts that call one tool, two servers, and tools picked while running |
 | `Code` | Code blocks |
 | `Table` | A table |

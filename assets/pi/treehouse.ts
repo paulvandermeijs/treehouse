@@ -7,7 +7,10 @@
  *
  * - Tool approval. Every tool call is sent to Treehouse, which applies the
  *   approval setting and the "always allow" patterns, and asks the user when it
- *   has to. Treehouse answers `allow` or `deny:<reason>`.
+ *   has to. Treehouse answers `allow` or `deny:<reason>`, or in auto mode
+ *   `check:<plan>`: the extension then has the plan's models check the call,
+ *   with the chat's own providers and keys, and sends the verdict back as
+ *   `treehouse:verdict`, which Treehouse answers the same way.
  * - Sub-agents. The `subagent` tool asks Treehouse to start a separate Pi
  *   session in the same worktree. Treehouse shows it in the sidebar, lets the
  *   user open and steer it, and answers with the sub-agent's final report.
@@ -33,11 +36,104 @@ const APPROVAL = "treehouse:approval";
 const SUBAGENT = "treehouse:subagent";
 const MERGE = "treehouse:merge";
 const WORKTREE = "treehouse:worktree";
+const VERDICT = "treehouse:verdict";
+// A notice Treehouse reads rather than shows: the classifiers Pi offers,
+// for auto mode's quick check.
+const CLASSIFIERS = "treehouse:classifiers ";
 
 // `git worktree add`, also after `git -C <dir>` or `cd … &&`.
 const WORKTREE_ADD = /\bgit\b[^;&|\n]*\bworktree\s+add\b/;
 
+/** A model by `provider/id`; the id itself may hold slashes. */
+function findModel(ctx: any, spec: string | null | undefined): any {
+	if (!spec) return ctx.model;
+	const at = spec.indexOf("/");
+	if (at < 0) return undefined;
+	return ctx.modelRegistry.find(spec.slice(0, at), spec.slice(at + 1));
+}
+
+/** One answer from a chat model. */
+async function complete(ctx: any, model: any, system: string, prompt: string, reasoning?: string): Promise<string> {
+	const stream = ctx.modelRegistry.streamSimple(
+		model,
+		{ systemPrompt: system, messages: [{ role: "user", content: prompt, timestamp: Date.now() }] },
+		{ signal: ctx.signal, ...(reasoning ? { reasoning } : {}) },
+	);
+	const message = await stream.result();
+	if (message.stopReason === "error" || message.stopReason === "aborted") {
+		throw new Error(message.errorMessage || "the model didn't answer");
+	}
+	return message.content
+		.filter((part: any) => part.type === "text")
+		.map((part: any) => part.text)
+		.join("")
+		.trim();
+}
+
+/**
+ * Auto mode's checks: a quick one that clears what's plainly fine, and a
+ * careful one, with a reason, for the rest. Whatever goes wrong comes back
+ * as an error, so the user is asked rather than the call run.
+ */
+async function check(ctx: any, plan: any): Promise<{ allow: boolean | null; check: string; reason?: string; error?: string }> {
+	try {
+		const quick = plan.quick ?? {};
+		if (quick.kind === "classifier") {
+			const at = String(quick.model ?? "").indexOf("/");
+			const model =
+				at > 0
+					? ctx.modelRegistry.getModelOfType("classifier", quick.model.slice(0, at), quick.model.slice(at + 1))
+					: undefined;
+			if (model) {
+				const result = await ctx.modelRegistry.classify(
+					model,
+					{ state: plan.classifier.state, questions: { risky: plan.classifier.question } },
+					{ signal: ctx.signal },
+				);
+				const risky = result?.answers?.risky;
+				// What the classifier can't clear, or fails on, goes to the
+				// careful check.
+				if (result?.stopReason === "stop" && risky?.type === "bool" && risky.probability < plan.classifier.clearBelow) {
+					return { allow: true, check: "quick" };
+				}
+			}
+		} else {
+			const model = findModel(ctx, quick.model);
+			if (model) {
+				const answer = await complete(ctx, model, plan.system, plan.quickPrompt);
+				if (/\bCLEAR\b/i.test(answer) && !/\bCHECK\b/i.test(answer)) {
+					return { allow: true, check: "quick" };
+				}
+			}
+		}
+		const careful = findModel(ctx, plan.careful?.model);
+		if (!careful) return { allow: null, check: "careful", error: "no model to check with" };
+		const answer = await complete(ctx, careful, plan.system, plan.carefulPrompt, "low");
+		// The last ALLOW or ASK line decides; models sometimes think aloud first.
+		const lines = answer.split("\n").map((line) => line.trim()).filter(Boolean);
+		const at = lines.map((line) => /^\**(ALLOW|ASK)\b/i.test(line)).lastIndexOf(true);
+		if (at < 0) return { allow: null, check: "careful", error: "the model's answer couldn't be read" };
+		const allow = /^\**ALLOW/i.test(lines[at]);
+		const rest = lines[at].replace(/^\**(ALLOW|ASK)\**[:.\-\s]*/i, "").trim();
+		const reason = rest || lines[at + 1] || "";
+		return { allow, check: "careful", reason };
+	} catch (error: any) {
+		return { allow: null, check: "careful", error: String(error?.message ?? error) };
+	}
+}
+
 export default function (pi: any) {
+	pi.on("session_start", async (_event: any, ctx: any) => {
+		if (!ctx.hasUI || ctx.mode !== "rpc") return;
+		try {
+			const classifiers = await ctx.modelRegistry.getAvailableOfType("classifier");
+			const list = classifiers.map((model: any) => ({ provider: model.provider, id: model.id, name: model.name }));
+			ctx.ui.notify(CLASSIFIERS + JSON.stringify(list), "info");
+		} catch {
+			// An older Pi without classifiers: the quick check uses a chat model.
+		}
+	});
+
 	pi.on("tool_call", async (event: any, ctx: any) => {
 		if (!ctx.hasUI || ctx.mode !== "rpc") return undefined;
 		// Models follow a project's own instructions for making worktrees
@@ -61,9 +157,15 @@ export default function (pi: any) {
 			input: event.input,
 			cwd: ctx.cwd,
 		});
-		const answer: string | undefined = await ctx.ui.input(APPROVAL, payload, {
+		let answer: string | undefined = await ctx.ui.input(APPROVAL, payload, {
 			signal: ctx.signal,
 		});
+		if (answer?.startsWith("check:")) {
+			const verdict = await check(ctx, JSON.parse(answer.slice(6)));
+			answer = await ctx.ui.input(VERDICT, JSON.stringify({ toolCallId: event.toolCallId, ...verdict }), {
+				signal: ctx.signal,
+			});
+		}
 		if (answer === "allow") return undefined;
 		const reason = answer?.startsWith("deny:") ? answer.slice(5).trim() : "";
 		return { block: true, reason: reason || "Denied by the user in Treehouse" };

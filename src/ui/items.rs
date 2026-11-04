@@ -111,6 +111,11 @@ fn render_fold(
     let first = steps[0].id();
     let open = view.steps_open(first);
     let summary = crate::steps::summarize(steps);
+    // What ran without asking stays visible without opening the steps.
+    let auto_count = steps
+        .iter()
+        .filter(|item| matches!(item, Item::Tool(tool) if tool.auto.is_some()))
+        .count();
     let took = {
         let session = view.session.read(cx);
         let stamp = |ix: usize| items.get(ix).and_then(|item| session.item_stamp(item.id()));
@@ -191,6 +196,20 @@ fn render_fold(
                 .flex_none()
                 .gap_2()
                 .text_size(px(12.5))
+                .when(auto_count > 0, |this| {
+                    this.child(
+                        h_flex()
+                            .gap_1()
+                            .h(px(20.))
+                            .px(px(8.))
+                            .rounded(px(10.))
+                            .bg(mix(p.mauve, p.base, 0.14))
+                            .text_color(p.mauve)
+                            .text_size(px(11.5))
+                            .child(icon(Lucide::ShieldCheck).size(px(12.)))
+                            .child(format!("{auto_count} auto")),
+                    )
+                })
                 .when(summary.failed > 0, |this| {
                     this.child(
                         div()
@@ -248,7 +267,12 @@ fn render_item(view: &ChatView, item: &Item, cx: &mut Context<ChatView>) -> AnyE
             ..
         } => render_thinking(view, *id, text, *streaming, *elapsed, cx),
         Item::Tool(tool) if tool.name == "subagent" => render_subagent_card(view, tool, cx),
-        Item::Tool(tool) if tool.name == "treehouse_worktree" => {
+        // Until it's allowed it's a call like any other, with its card.
+        Item::Tool(tool)
+            if tool.name == "treehouse_worktree"
+                && !tool.checking
+                && tool.status != ToolStatus::AwaitingApproval =>
+        {
             render_worktree_card(view, tool, cx)
         }
         Item::Tool(tool) => render_tool(view, tool, cx),
@@ -1172,6 +1196,13 @@ pub(super) fn describe(tool: &ToolCall) -> ToolText {
             target: one_line(tool.command().unwrap_or("")),
             result: None,
         },
+        "treehouse_worktree" => ToolText {
+            icon: Lucide::GitBranchPlus,
+            running: "Creating",
+            done: "Created",
+            target: tool.args["branch"].as_str().unwrap_or("").to_string(),
+            result: None,
+        },
         "grep" | "find" | "ls" => ToolText {
             icon: Lucide::Search,
             running: "Searching",
@@ -1286,13 +1317,15 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
 
     // What a row shows without the user asking.
     let default_open = match tool.name.as_str() {
-        "bash" => running || failed || (output_lines > 0 && output_lines <= 6),
+        // Nothing has run while auto mode checks it.
+        "bash" => (running && !tool.checking) || failed || (output_lines > 0 && output_lines <= 6),
         "edit" | "write" => session_running || keep_diffs || failed,
         _ => false,
     };
     let expanded = view.is_expanded(id, default_open);
 
     let verb: AnyElement = match tool.status {
+        _ if tool.checking => ShimmerText::new("Checking").into_any_element(),
         ToolStatus::Running | ToolStatus::Preparing => {
             ShimmerText::new(text.running).into_any_element()
         }
@@ -1303,6 +1336,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         }
         ToolStatus::AwaitingApproval => match tool.name.as_str() {
             "bash" | "codemode" => "Wants to run",
+            "treehouse_worktree" => "Wants to start",
             "edit" => "Wants to edit",
             "write" => "Wants to write",
             _ => "Wants to use",
@@ -1414,6 +1448,10 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             .text_ellipsis()
             .whitespace_nowrap(),
         )
+        // Auto mode let it run; the tooltip says which check and why.
+        .when_some(tool.auto.clone(), |this, auto| {
+            this.child(auto_tag(("auto-tag", id.0), &auto, &p))
+        })
         // Ran without asking because of an Always allow; says so for review.
         .when(tool.always_allowed, |this| {
             this.child(
@@ -2094,7 +2132,9 @@ fn render_approval(
         1 => "Wants to run a script that uses an MCP tool".to_string(),
         n => format!("Wants to run a script that uses {n} MCP tools"),
     };
+    let worktree = approval.tool_name == "treehouse_worktree";
     let (title, name, primary): (SharedString, Option<String>, &str) = match &*approval.preview {
+        _ if worktree => ("Wants to start a worktree".into(), None, "Start ⏎"),
         _ if script => (script_title.into(), None, "Run ⏎"),
         Preview::Command(_) => ("Wants to run a command".into(), None, "Run ⏎"),
         Preview::File(change) => match change.action {
@@ -2113,8 +2153,38 @@ fn render_approval(
         ),
     };
 
+    // Auto mode's own words come first, marked with its shield.
+    let auto_line: Option<AnyElement> = match (approval.reason, &approval.auto_reason) {
+        (Reason::Auto, Some(why)) => Some(
+            h_flex()
+                .gap_2()
+                .items_start()
+                .text_size(px(13.))
+                .text_color(p.subtext1)
+                .child(
+                    icon(Lucide::ShieldCheck)
+                        .size(px(14.))
+                        .text_color(p.mauve)
+                        .mt(px(2.)),
+                )
+                .child(format!("Auto mode asks: {why}"))
+                .into_any_element(),
+        ),
+        (Reason::AutoUnchecked, why) => Some(sub_line(
+            &[(
+                &format!(
+                    "Auto mode couldn't check this: {}.",
+                    why.as_deref().unwrap_or("no answer").trim_end_matches('.')
+                ),
+                false,
+            )],
+            &p,
+        )),
+        _ => None,
+    };
     let sub: Option<AnyElement> = match &*approval.preview {
-        _ if script => None,
+        // Auto mode's line says what matters.
+        _ if worktree || script || auto_line.is_some() => None,
         Preview::Command(_) => Some(sub_line(
             &[(&format!("Pi wants to run this in {branch}:"), false)],
             &p,
@@ -2162,6 +2232,7 @@ fn render_approval(
     };
 
     let body: Option<AnyElement> = match &*approval.preview {
+        _ if worktree => Some(render_approval_worktree(approval, cx)),
         _ if script => Some(render_approval_script(approval, cx)),
         Preview::Command(command) => Some(
             div()
@@ -2202,6 +2273,7 @@ fn render_approval(
                 .child(div().flex_1())
                 .child(why_asking(&request_id, approval.reason, &p)),
         )
+        .children(auto_line)
         .children(sub)
         .children(body)
         .when(shared, |this| {
@@ -2233,28 +2305,37 @@ fn render_approval(
                         }),
                 )
                 .children(always_allow_tools(approval, &session))
-                .when_some(approval.pattern.clone(), |this, pattern| {
-                    let (session, id) = (session.clone(), request_id.clone());
-                    this.child(
-                        // A long pattern shrinks to an ellipsis; the tooltip has it all.
-                        Button::new("always-allow")
-                            .small()
-                            .flex_shrink(1.)
-                            .min_w_0()
-                            .label(format!("Always allow {pattern}"))
-                            .tooltip(format!("Always allow {pattern}"))
-                            .on_click(move |_, _, cx| {
-                                let pattern = pattern.clone();
-                                session.update(cx, |s, cx| {
-                                    s.resolve_approval(
-                                        &id,
-                                        ApprovalChoice::AlwaysAllow(AllowRule::Pattern(pattern)),
-                                        cx,
-                                    )
-                                })
-                            }),
-                    )
-                })
+                // Nothing was checked, so nothing to allow for good.
+                .when_some(
+                    approval
+                        .pattern
+                        .clone()
+                        .filter(|_| approval.reason != Reason::AutoUnchecked),
+                    |this, pattern| {
+                        let (session, id) = (session.clone(), request_id.clone());
+                        this.child(
+                            // A long pattern shrinks to an ellipsis; the tooltip has it all.
+                            Button::new("always-allow")
+                                .small()
+                                .flex_shrink(1.)
+                                .min_w_0()
+                                .label(format!("Always allow {pattern}"))
+                                .tooltip(format!("Always allow {pattern}"))
+                                .on_click(move |_, _, cx| {
+                                    let pattern = pattern.clone();
+                                    session.update(cx, |s, cx| {
+                                        s.resolve_approval(
+                                            &id,
+                                            ApprovalChoice::AlwaysAllow(AllowRule::Pattern(
+                                                pattern,
+                                            )),
+                                            cx,
+                                        )
+                                    })
+                                }),
+                        )
+                    },
+                )
                 .child(
                     Button::new("deny")
                         .ghost()
@@ -2274,6 +2355,47 @@ fn render_approval(
                         }),
                 ),
         )
+        .into_any_element()
+}
+
+/// The Mauve "auto" tag on a row auto mode let run.
+fn auto_tag(id: impl Into<ElementId>, auto: &crate::auto::AutoAllowed, p: &Palette) -> AnyElement {
+    let (check, reason) = (
+        if auto.careful {
+            "careful check"
+        } else {
+            "quick check"
+        },
+        auto.reason.clone(),
+    );
+    h_flex()
+        .id(id.into())
+        .flex_none()
+        .gap_1()
+        .h(px(20.))
+        .px(px(8.))
+        .rounded(px(10.))
+        .bg(mix(p.mauve, p.base, 0.14))
+        .text_color(p.mauve)
+        .text_size(px(11.5))
+        .child(icon(Lucide::ShieldCheck).size(px(12.)))
+        .child("auto")
+        .tooltip(move |window, cx| {
+            let reason = reason.clone();
+            gpui_kit::component::tooltip::Tooltip::element(move |_, cx| {
+                let p = palette(cx);
+                v_flex()
+                    .max_w(px(360.))
+                    .text_size(px(12.))
+                    .child(
+                        div()
+                            .text_color(p.subtext0)
+                            .child(format!("Allowed by auto mode · {check}")),
+                    )
+                    .children(reason.clone())
+            })
+            .build(window, cx)
+        })
         .into_any_element()
 }
 
@@ -2341,6 +2463,40 @@ fn always_allow_tools(approval: &PendingApproval, session: &Entity<Session>) -> 
         many => format!("Always allow these {} tools", many.len()),
     };
     Some(button(label).into_any_element())
+}
+
+/// A new worktree: its branch, and the whole task its chat would get.
+fn render_approval_worktree(approval: &PendingApproval, cx: &mut Context<ChatView>) -> AnyElement {
+    let p = palette(cx);
+    let branch = approval.input["branch"].as_str().unwrap_or("").to_string();
+    let task = approval.input["task"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    v_flex()
+        .gap_2()
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .rounded(px(6.))
+                .bg(p.mantle)
+                .border_1()
+                .border_color(p.surface0)
+                .font_family(crate::theme::mono())
+                .text_size(px(12.5))
+                .child(branch),
+        )
+        .when(!task.is_empty(), |this| {
+            this.child(
+                div()
+                    .text_size(px(12.5))
+                    .text_color(p.subtext0)
+                    .child(format!("Task: {task}")),
+            )
+        })
+        .into_any_element()
 }
 
 /// A `codemode` script's MCP tools, each allowed or asking, over its code.
@@ -2452,6 +2608,18 @@ fn why_asking(request_id: &str, reason: Reason, p: &Palette) -> AnyElement {
                             Some(lead.len()..lead.len() + rule.len()),
                         )
                     }
+                    None if reason == Reason::Auto => (
+                        "Asking because auto mode's careful check wasn't sure this is what you asked for.".to_string(),
+                        None,
+                    ),
+                    None if reason == Reason::AutoUnchecked => (
+                        "Asking because auto mode couldn't check this call.".to_string(),
+                        None,
+                    ),
+                    None if reason == Reason::AutoPaused => (
+                        "Asking because auto mode paused after 3 asks in a row. Resume it under the chat.".to_string(),
+                        None,
+                    ),
                     None if reason == Reason::UnreadableScript => (
                         "Asking because the script picks its tools while it runs, so Treehouse can't tell which it calls.".to_string(),
                         None,
@@ -2787,6 +2955,10 @@ fn render_worktree_card(
         .unwrap_or("worktree")
         .to_string();
     let handed = created["task"].as_bool().unwrap_or(false);
+    let task = tool.args["task"]
+        .as_str()
+        .map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|t| !t.is_empty());
     let workspace = view.workspace.read(cx);
     let worktree = created["path"]
         .as_str()
@@ -2903,7 +3075,20 @@ fn render_worktree_card(
                         .text_ellipsis()
                         .whitespace_nowrap()
                         .child(SharedString::from(detail)),
-                ),
+                )
+                // What Pi handed the new worktree's chat, so it can be read
+                // here even when nothing asked first.
+                .when_some(task, |this, task| {
+                    this.child(
+                        div()
+                            .text_size(px(12.5))
+                            .text_color(p.subtext1)
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(format!("Task: {task}")),
+                    )
+                }),
         )
         .when(working, |this| {
             this.child(

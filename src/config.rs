@@ -4,7 +4,7 @@ use gpui_kit::{App, Global};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::approval::{AllowedPattern, AllowedTool, AlwaysAsk, ApprovalMode};
+use crate::approval::{AllowedPattern, AllowedTool, AlwaysAsk, ApprovalMode, AutoSettings};
 use crate::files::{self, Access};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,6 +65,7 @@ pub struct Config {
     /// MCP tools added with "Always allow".
     pub allowed_tools: Vec<AllowedTool>,
     pub always_ask: AlwaysAsk,
+    pub auto: AutoSettings,
 
     pub worktree_location: String,
     pub compare_base: CompareBase,
@@ -95,6 +96,7 @@ impl Default for Config {
             allowed: Vec::new(),
             allowed_tools: Vec::new(),
             always_ask: AlwaysAsk::default(),
+            auto: AutoSettings::default(),
             worktree_location: "{project}/.worktrees/{branch}".into(),
             compare_base: CompareBase::CreatedFrom,
             delete_on_remove: false,

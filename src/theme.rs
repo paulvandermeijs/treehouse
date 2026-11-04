@@ -222,6 +222,8 @@ pub struct Palette {
     pub blue: Hsla,
     /// Borders of Mermaid diagram nodes.
     pub lavender: Hsla,
+    /// Auto mode: calls that may run without you.
+    pub mauve: Hsla,
     pub green: Hsla,
     pub red: Hsla,
     pub yellow: Hsla,
@@ -255,6 +257,7 @@ pub fn palette(cx: &App) -> Palette {
             text: c(0xcdd6f4),
             blue: c(0x89b4fa),
             lavender: c(0xb4befe),
+            mauve: c(0xcba6f7),
             green: c(0xa6e3a1),
             red: c(0xf38ba8),
             yellow: c(0xf9e2af),
@@ -278,6 +281,7 @@ pub fn palette(cx: &App) -> Palette {
             text: c(0x4c4f69),
             blue: c(0x1e66f5),
             lavender: c(0x7287fd),
+            mauve: c(0x8839ef),
             green: c(0x40a02b),
             red: c(0xd20f39),
             yellow: c(0xdf8e1d),

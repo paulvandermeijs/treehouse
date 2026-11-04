@@ -6,7 +6,7 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 ## Next
 
-- **Auto mode:** long runs keep stopping for approvals. Add an approval mode that lets Pi work on without asking for actions that stay inside the worktree and can be undone, and still asks for the risky ones: deleting outside the worktree, pushing, installing globally, network calls that send data, anything touching the base branch. Open questions: decide by rules (patterns and paths) or let a model judge each call, as Claude Code's auto mode does; how to show what was allowed without asking, so it can be reviewed; and whether it's a setting, a per-chat toggle in the status bar, or both. Pi's package catalogue has several auto-mode extensions (`@czottmann/pi-automode`, `pi-verdict`, `pi-automode-classifier`, `pi-bouncer`) that all settle clear cases by rules, let a model judge the rest and ask when unsure; ideas worth taking: hard limits no model or Always allow overrides, a judge that doesn't see tool results (text planted in them can't sway it), and a count of what ran unasked.
+- **Auto mode, next:** the quick check's threshold for a classifier (0.2) is a guess; tune it against real sessions, as `pi-automode-classifier` did. A chat's mode isn't kept across restarts. The checks run one after another in the chat's Pi; a slow model holds up the turn.
 - **Other extensions' dialogs:** Treehouse answers any `confirm`, `select`, `input` or `editor` request it doesn't know with cancel (`Session::handle_ui_request`), so Pi extensions that ask the user, such as the auto-mode guardrails in Pi's package catalogue, refuse instead of asking. Show them as cards in the chat.
 - **Signed Windows releases:** SmartScreen warns about the unsigned `treehouse.exe`. Azure Trusted Signing is the cheapest way to sign it from the release workflow.
 - **Images:** paste or drop screenshots into the message box, and show thumbnails when Pi reads an image.
@@ -19,11 +19,11 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 ## Security
 
-Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3–8 and 11–14 are fixed. Fix 2 before auto mode.
+Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3–8 and 11–14 are fixed, and 9 with auto mode.
 
 - **2 · Links (high):** done but for the hover: every link should show its full target in a tooltip (a globe for links that open, a warning sign for ones that ask, "· not github.com" when the text names another site). gpui-kit's `TextView` has no link hover hook or tooltip, so it needs one upstream; drawing links through an inline Markdown plugin instead would lose their wrapping and selection.
-- **9 · New worktrees (medium):** Pi starts worktrees with a task without asking, and a trusted project's `.agents/prepare` runs at once. Show the task on the card; ask in auto mode.
 - **10 · Trust prompt (low):** say what trusting runs: the project's `.pi` extensions, its MCP servers and `.agents/prepare`.
+
 ## Small fixes
 
 - Two sub-agents running at once may still edit the same file, though the `subagent` tool asks Pi not to. If that shows up in practice, flag the overlap on their cards in the parent's chat.

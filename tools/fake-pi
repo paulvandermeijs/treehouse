@@ -9,7 +9,7 @@ on the chat UI without a model or an API key:
 A message that starts with "Find" plays the sub-agent script, "Worktree" asks
 Treehouse for a new worktree with a task, "Fail" a
 provider error with a stack trace, "Retry" a connection error that Pi retries, and "Approve" a command with a long approval
-pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Code" code blocks, "Table" a table, "Links" links of each kind Treehouse opens, asks about or refuses, "Mermaid" diagrams, "Long" a long-running command with a
+pattern, "Mangle" a tool call with a garbled tool name, "MCP" MCP tool calls, "Auto" auto mode's outcomes, "Code" code blocks, "Table" a table, "Links" links of each kind Treehouse opens, asks about or refuses, "Mermaid" diagrams, "Long" a long-running command with a
 long command line; anything else plays the worktree chat script, which starts
 a sub-agent. Set FAKE_PI_HOLD to
 the number of seconds the sub-agent keeps working before it reports back.
@@ -191,6 +191,36 @@ def ask(title, payload):
     return pending.pop(rid)["value"]
 
 
+def judge(name, args):
+    """Plays the bridge's auto mode checks without a model: a few words in
+    the call decide, so each kind of verdict can be tried."""
+    text = json.dumps(args)
+    if not any(word in text or word in name for word in ("lint", "docker", "curl", "worktree", "push", "deploy")):
+        return {"allow": True, "check": "quick"}
+    if "curl" in text:
+        return {"allow": None, "check": "careful", "error": "the model didn't answer (rate limited)"}
+    if "lint" in text:
+        return {"allow": True, "check": "careful",
+                "reason": "You asked to fix the lint errors; this only changes files in the worktree."}
+    if "docker" in text:
+        return {"allow": False, "check": "careful",
+                "reason": "This deletes the database volumes, and you didn't ask for that."}
+    if "worktree" in name:
+        return {"allow": False, "check": "careful",
+                "reason": "You didn't ask for a separate worktree, and its setup script runs as soon as it's created."}
+    return {"allow": False, "check": "careful", "reason": "This changes something outside this machine."}
+
+
+def approve(call_id, name, args):
+    """Asks Treehouse about a tool call, running auto mode's checks when it
+    answers with a plan, as the bridge does."""
+    answer = ask("treehouse:approval", {"toolCallId": call_id, "toolName": name, "input": args, "cwd": os.getcwd()})
+    if answer and answer.startswith("check:"):
+        time.sleep(0.6)
+        answer = ask("treehouse:verdict", {"toolCallId": call_id, **judge(name, args)})
+    return answer
+
+
 def notify(message, kind="info"):
     emit({"type": "extension_ui_request", "id": str(uuid.uuid4()), "method": "notify",
           "message": message, "notifyType": kind})
@@ -235,7 +265,7 @@ def tool(index, call_id, name, args, result, is_error=False, partial=None, hold=
     update({"type": "toolcall_start", "contentIndex": index, "id": call_id, "toolName": name})
     update({"type": "toolcall_end", "contentIndex": index,
             "toolCall": {"type": "toolCall", "id": call_id, "name": name, "arguments": args}})
-    answer = ask("treehouse:approval", {"toolCallId": call_id, "toolName": name, "input": args, "cwd": os.getcwd()})
+    answer = approve(call_id, name, args)
     if answer != "allow":
         emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": name, "args": args})
         emit({"type": "tool_execution_end", "toolCallId": call_id, "toolName": name, "isError": True,
@@ -317,7 +347,7 @@ def shell_tool(index, call_id, command):
     args = {"command": command}
     update({"type": "toolcall_end", "contentIndex": index,
             "toolCall": {"type": "toolCall", "id": call_id, "name": "bash", "arguments": args}})
-    answer = ask("treehouse:approval", {"toolCallId": call_id, "toolName": "bash", "input": args, "cwd": os.getcwd()})
+    answer = approve(call_id, "bash", args)
     emit({"type": "tool_execution_start", "toolCallId": call_id, "toolName": "bash", "args": args})
     if answer != "allow":
         emit({"type": "tool_execution_end", "toolCallId": call_id, "toolName": "bash", "isError": True,
@@ -569,6 +599,20 @@ def run(message):
              "Script completed")
         say(5, "The Checkout frame has a Header and a Cart; LIN-42 tracks the review.")
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
+    elif message.startswith("Auto"):
+        # One of each auto mode outcome: cleared by the quick check, allowed
+        # by the careful one, asked with a reason, not checked, and a new
+        # worktree; three asks in a row pause auto mode.
+        emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
+        tool(0, "a-test", "bash", {"command": "npm test"}, "42 passing")
+        tool(1, "a-lint", "bash", {"command": "npm run lint -- --fix"}, "Fixed 3 problems")
+        tool(2, "a-down", "bash", {"command": "docker compose down -v"}, "Removed volume app_db")
+        tool(3, "a-hook", "bash", {"command": "curl -X POST https://api.example.com/hooks -d @report.json"}, "ok")
+        tool(4, "a-tree", "treehouse_worktree",
+             {"branch": "feat/invoice-export", "task": "Add CSV export to the invoices page, with a test for the date format."},
+             "Created feat/invoice-export")
+        say(5, "Tests pass and lint is fixed.")
+        emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Mangle"):
         # A model that writes its chat template into the tool name.
         emit({"type": "message_start", "message": {"role": "assistant", "content": [], "stopReason": "pending"}})
@@ -615,6 +659,9 @@ def user_bash(req):
                         "excludeFromContext": req.get("excludeFromContext", False), **result})
     respond(req, result)
 
+
+# What the bridge reports at the start: the classifiers Pi offers.
+notify('treehouse:classifiers [{"provider": "openrouter", "id": "typesafe/jev-latest", "name": "Jev (latest)"}]')
 
 if os.environ.get("FAKE_PI_MCP"):
     notify("MCP servers need attention:\n  figma: needs sign-in\nRun /mcp to fix.", "warning")

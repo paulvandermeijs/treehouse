@@ -15,17 +15,60 @@ pub enum ApprovalMode {
     #[default]
     AskBeforeBash,
     AskEveryTool,
+    /// Calls the rules don't settle go to a model, which runs them or asks.
+    Auto,
     DontAsk,
 }
 
 impl ApprovalMode {
-    pub const ALL: [ApprovalMode; 3] = [Self::AskBeforeBash, Self::AskEveryTool, Self::DontAsk];
+    pub const ALL: [ApprovalMode; 4] = [
+        Self::AskBeforeBash,
+        Self::AskEveryTool,
+        Self::Auto,
+        Self::DontAsk,
+    ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::AskBeforeBash => "Ask before bash and MCP",
             Self::AskEveryTool => "Ask before every tool call",
+            Self::Auto => "Auto",
             Self::DontAsk => "Don't ask",
+        }
+    }
+
+    /// One line for the menu, since four modes need telling apart.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::AskBeforeBash => "Edits run; commands and MCP tools wait for you",
+            Self::AskEveryTool => "Everything waits for you",
+            Self::Auto => "Safe calls run; a model checks the rest and asks when it isn't sure",
+            Self::DontAsk => "Everything runs, except your Always ask switches",
+        }
+    }
+}
+
+/// Auto mode's settings.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AutoSettings {
+    /// `provider/model` of a chat model, or `classifier:provider/model`;
+    /// `None` uses the careful check's model with a short prompt.
+    pub quick_check: Option<String>,
+    /// `provider/model`; `None` uses the chat's model.
+    pub careful_check: Option<String>,
+    /// Plain words added to the checks' instructions.
+    pub rules: String,
+    pub pause_after_asks: bool,
+}
+
+impl Default for AutoSettings {
+    fn default() -> Self {
+        Self {
+            quick_check: None,
+            careful_check: None,
+            rules: String::new(),
+            pause_after_asks: true,
         }
     }
 }
@@ -89,6 +132,8 @@ pub enum Decision {
     /// An MCP call that runs because the user always allowed its tool; the
     /// chat says so, so it can be checked afterwards.
     AlwaysAllowed,
+    /// Auto mode: a model decides.
+    Check,
     Ask(Reason),
 }
 
@@ -105,6 +150,12 @@ pub enum Reason {
     Unreadable,
     /// A `codemode` script that picks its tools while it runs.
     UnreadableScript,
+    /// Auto mode's careful check asked; the card shows its reason.
+    Auto,
+    /// Auto mode couldn't get an answer from its model.
+    AutoUnchecked,
+    /// Auto mode paused after too many asks in a row.
+    AutoPaused,
 }
 
 impl Reason {
@@ -116,7 +167,11 @@ impl Reason {
             Self::Deleting => Some(("Deleting files", "Approvals")),
             Self::Pushing => Some(("Pushing", "Approvals")),
             Self::OutsideWorktree => Some(("Touching files outside the worktree", "Approvals")),
-            Self::Unreadable | Self::UnreadableScript => None,
+            Self::Unreadable
+            | Self::UnreadableScript
+            | Self::Auto
+            | Self::AutoUnchecked
+            | Self::AutoPaused => None,
         }
     }
 }
@@ -212,6 +267,11 @@ impl Policy<'_> {
         // that session's own tool calls go through this policy.
         // The merge tool asks the user itself, every time. A new worktree only
         // adds one, which Delete worktree removes.
+        // In auto mode a new worktree goes through the checks: its setup
+        // script runs as soon as it's made.
+        if call.tool_name == "treehouse_worktree" && self.mode == ApprovalMode::Auto {
+            return Decision::Check;
+        }
         if matches!(
             call.tool_name,
             "subagent" | "treehouse_merge" | "treehouse_worktree"
@@ -234,6 +294,8 @@ impl Policy<'_> {
             Some(McpCalls::Unreadable) => {
                 return match self.mode {
                     ApprovalMode::DontAsk => Decision::Allow,
+                    // The model reads the script itself.
+                    ApprovalMode::Auto => Decision::Check,
                     _ => Decision::Ask(Reason::UnreadableScript),
                 };
             }
@@ -246,6 +308,7 @@ impl Policy<'_> {
                 }
                 return match self.mode {
                     ApprovalMode::DontAsk => Decision::Allow,
+                    ApprovalMode::Auto => Decision::Check,
                     ApprovalMode::AskBeforeBash => Decision::Ask(Reason::AskBeforeBash),
                     ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
                 };
@@ -274,6 +337,7 @@ impl Policy<'_> {
             }
             return match self.mode {
                 ApprovalMode::DontAsk => Decision::Allow,
+                ApprovalMode::Auto => Decision::Check,
                 ApprovalMode::AskBeforeBash => Decision::Ask(Reason::AskBeforeBash),
                 ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
             };
@@ -281,6 +345,17 @@ impl Policy<'_> {
 
         match self.mode {
             ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
+            // Reading and changing the worktree's own files is what Pi is
+            // there for; anything else, such as a tool from an extension,
+            // goes to the checks.
+            ApprovalMode::Auto
+                if !matches!(
+                    call.tool_name,
+                    "read" | "grep" | "find" | "ls" | "edit" | "write" | "codemode"
+                ) =>
+            {
+                Decision::Check
+            }
             _ => Decision::Allow,
         }
     }
@@ -628,7 +703,7 @@ mod tests {
         fn from(decision: super::Decision) -> Self {
             match decision {
                 super::Decision::Allow | super::Decision::AlwaysAllowed => Self::Allow,
-                super::Decision::Ask(_) => Self::Ask,
+                super::Decision::Ask(_) | super::Decision::Check => Self::Ask,
             }
         }
     }
@@ -648,7 +723,9 @@ mod tests {
             project: Path::new("/code/app"),
         }) {
             super::Decision::Ask(reason) => Some(reason),
-            super::Decision::Allow | super::Decision::AlwaysAllowed => None,
+            super::Decision::Allow | super::Decision::AlwaysAllowed | super::Decision::Check => {
+                None
+            }
         }
     }
 
@@ -1143,6 +1220,56 @@ mod tests {
         assert_eq!(
             propose_pattern("cargo test --all").as_deref(),
             Some("cargo test *")
+        );
+    }
+
+    #[test]
+    fn auto_mode_checks_what_the_rules_dont_settle() {
+        use super::Decision as D;
+        let auto = |tool: &str, input: Value| mcp(ApprovalMode::Auto, tool, input, &[]);
+        // Hard limits and the fixed rules come first.
+        assert_eq!(
+            auto("bash", json!({"command": "git push"})),
+            D::Ask(Reason::Pushing)
+        );
+        assert_eq!(
+            auto("bash", json!({"command": "rm -rf build"})),
+            D::Ask(Reason::Deleting)
+        );
+        assert_eq!(auto("read", json!({"path": "src/main.rs"})), D::Allow);
+        assert_eq!(auto("edit", json!({"path": "src/main.rs"})), D::Allow);
+        assert_eq!(auto("tool_search", json!({"query": "x"})), D::Allow);
+        assert_eq!(auto("subagent", json!({})), D::Allow);
+        assert_eq!(auto("treehouse_merge", json!({})), D::Allow);
+        // Everything else goes to the model.
+        assert_eq!(auto("bash", json!({"command": "npm test"})), D::Check);
+        assert_eq!(auto("mcp__slack__send_message", json!({})), D::Check);
+        assert_eq!(
+            auto("codemode", json!({"code": "await tools[n]({})"})),
+            D::Check
+        );
+        assert_eq!(auto("treehouse_worktree", json!({"branch": "x"})), D::Check);
+        assert_eq!(auto("some_extension_tool", json!({})), D::Check);
+        // Outside auto mode a new worktree still runs without asking.
+        assert_eq!(
+            mcp(
+                ApprovalMode::AskBeforeBash,
+                "treehouse_worktree",
+                json!({"branch": "x"}),
+                &[]
+            ),
+            D::Allow
+        );
+        // An Always allow still runs without a check.
+        let slack = [allow_tool("slack", None, None)];
+        assert_eq!(
+            mcp(
+                ApprovalMode::Auto,
+                "mcp__slack__send_message",
+                json!({}),
+                &slack
+            ),
+            D::AlwaysAllowed
         );
     }
 }

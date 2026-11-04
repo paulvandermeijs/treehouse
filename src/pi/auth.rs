@@ -9,7 +9,7 @@ use crate::files::{self, Access};
 /// the order the page and the model picker list them. Only Pi's built-in
 /// providers that take a single API key.
 /// OpenCode's two plans share a variable, but Pi keeps a key per plan.
-pub const PROVIDERS: [(&str, &str, &str); 17] = [
+pub const PROVIDERS: [(&str, &str, &str); 18] = [
     ("anthropic", "Anthropic", "ANTHROPIC_API_KEY"),
     ("openai", "OpenAI", "OPENAI_API_KEY"),
     ("google", "Google", "GEMINI_API_KEY"),
@@ -31,6 +31,8 @@ pub const PROVIDERS: [(&str, &str, &str); 17] = [
     ("zai", "Z.ai", "ZAI_API_KEY"),
     ("moonshotai", "Moonshot AI", "MOONSHOT_API_KEY"),
     ("huggingface", "Hugging Face", "HF_TOKEN"),
+    // Classifiers such as Jev, for auto mode's quick check.
+    ("typesafe", "TypeSafe", "TYPESAFE_API_KEY"),
 ];
 
 #[derive(Clone, Debug, PartialEq, Eq)]

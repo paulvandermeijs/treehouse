@@ -4,7 +4,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState, Textarea, TextareaState};
 use gpui_kit::component::kbd::Kbd;
 use gpui_kit::component::setting::{
     SettingField, SettingGroup, SettingItem, SettingPage, Settings,
@@ -809,6 +809,9 @@ fn defaults_page() -> SettingPage {
 enum ModelSetting {
     Chat,
     SubAgent,
+    /// Auto mode's quick check: a chat model or a classifier.
+    QuickCheck,
+    CarefulCheck,
 }
 
 impl ModelSetting {
@@ -817,6 +820,8 @@ impl ModelSetting {
         match self {
             ModelSetting::Chat => config.model.clone(),
             ModelSetting::SubAgent => config.subagent_model.clone(),
+            ModelSetting::QuickCheck => config.auto.quick_check.clone(),
+            ModelSetting::CarefulCheck => config.auto.careful_check.clone(),
         }
     }
 
@@ -824,6 +829,8 @@ impl ModelSetting {
         Config::update(cx, |c| match self {
             ModelSetting::Chat => c.model = value,
             ModelSetting::SubAgent => c.subagent_model = value,
+            ModelSetting::QuickCheck => c.auto.quick_check = value,
+            ModelSetting::CarefulCheck => c.auto.careful_check = value,
         })
     }
 
@@ -831,10 +838,19 @@ impl ModelSetting {
     fn first_option(self) -> (&'static str, &'static str) {
         match self {
             ModelSetting::Chat => ("Pi's default", "Pi picks from your providers"),
-            ModelSetting::SubAgent => ("Same as the chat", "Whatever the chat runs on"),
+            ModelSetting::SubAgent | ModelSetting::CarefulCheck => {
+                ("Same as the chat", "Whatever the chat runs on")
+            }
+            ModelSetting::QuickCheck => (
+                "Same as the careful check",
+                "Its model, with a short question",
+            ),
         }
     }
 }
+
+/// A quick check saves a classifier as `classifier:provider/model`.
+const CLASSIFIER: &str = "classifier:";
 
 /// A model dropdown's picker and whether it's open.
 struct ModelDropdown {
@@ -850,15 +866,25 @@ fn model_dropdown(setting: ModelSetting, window: &mut Window, cx: &mut App) -> A
     let key = match setting {
         ModelSetting::Chat => "model-dropdown",
         ModelSetting::SubAgent => "subagent-model-dropdown",
+        ModelSetting::QuickCheck => "quick-check-dropdown",
+        ModelSetting::CarefulCheck => "careful-check-dropdown",
     };
     let state = window.use_keyed_state(SharedString::from(key), cx, move |window, cx| {
         let (label, detail) = setting.first_option();
         let picker = cx.new(|cx| {
             ModelPicker::new(
-                |cx| {
-                    cx.try_global::<Catalog>()
-                        .map(|c| c.models.clone())
-                        .unwrap_or_default()
+                move |cx| {
+                    let Some(catalog) = cx.try_global::<Catalog>() else {
+                        return Vec::new();
+                    };
+                    // Classifiers answer the quick check's yes-or-no faster
+                    // and cheaper than a chat model.
+                    let mut models = Vec::new();
+                    if setting == ModelSetting::QuickCheck {
+                        models.extend(catalog.classifiers.iter().cloned());
+                    }
+                    models.extend(catalog.models.iter().cloned());
+                    models
                 },
                 move |cx| setting.get(cx),
                 |cx| {
@@ -872,7 +898,17 @@ fn model_dropdown(setting: ModelSetting, window: &mut Window, cx: &mut App) -> A
                     setting.set(
                         match pick {
                             Pick::First => None,
-                            Pick::Model(model) => Some(model.full_name()),
+                            Pick::Model(model) => {
+                                let classifier = setting == ModelSetting::QuickCheck
+                                    && cx
+                                        .try_global::<Catalog>()
+                                        .is_some_and(|c| c.classifiers.contains(&model));
+                                Some(if classifier {
+                                    format!("{CLASSIFIER}{}", model.full_name())
+                                } else {
+                                    model.full_name()
+                                })
+                            }
                         },
                         cx,
                     )
@@ -904,10 +940,19 @@ fn model_dropdown(setting: ModelSetting, window: &mut Window, cx: &mut App) -> A
 
     // The closed dropdown: the model's name and id, or the first option.
     let value = setting.get(cx);
+    let classifier = value.as_deref().is_some_and(|v| v.starts_with(CLASSIFIER));
+    let value = value.map(|v| v.strip_prefix(CLASSIFIER).unwrap_or(&v).to_string());
     let catalog = cx.try_global::<Catalog>();
     let known = value.as_ref().and_then(|v| {
         catalog
-            .and_then(|c| c.models.iter().find(|m| m.full_name() == *v))
+            .and_then(|c| {
+                let list = if classifier {
+                    &c.classifiers
+                } else {
+                    &c.models
+                };
+                list.iter().find(|m| m.full_name() == *v)
+            })
             .cloned()
     });
     let model = known
@@ -915,7 +960,8 @@ fn model_dropdown(setting: ModelSetting, window: &mut Window, cx: &mut App) -> A
         .or_else(|| value.as_deref().and_then(ModelInfo::parse));
     // A saved model whose provider has no key any more is ignored by Pi.
     let no_key = model.as_ref().and_then(|m| {
-        (known.is_none() && !auth::credential(&m.provider).is_set()).then(|| m.provider.clone())
+        (known.is_none() && !classifier && !auth::credential(&m.provider).is_set())
+            .then(|| m.provider.clone())
     });
 
     v_flex()
@@ -1085,6 +1131,81 @@ fn approvals_page() -> SettingPage {
                     ),
                 )),
         )
+        .group(
+            SettingGroup::new()
+                .title("Auto mode")
+                .item(
+                    SettingItem::new(
+                        "Quick check",
+                        SettingField::render(|_, window, cx| {
+                            model_dropdown(ModelSetting::QuickCheck, window, cx)
+                        }),
+                    )
+                    .description("Says clear or not for every call the rules don't settle")
+                    .layout(Axis::Vertical),
+                )
+                .item(
+                    SettingItem::new(
+                        "Careful check",
+                        SettingField::render(|_, window, cx| {
+                            model_dropdown(ModelSetting::CarefulCheck, window, cx)
+                        }),
+                    )
+                    .description("Reads your messages for the calls the quick check flags")
+                    .layout(Axis::Vertical),
+                )
+                .item(
+                    SettingItem::new(
+                        "Your rules",
+                        SettingField::render(|_, window, cx| rules_field(window, cx)),
+                    )
+                    .description("Plain words the checks follow on top of their own, for this machine")
+                    .layout(Axis::Vertical),
+                )
+                .item(SettingItem::new(
+                    "Pause after 3 asks in a row",
+                    SettingField::switch(
+                        |cx| Config::global(cx).auto.pause_after_asks,
+                        |v, cx| Config::update(cx, |c| c.auto.pause_after_asks = v),
+                    ),
+                ))
+                .footer(|_, _| {
+                    "Calls the rules don't settle go to the quick check; flagged ones, with your messages in that chat, to the careful check's model. Classifiers show up once a chat has started."
+                }),
+        )
+}
+
+/// Auto mode's own rules, saved as they're typed.
+struct RulesField {
+    input: Entity<TextareaState>,
+    _subscription: Subscription,
+}
+
+fn rules_field(window: &mut Window, cx: &mut App) -> AnyElement {
+    let field = window.use_keyed_state(SharedString::from("auto-rules"), cx, |window, cx| {
+        let value = Config::global(cx).auto.rules.clone();
+        let input = cx.new(|cx| {
+            TextareaState::new(window, cx)
+                .auto_grow(3, 8)
+                .placeholder("For example: never run database commands against production.")
+                .default_value(value)
+        });
+        let subscription = cx.subscribe(
+            &input,
+            |_: &mut RulesField, input, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    let rules = input.read(cx).value().to_string();
+                    Config::update(cx, |c| c.auto.rules = rules);
+                }
+            },
+        );
+        RulesField {
+            input,
+            _subscription: subscription,
+        }
+    });
+    let input = field.read(cx).input.clone();
+    Textarea::new(&input).w_full().into_any_element()
 }
 
 fn allowed_list(cx: &mut App) -> AnyElement {

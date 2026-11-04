@@ -45,6 +45,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `assets/pi/skills/` | The built-in skills behind `/commit`, `/sync`, `/finish-branch` and `/setup-worktrees`, loaded with `--skill` |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact`, `/new` and the lifecycle commands |
 | `src/approval.rs` | Decides which tool calls need the user's approval |
+| `src/auto.rs` | Auto mode: what its checks are told, and their verdicts |
 | `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |
 | `src/mcp.rs` | Reads Pi's MCP sign-in messages |
 | `src/workspace.rs` | Projects, worktrees and sub-agents; reports sub-agent results to their parent |
@@ -60,7 +61,7 @@ Most of the chat's behaviour is unit-tested in `src/transcript.rs` by feeding it
 
 Pi has no built-in tool approval or sub-agents. Treehouse adds both with a small extension, `assets/pi/treehouse.ts`, that it writes to its data folder and passes to Pi with `-e`:
 
-- **Approval.** Every tool call is sent to Treehouse as an RPC extension UI request titled `treehouse:approval`. `src/approval.rs` applies the [approval settings](/guide/approvals), and when it has to ask, the chat shows the call with Run, Always allow and Deny.
+- **Approval.** Every tool call is sent to Treehouse as an RPC extension UI request titled `treehouse:approval`. `src/approval.rs` applies the [approval settings](/guide/approvals), and when it has to ask, the chat shows the call with Run, Always allow and Deny. In auto mode Treehouse can answer `check:<plan>` instead: the bridge has the plan's models check the call inside the chat's Pi (a classifier through `ctx.modelRegistry.classify()`, a chat model through `streamSimple()`) and sends the verdict back as `treehouse:verdict`. At session start the bridge reports Pi's classifiers in a `treehouse:classifiers` notice, which Treehouse reads rather than shows.
 - **Sub-agents.** The extension registers a `subagent` tool. When Pi calls it, the extension asks Treehouse (title `treehouse:subagent`) to start a separate Pi session in the same worktree, and returns that session's final answer as the tool result.
 - **Merging.** The extension registers a `treehouse_merge` tool for worktrees with a base branch. When Pi calls it, the extension asks Treehouse (title `treehouse:merge`), which checks the merge is safe, asks the user, merges and answers with JSON: the text for the model, and what was merged, which the chat shows as a card. A refusal or denial fails the tool with the reason.
 - **Worktrees.** The extension registers a `treehouse_worktree` tool with a branch name and an optional task. Treehouse (title `treehouse:worktree`) creates the worktree as New worktree does and hands the task to its chat, saved as a `treehouse:handover` entry so the task card comes back. A refusal fails the tool with the reason. The approval hook blocks a bash `git worktree add` while the tool is active, since models follow a project's own worktree instructions over the tool's description.

@@ -6,7 +6,7 @@ Open Settings with <kbd>⌘,</kbd> (<kbd>Ctrl+,</kbd>), the gear at the bottom o
 
 The providers you've set up, one row each, showing where the key comes from: saved in Pi's own `auth.json`, signed in with Pi (OAuth), or read from the environment (such as `$ANTHROPIC_API_KEY`). A provider whose variable is set appears on its own.
 
-To add one, pick it in **Add a provider…** under the list and press **Add**. The dropdown holds every other provider, with its variable: Anthropic, OpenAI, Google, xAI (Grok), Mistral, DeepSeek, OpenRouter, OpenCode Zen and Go, Vercel AI Gateway, Groq, Cerebras, Together AI, Fireworks, Z.ai, Moonshot AI and Hugging Face. Type to search it. Add gives the provider a row with the cursor in its key field; **Cancel**, or closing Settings without saving, takes it away again.
+To add one, pick it in **Add a provider…** under the list and press **Add**. The dropdown holds every other provider, with its variable: Anthropic, OpenAI, Google, xAI (Grok), Mistral, DeepSeek, OpenRouter, OpenCode Zen and Go, Vercel AI Gateway, Groq, Cerebras, Together AI, Fireworks, Z.ai, Moonshot AI, Hugging Face and TypeSafe (classifiers for [auto mode](./approvals#auto-mode)). Type to search it. Add gives the provider a row with the cursor in its key field; **Cancel**, or closing Settings without saving, takes it away again.
 
 Paste the key and press <kbd>Enter</kbd> or **Save**. Nothing is saved when you leave the field. The key shows as dots; the eye button shows it while you check it. A saved key shows masked, with **Replace** and **Remove**; removing it puts the provider back in the dropdown. **Add key** on a provider read from the environment saves a key that's used instead of the variable. **Sign out** asks first, since signing in again needs `pi` in a terminal.
 
@@ -27,7 +27,7 @@ The model fields are the chat's model picker as a dropdown, with **Pi's default*
 | | `favorite_models` | none | Starred in the model picker |
 | | `recent_models` | none | Picked in a chat, most recent first |
 | Thinking level | `thinking` | `high` | `off`, `minimal`, `low`, `medium` or `high` |
-| Approval | `approval` | Ask before bash and MCP | See [Approvals](./approvals) |
+| Approval | `approval` | Ask before bash and MCP | `ask_before_bash`, `ask_every_tool`, `auto` or `dont_ask`. See [Approvals](./approvals) |
 | Pi command | `pi_command` | `pi` | The `pi` executable |
 | Tools | `tools` | read, bash, edit, write | What Pi may use |
 
@@ -40,6 +40,10 @@ The model fields are the chat's model picker as a dropdown, with **Pi's default*
 | Always ask before deleting files | `always_ask.deleting` | on |
 | Always ask before pushing | `always_ask.pushing` | on |
 | Always ask before touching files outside the worktree | `always_ask.outside_worktree` | on |
+| Auto mode's quick check | `auto.quick_check` | same as the careful check | `provider/model`, or `classifier:provider/model` |
+| Auto mode's careful check | `auto.careful_check` | same as the chat | `provider/model` |
+| Auto mode's own rules | `auto.rules` | none | |
+| Pause after 3 asks in a row | `auto.pause_after_asks` | on | |
 
 See [Approvals](./approvals) for what each one covers.
 

@@ -38,6 +38,7 @@ gpui_kit::assets::icon_assets!(
         Plug,
         Lock,
         ShieldAlert,
+        ShieldCheck,
         TriangleAlert,
         Expand,
         Pin,
