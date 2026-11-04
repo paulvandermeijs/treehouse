@@ -279,6 +279,14 @@ export default function (pi: any) {
 		},
 	});
 
+	pi.registerCommand("treehouse-tools", {
+		description: "Used by Treehouse to change the chat's tools",
+		handler: async (args: string) => {
+			const tools = JSON.parse(args);
+			if (Array.isArray(tools)) pi.setActiveTools(tools.filter((t) => typeof t === "string"));
+		},
+	});
+
 	pi.registerCommand("treehouse-save", {
 		description: "Used by Treehouse to save what its chat shows",
 		handler: async (args: string) => {

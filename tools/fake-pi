@@ -697,6 +697,10 @@ for line in sys.stdin:
     elif kind == "get_session_stats":
         respond(req, {"contextUsage": {"tokens": 48200 if state["tokens"] > 4000 else 21700,
                                        "contextWindow": 200000, "percent": 24}})
+    elif kind == "prompt" and req.get("message", "").startswith("/treehouse-tools "):
+        # The bridge extension's command: changes the active tools.
+        state["tools"] = json.loads(req["message"].split(" ", 1)[1])
+        respond(req, {"disposition": "handled"})
     elif kind == "prompt" and req.get("message", "").startswith("/treehouse-save "):
         # The bridge extension's command: saves what Treehouse shows.
         saved = json.loads(req["message"].split(" ", 1)[1])

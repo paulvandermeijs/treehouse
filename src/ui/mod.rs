@@ -10,6 +10,7 @@ mod items;
 mod link_confirm;
 mod model_picker;
 mod palette;
+mod ring;
 mod settings;
 mod sidebar;
 mod spinner;

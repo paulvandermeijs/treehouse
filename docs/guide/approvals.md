@@ -27,7 +27,7 @@ A worktree waiting for approval shows it in the sidebar, and its status card has
 
 ## When Pi has to ask
 
-**Settings › Agent defaults › Approval** sets the general rule for new chats. The shield in a chat's status bar changes it for that chat; sub-agents follow their chat.
+**Settings › Agent defaults › Approval** sets the general rule for new chats. The shield in a chat's status bar changes it for that chat. A sub-agent follows its parent's mode, also when the parent changes, until you pick a mode for it; **Same as parent** in its menu goes back to following.
 
 | Setting | Bash commands | Other tools (read, edit, write…) |
 | --- | --- | --- |

@@ -22,7 +22,7 @@ use crate::actions::{
     FullScreenDock, ScrollHalfPageDown, ScrollHalfPageUp, ScrollPageDown, ScrollPageUp,
     ScrollToEnd, ShowDiff, SlashAccept, SlashDismiss, SlashDown, SlashUp, StopAgent,
 };
-use crate::config::{Config, THINKING_LEVELS};
+use crate::config::THINKING_LEVELS;
 use crate::session::{AgentStatus, ModelInfo, Session, SessionEvent, SessionKind};
 use crate::slash::{self, CommandKind, SlashCommand};
 use crate::theme::{mix, palette};
@@ -90,6 +90,10 @@ pub struct ChatView {
     slash_scroll: ScrollHandle,
     model_picker: Entity<ModelPicker>,
     picker_open: bool,
+    /// The status bar's width when last painted: its labels shorten by the
+    /// pane's width, not by whether it's docked.
+    bar_width: std::rc::Rc<std::cell::Cell<Pixels>>,
+    tools_open: bool,
     /// The status bar menu that's open (thinking or approval), by key.
     bar_menu: Option<(&'static str, Entity<PopupMenu>)>,
     _subscriptions: Vec<Subscription>,
@@ -222,6 +226,8 @@ impl ChatView {
             slash_scroll: ScrollHandle::new(),
             model_picker,
             picker_open: false,
+            bar_width: std::rc::Rc::new(std::cell::Cell::new(px(10_000.))),
+            tools_open: false,
             bar_menu: None,
             _subscriptions: subscriptions,
         }
@@ -1163,6 +1169,290 @@ impl ChatView {
             )
     }
 
+    /// The approval mode's menu. A sub-agent's starts with following its
+    /// parent, the chat that started it.
+    fn render_approval_menu(&self, tight: bool, cx: &mut Context<Self>) -> Popover {
+        let p = palette(cx);
+        let session = self.session.clone();
+        let (mode, follows, is_subagent) = {
+            let s = session.read(cx);
+            (s.approval_mode(cx), s.follows_parent(), s.parent.is_some())
+        };
+        let auto = mode == ApprovalMode::Auto;
+        let trigger = Button::new("approval")
+            .ghost()
+            .small()
+            // Auto stands out, since calls may run without you.
+            .icon(if auto {
+                icon(Lucide::ShieldCheck).text_color(p.mauve)
+            } else {
+                icon(Lucide::Shield)
+            })
+            .when(auto, |b| b.text_color(p.mauve))
+            .when(tight, |b| {
+                b.tooltip(if follows {
+                    format!("{} · from parent", mode.label())
+                } else {
+                    mode.label().to_string()
+                })
+            })
+            .when(!tight, |b| {
+                b.child(
+                    h_flex()
+                        .gap(px(6.))
+                        .child(mode.label())
+                        .when(follows, |this| {
+                            this.child(
+                                div()
+                                    .text_size(px(12.))
+                                    .text_color(p.subtext0)
+                                    .child("· from parent"),
+                            )
+                        }),
+                )
+            });
+        self.bar_menu_popover(
+            "approval",
+            trigger,
+            move |mut menu, _, _| {
+                let item = |label: SharedString,
+                            description: SharedString,
+                            checked: bool,
+                            choice: Option<ApprovalMode>| {
+                    let session = session.clone();
+                    PopupMenuItem::element(move |_, cx| {
+                        let p = palette(cx);
+                        // The check shares the name's line, so it stays
+                        // centred on it at any text size.
+                        v_flex()
+                            .py(px(2.))
+                            .w(px(300.))
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(div().flex_none().w(px(14.)).children(checked.then(
+                                        || icon(Lucide::Check).size(px(14.)).text_color(p.blue),
+                                    )))
+                                    // The menu's own size, like the thinking
+                                    // menu's items.
+                                    .child(div().font_medium().child(label.clone())),
+                            )
+                            .child(
+                                div()
+                                    // Under the name: the check's width and
+                                    // the gap.
+                                    .pl(px(22.))
+                                    .text_size(px(12.))
+                                    .text_color(p.subtext0)
+                                    .child(description.clone()),
+                            )
+                    })
+                    .on_click(move |_, _, cx| {
+                        session.update(cx, |s, cx| s.set_approval_mode(choice, cx))
+                    })
+                };
+                if is_subagent {
+                    menu = menu
+                        .item(item(
+                            "Same as parent".into(),
+                            format!(
+                                "{}, from the chat that started it; follows its changes",
+                                mode.label()
+                            )
+                            .into(),
+                            follows,
+                            None,
+                        ))
+                        .separator();
+                }
+                for choice in ApprovalMode::ALL {
+                    menu = menu.item(item(
+                        choice.label().into(),
+                        choice.description().into(),
+                        !follows && choice == mode,
+                        Some(choice),
+                    ));
+                }
+                menu.separator()
+                    .item(
+                        PopupMenuItem::new("Approval settings…").on_click(|_, window, cx| {
+                            super::settings::open(super::settings::Section::Approvals, window, cx)
+                        }),
+                    )
+            },
+            cx,
+        )
+    }
+
+    /// The tools for this chat, ticked in a panel that stays open.
+    fn render_tools(&self, label: String, cx: &mut Context<Self>) -> Popover {
+        let p = palette(cx);
+        let (picked, mcp) = {
+            let s = self.session.read(cx);
+            (s.tools.clone(), s.mcp_tools)
+        };
+        let row = |id: &'static str,
+                   name: &'static str,
+                   detail: &'static str,
+                   on: bool,
+                   toggle: ToolToggle| {
+            let session = self.session.clone();
+            h_flex()
+                .id(id)
+                .gap(px(10.))
+                .items_start()
+                .px(px(10.))
+                .py(px(6.))
+                .rounded(px(6.))
+                .cursor_pointer()
+                .hover(|s| s.bg(p.surface0))
+                .child(
+                    div()
+                        .flex_none()
+                        .mt(px(3.))
+                        .size(px(14.))
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(if on { p.blue } else { p.surface1 })
+                        .when(on, |this| this.bg(p.blue))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .when(on, |this| {
+                            this.child(icon(Lucide::Check).size(px(11.)).text_color(p.on_accent))
+                        }),
+                )
+                .child(
+                    v_flex()
+                        .min_w_0()
+                        .child(div().font_medium().child(name))
+                        .child(
+                            div()
+                                .text_size(px(12.))
+                                .text_color(p.subtext0)
+                                .child(detail),
+                        ),
+                )
+                .on_click(move |_, _, cx| {
+                    session.update(cx, |s, cx| {
+                        let (mut tools, mut mcp) = (s.tools.clone(), s.mcp_tools);
+                        toggle(&mut tools, &mut mcp);
+                        s.set_tools(tools, mcp, cx);
+                    })
+                })
+        };
+        let has = |names: &[&str]| names.iter().all(|n| picked.iter().any(|t| t == n));
+        let flip = |names: &'static [&'static str]| -> ToolToggle {
+            Box::new(move |tools: &mut Vec<String>, _: &mut bool| {
+                if names.iter().all(|n| tools.iter().any(|t| t == n)) {
+                    tools.retain(|t| !names.contains(&t.as_str()));
+                } else {
+                    tools.extend(
+                        names
+                            .iter()
+                            .filter(|n| !tools.iter().any(|t| t == *n))
+                            .map(|n| n.to_string())
+                            .collect::<Vec<_>>(),
+                    );
+                }
+            })
+        };
+        let panel = v_flex()
+            .w(px(330.))
+            .p(px(6.))
+            .text_size(px(14.))
+            .text_color(p.text)
+            .child(
+                div()
+                    .px(px(10.))
+                    .pt(px(6.))
+                    .pb(px(4.))
+                    .text_size(px(12.))
+                    .text_color(p.subtext0)
+                    .child("Tools for this chat"),
+            )
+            .child(row(
+                "tool-read",
+                "read",
+                "Read files",
+                has(&["read"]),
+                flip(&["read"]),
+            ))
+            .child(row(
+                "tool-bash",
+                "bash",
+                "Run commands",
+                has(&["bash"]),
+                flip(&["bash"]),
+            ))
+            .child(row(
+                "tool-edit",
+                "edit",
+                "Change parts of files",
+                has(&["edit"]),
+                flip(&["edit"]),
+            ))
+            .child(row(
+                "tool-write",
+                "write",
+                "Write whole files",
+                has(&["write"]),
+                flip(&["write"]),
+            ))
+            .child(row(
+                "tool-search",
+                "grep, find, ls",
+                "Search without bash",
+                has(&["grep", "find", "ls"]),
+                flip(&["grep", "find", "ls"]),
+            ))
+            .child(row(
+                "tool-mcp",
+                "MCP tools",
+                "Your MCP servers, through codemode and tool_search",
+                mcp,
+                Box::new(|_: &mut Vec<String>, mcp: &mut bool| *mcp = !*mcp),
+            ))
+            .child(div().h(px(1.)).mx(px(6.)).my(px(4.)).bg(p.surface0))
+            .child(
+                div()
+                    .id("tool-defaults")
+                    .px(px(10.))
+                    .py(px(6.))
+                    .rounded(px(6.))
+                    .cursor_pointer()
+                    .hover(|s| s.bg(p.surface0))
+                    .pl(px(34.))
+                    .text_size(px(13.))
+                    .child("Defaults for new chats…")
+                    .on_click(cx.listener(|view, _, window, cx| {
+                        view.tools_open = false;
+                        super::settings::open(super::settings::Section::Defaults, window, cx);
+                    })),
+            );
+        Popover::new("tools-menu")
+            .anchor(Anchor::BottomLeft)
+            .offset(px(16.))
+            .open(self.tools_open)
+            .on_open_change(cx.listener(|view, open: &bool, _, cx| {
+                view.tools_open = *open;
+                cx.notify();
+            }))
+            .p_0()
+            .bg(p.mantle)
+            .border_color(p.surface1)
+            .rounded(px(8.))
+            .trigger(
+                Button::new("tools")
+                    .ghost()
+                    .small()
+                    .icon(icon(Lucide::Wrench))
+                    .label(label)
+                    .tooltip("Tools Pi may use in this chat"),
+            )
+            .child(panel)
+    }
+
     /// A status bar menu, opened above the bar like the model picker: the
     /// kit's dropdown can't be moved off the button, so it covered the bar.
     fn bar_menu_popover(
@@ -1242,10 +1532,15 @@ impl ChatView {
         let session = self.session.read(cx);
         let running = session.is_running();
         let is_subagent = session.is_subagent();
-        let config = Config::global(cx);
-        let narrow = self.in_dock;
+        // Detail goes as the pane narrows: first the provider and the tools'
+        // names, then the approval mode's name.
+        let width = f32::from(self.bar_width.get());
+        let narrow = width < 760.;
+        let tight = width < 680.;
 
-        // The catalogue's name, which the session's own record may lack.
+        // The catalogue's name, which the session's own record may lack
+        // until its Pi has listed its models.
+        let catalog = cx.try_global::<crate::models::Catalog>();
         let model_label = session
             .model
             .as_ref()
@@ -1253,6 +1548,7 @@ impl ChatView {
                 session
                     .models
                     .iter()
+                    .chain(catalog.map(|c| c.models.iter()).into_iter().flatten())
                     .find(|known| *known == m)
                     .unwrap_or(m)
                     .short_label()
@@ -1260,10 +1556,12 @@ impl ChatView {
             .unwrap_or_else(|| "Default model".into());
         let provider = session.model.as_ref().map(|m| m.provider.clone());
         let thinking = capitalize(&session.thinking);
-        let tools = if narrow || config.tools.len() > 4 {
-            format!("{} tools", config.tools.len())
+        // Pi's own tools; MCP's are a server's, shown in the menu.
+        let tool_names: Vec<&str> = session.tools.iter().map(String::as_str).collect();
+        let tools = if narrow || tool_names.len() > 4 {
+            format!("{} tools", tool_names.len())
         } else {
-            config.tools.join(", ")
+            tool_names.join(", ")
         };
         let context = session.context_tokens;
         let window_size = session.model.as_ref().and_then(|m| m.context_window);
@@ -1282,6 +1580,20 @@ impl ChatView {
             .border_t_1()
             .border_color(p.surface0)
             .text_size(px(13.))
+            .relative()
+            .child({
+                let measured = self.bar_width.clone();
+                canvas(
+                    move |bounds, window, _| {
+                        if measured.replace(bounds.size.width) != bounds.size.width {
+                            window.on_next_frame(|window, _| window.refresh());
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full()
+            })
             .child(
                 Popover::new("model-picker")
                     .anchor(Anchor::BottomLeft)
@@ -1368,116 +1680,41 @@ impl ChatView {
                         .on_click(cx.listener(|view, _, window, cx| view.review_trust(window, cx))),
                 )
             })
+            .when(!read_only, |this| this.child(self.render_tools(tools, cx)))
             .when(!read_only, |this| {
-                this.child(
-                    Button::new("tools")
-                        .ghost()
-                        .small()
-                        .icon(icon(Lucide::Wrench))
-                        .label(tools)
-                        .tooltip("Tools Pi may use · Settings › Agent defaults")
-                        .on_click(|_, window, cx| {
-                            super::settings::open(super::settings::Section::Defaults, window, cx)
-                        }),
-                )
-            })
-            .when(!narrow && !is_subagent && !read_only, |this| {
-                let mode = self.session.read(cx).approval_mode(cx);
-                let session = self.session.clone();
-                let auto = mode == ApprovalMode::Auto;
-                this.child(
-                    self.bar_menu_popover(
-                        "approval",
-                        Button::new("approval")
-                            .ghost()
-                            .small()
-                            // Auto stands out, since calls may run without you.
-                            .icon(if auto {
-                                icon(Lucide::ShieldCheck).text_color(p.mauve)
-                            } else {
-                                icon(Lucide::Shield)
-                            })
-                            .label(mode.label())
-                            .when(auto, |b| b.text_color(p.mauve)),
-                        move |menu, _, _| {
-                            let mut menu = menu;
-                            for choice in ApprovalMode::ALL {
-                                let session = session.clone();
-                                menu = menu.item(
-                                    PopupMenuItem::element(move |_, cx| {
-                                        let p = palette(cx);
-                                        // The check shares the name's line, so it
-                                        // stays centred on it at any text size.
-                                        v_flex()
-                                            .py(px(2.))
-                                            .w(px(300.))
-                                            .child(
-                                                h_flex()
-                                                    .gap_2()
-                                                    .child(div().flex_none().w(px(14.)).children(
-                                                        (choice == mode).then(|| {
-                                                            icon(Lucide::Check)
-                                                                .size(px(14.))
-                                                                .text_color(p.blue)
-                                                        }),
-                                                    ))
-                                                    // The menu's own size, like the
-                                                    // thinking menu's items.
-                                                    .child(
-                                                        div().font_medium().child(choice.label()),
-                                                    ),
-                                            )
-                                            .child(
-                                                div()
-                                                    // Under the name: the check's width
-                                                    // and the gap.
-                                                    .pl(px(22.))
-                                                    .text_size(px(12.))
-                                                    .text_color(p.subtext0)
-                                                    .child(choice.description()),
-                                            )
-                                    })
-                                    .on_click(
-                                        move |_, _, cx| {
-                                            session
-                                                .update(cx, |s, cx| s.set_approval_mode(choice, cx))
-                                        },
-                                    ),
-                                );
-                            }
-                            menu.separator().item(
-                                PopupMenuItem::new("Approval settings…").on_click(
-                                    |_, window, cx| {
-                                        super::settings::open(
-                                            super::settings::Section::Approvals,
-                                            window,
-                                            cx,
-                                        )
-                                    },
-                                ),
-                            )
-                        },
-                        cx,
-                    ),
-                )
+                this.child(self.render_approval_menu(tight, cx))
             })
             .child(div().flex_1())
             .when_some(context, |this, tokens| {
-                let label = match window_size {
+                let fraction = window_size.map(|w| tokens as f32 / w.max(1) as f32);
+                // Yellow as compaction nears, Red when it's close.
+                let color = match fraction {
+                    Some(f) if f >= 0.9 => p.red,
+                    Some(f) if f >= 0.7 => p.yellow_text,
+                    _ => p.subtext1,
+                };
+                let tip = match window_size {
                     Some(w) => format!(
-                        "Context used: {} of {} tokens",
+                        "{} of {} tokens in context ({:.0}%)",
                         format_tokens(tokens),
-                        format_tokens(w)
+                        format_tokens(w),
+                        fraction.unwrap_or(0.) * 100.
                     ),
-                    None => format!("Context used: {} tokens", format_tokens(tokens)),
+                    None => format!("{} tokens in context", format_tokens(tokens)),
                 };
                 this.child(
                     Button::new("context")
                         .ghost()
                         .small()
-                        .icon(icon(Lucide::CircleDashed))
-                        .label(format_tokens(tokens))
-                        .tooltip(label),
+                        .child(
+                            h_flex()
+                                .gap(px(6.))
+                                .child(super::ring::ContextRing::new(fraction, color, px(14.)))
+                                .child(format_tokens(tokens)),
+                        )
+                        .tooltip(format!(
+                            "{tip}\nPi compacts it on its own near the limit; /compact does it now."
+                        )),
                 )
             })
             .child(div().w(px(1.)).h(px(16.)).mx_1().bg(p.surface0))
@@ -1763,6 +2000,9 @@ fn initials(name: &str) -> String {
         .to_uppercase(),
     }
 }
+
+/// Changes a chat's tools and its MCP switch when a row is ticked.
+type ToolToggle = Box<dyn Fn(&mut Vec<String>, &mut bool)>;
 
 #[cfg(test)]
 mod tests {

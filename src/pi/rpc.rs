@@ -297,6 +297,11 @@ pub mod command {
         let args = json!({"customType": custom_type, "data": data});
         json!({"type": "prompt", "message": format!("/treehouse-save {args}")})
     }
+    /// Has the bridge extension change the tools Pi offers the model.
+    pub fn set_tools(tools: &[String]) -> Value {
+        let list = serde_json::to_string(tools).unwrap_or_default();
+        json!({"type": "prompt", "message": format!("/treehouse-tools {list}")})
+    }
     pub fn abort_bash() -> Value {
         json!({"type": "abort_bash"})
     }

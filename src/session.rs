@@ -5,7 +5,9 @@
 //! workspace, which owns the sub-agent sessions.
 
 use gpui_kit::component::text::TextViewState;
-use gpui_kit::{App, AppContext as _, Context, Entity, EventEmitter, SharedString, Task};
+use gpui_kit::{
+    App, AppContext as _, Context, Entity, EventEmitter, SharedString, Task, WeakEntity,
+};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -161,8 +163,15 @@ pub struct Session {
     pub approvals: Vec<PendingApproval>,
     pub merge: Option<PendingMerge>,
     /// The approval mode picked for this chat in the status bar; `None`
-    /// follows the setting.
+    /// follows the parent for a sub-agent, otherwise the setting.
     pub approval_mode: Option<ApprovalMode>,
+    /// The chat that started this sub-agent.
+    pub parent: Option<WeakEntity<Session>>,
+    /// The tools picked for this chat: Pi's own by name. New chats start
+    /// from the setting, sub-agents from their parent.
+    pub tools: Vec<String>,
+    /// Whether MCP servers' tools are reachable (`codemode`, `tool_search`).
+    pub mcp_tools: bool,
     /// Auto mode's asks since it last let a call run.
     auto_asks: u32,
     /// Auto mode paused after too many asks in a row; every call asks until
@@ -262,6 +271,9 @@ impl Session {
             approvals: Vec::new(),
             merge: None,
             approval_mode: None,
+            parent: None,
+            tools: config.tools.clone(),
+            mcp_tools: true,
             auto_asks: 0,
             auto_paused: false,
             head_seen: None,
@@ -480,19 +492,7 @@ impl Session {
             // MCP tools are only reachable through `codemode` and
             // `tool_search`; Pi activates them when a server needs them, and
             // the tools a script calls still go through approval.
-            tools: if self.trusted {
-                config
-                    .tools
-                    .iter()
-                    .cloned()
-                    .chain((!self.is_subagent()).then(|| "subagent".to_string()))
-                    .chain(self.base.is_some().then(|| "treehouse_merge".to_string()))
-                    .chain((!self.is_subagent()).then(|| "treehouse_worktree".to_string()))
-                    .chain(MCP_DISCOVERY.iter().map(|t| t.to_string()))
-                    .collect()
-            } else {
-                vec!["read".to_string()]
-            },
+            tools: self.active_tools(),
             extensions: vec![extension],
             skills,
             session_dir: Some(Config::data_dir().join("sessions")),
@@ -898,14 +898,62 @@ impl Session {
         }
     }
 
-    /// The approval mode this chat runs in.
+    /// The approval mode this chat runs in. A sub-agent works for the chat
+    /// that started it, so it follows that chat's mode until given its own.
     pub fn approval_mode(&self, cx: &App) -> ApprovalMode {
-        self.approval_mode.unwrap_or(Config::global(cx).approval)
+        if let Some(mode) = self.approval_mode {
+            return mode;
+        }
+        match self.parent.as_ref().and_then(WeakEntity::upgrade) {
+            Some(parent) => parent.read(cx).approval_mode(cx),
+            None => Config::global(cx).approval,
+        }
     }
 
-    pub fn set_approval_mode(&mut self, mode: ApprovalMode, cx: &mut Context<Self>) {
-        self.approval_mode = Some(mode);
+    /// Whether this sub-agent takes its mode from its parent.
+    pub fn follows_parent(&self) -> bool {
+        self.approval_mode.is_none() && self.parent.is_some()
+    }
+
+    /// `None` makes a sub-agent follow its parent again.
+    pub fn set_approval_mode(&mut self, mode: Option<ApprovalMode>, cx: &mut Context<Self>) {
+        self.approval_mode = mode;
         self.resume_auto(cx);
+    }
+
+    /// The tools Pi gets: the chat's picks, the bridge's own and MCP's.
+    /// `--tools` replaces Pi's whole selection, so the bridge's tools have to
+    /// be named. Sub-agents don't get `subagent`: no nested sub-agents. MCP
+    /// tools are only reachable through `codemode` and `tool_search`; Pi
+    /// activates them when a server needs them, and the tools a script calls
+    /// still go through approval.
+    fn active_tools(&self) -> Vec<String> {
+        if !self.trusted {
+            return vec!["read".to_string()];
+        }
+        self.tools
+            .iter()
+            .cloned()
+            .chain((!self.is_subagent()).then(|| "subagent".to_string()))
+            .chain(self.base.is_some().then(|| "treehouse_merge".to_string()))
+            .chain((!self.is_subagent()).then(|| "treehouse_worktree".to_string()))
+            .chain(
+                MCP_DISCOVERY
+                    .iter()
+                    .filter(|_| self.mcp_tools)
+                    .map(|t| t.to_string()),
+            )
+            .collect()
+    }
+
+    /// Changes this chat's tools; a running Pi switches from its next step.
+    pub fn set_tools(&mut self, tools: Vec<String>, mcp_tools: bool, cx: &mut Context<Self>) {
+        self.tools = tools;
+        self.mcp_tools = mcp_tools;
+        if let Some(client) = &self.client {
+            client.send(command::set_tools(&self.active_tools()));
+        }
+        cx.notify();
     }
 
     /// Lets auto mode check calls again after it paused.

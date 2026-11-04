@@ -28,6 +28,17 @@ The model picker lists the models of every provider you have a key for:
 
 The defaults for new chats and sub-agents are in **Settings › Agent defaults**. See [Settings](./settings).
 
+## The status bar
+
+Under the message box, every chat (the main one and one docked on the right) has the same bar:
+
+- **Model** and **thinking level**, as above.
+- **Tools:** the tools Pi may use in this chat. Click to tick them on or off: read, bash, edit, write, the search tools (grep, find, ls) and MCP tools. A change applies from Pi's next step, without a restart. New chats start from **Settings › Agent defaults › Tools**; sub-agents start from their parent's tools.
+- **Approval mode:** see [Approvals](./approvals). A sub-agent follows its parent's mode, the chat that started it, and its menu's **Same as parent** says so; pick another mode to change it for that sub-agent only.
+- **Context:** a ring that fills with the share of the model's context window in use, next to the token count. It turns yellow from 70% and red from 90%; hover for the exact numbers. Pi compacts the context on its own near the limit, and `/compact` does it now. When the window size isn't known the ring is dashed.
+
+A narrow pane keeps every control but shortens labels: first the provider goes and tools become a count, then the approval mode shows only its shield, with its name in the tooltip.
+
 ## What the chat shows
 
 Pi's replies stream in as Markdown, and your own messages show as Markdown too. Thinking is collapsed into a **Thought** row unless **Always expand thinking** is on. Tool calls show as rows (Reading, Edited, Searched, Ran a script…) that you can expand for their input and output; an edit has an **Open in diff** button.

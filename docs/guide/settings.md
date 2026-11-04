@@ -29,7 +29,7 @@ The model fields are the chat's model picker as a dropdown, with **Pi's default*
 | Thinking level | `thinking` | `high` | `off`, `minimal`, `low`, `medium` or `high` |
 | Approval | `approval` | Ask before bash and MCP | `ask_before_bash`, `ask_every_tool`, `auto` or `dont_ask`. See [Approvals](./approvals) |
 | Pi command | `pi_command` | `pi` | The `pi` executable |
-| Tools | `tools` | read, bash, edit, write | What Pi may use |
+| Tools | `tools` | read, bash, edit, write | What Pi may use in new chats; the status bar changes it per chat |
 
 ## Approvals
 

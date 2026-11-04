@@ -28,4 +28,4 @@ Sub-agents use the **Sub-agent model** from **Settings › Agent defaults**, or 
 
 ## Approvals
 
-Starting a sub-agent never asks for approval: it only starts another session in the same worktree. The sub-agent's own tool calls go through [approvals](./approvals) like the parent's.
+Starting a sub-agent never asks for approval: it only starts another session in the same worktree. The sub-agent's own tool calls go through [approvals](./approvals) like the parent's, in its parent's approval mode unless you pick another one in its status bar. It starts with its parent's tools.

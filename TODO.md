@@ -6,7 +6,7 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 ## Next
 
-- **Auto mode, next:** the quick check's threshold for a classifier (0.2) is a guess; tune it against real sessions, as `pi-automode-classifier` did. A chat's mode isn't kept across restarts. The checks run one after another in the chat's Pi; a slow model holds up the turn.
+- **Auto mode, next:** the quick check's threshold for a classifier (0.2) is a guess; tune it against real sessions, as `pi-automode-classifier` did. A chat's mode and tools aren't kept across restarts. The checks run one after another in the chat's Pi; a slow model holds up the turn.
 - **Other extensions' dialogs:** Treehouse answers any `confirm`, `select`, `input` or `editor` request it doesn't know with cancel (`Session::handle_ui_request`), so Pi extensions that ask the user, such as the auto-mode guardrails in Pi's package catalogue, refuse instead of asking. Show them as cards in the chat.
 - **Signed Windows releases:** SmartScreen warns about the unsigned `treehouse.exe`. Azure Trusted Signing is the cheapest way to sign it from the release workflow.
 - **Images:** paste or drop screenshots into the message box, and show thumbnails when Pi reads an image.
