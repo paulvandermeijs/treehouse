@@ -1432,7 +1432,14 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         .cursor_pointer()
         .hover(|s| s.text_color(p.text))
         .child(lead)
-        .child(div().flex_none().whitespace_nowrap().child(verb))
+        // A failed call reads red from its verb on, like its target.
+        .child(
+            div()
+                .flex_none()
+                .whitespace_nowrap()
+                .when(failed && !unknown, |this| this.text_color(p.red))
+                .child(verb),
+        )
         .child(
             mono(
                 text.target.clone(),
