@@ -31,7 +31,7 @@ markdown = "1.0.0"
 mermaid-rs-renderer = { version = "0.3.1", default-features = false }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
-similar = "2.7"
+similar = "3.2"
 smol = "2.0.2"
 url = "2.5.8"
 which = "8"
