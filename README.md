@@ -31,7 +31,7 @@ cargo run --release
 On Linux, GPUI also needs the X11/Wayland and Vulkan libraries, for example on Debian or Ubuntu:
 
 ```sh
-sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers
+sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libvulkan1 mesa-vulkan-drivers
 ```
 
 To build an app bundle with Treehouse's icon (`cargo bundle --release`), see [Packaging](https://paulvandermeijs.github.io/treehouse/guide/packaging).

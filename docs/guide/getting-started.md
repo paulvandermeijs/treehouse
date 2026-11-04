@@ -33,7 +33,7 @@ On Linux, the `.deb` installs the libraries GPUI needs. The AppImage runs on any
 You need Rust 1.88 or later (edition 2024). On Linux, GPUI also needs the X11/Wayland and Vulkan libraries. On Debian or Ubuntu:
 
 ```sh
-sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers
+sudo apt install libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libvulkan1 mesa-vulkan-drivers
 ```
 
 Then build and start it:

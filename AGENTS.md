@@ -18,7 +18,7 @@ cargo run --example render-icons # after changing assets/icon/treehouse.svg
 
 `cargo test` and `cargo clippy` don't rebuild `target/debug/treehouse`; run `cargo build` before launching the app to check a change.
 
-Linux needs `libxkbcommon-dev libxkbcommon-x11-dev libvulkan1 mesa-vulkan-drivers` to link and run.
+Linux needs `libxkbcommon-dev libxkbcommon-x11-dev libfontconfig-dev libvulkan1 mesa-vulkan-drivers` to link and run.
 
 ### Running without a model
 
