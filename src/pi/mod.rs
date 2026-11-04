@@ -1,16 +1,17 @@
 pub mod auth;
 pub mod rpc;
 
+use crate::files::{self, Access};
+
 /// The bridge extension Treehouse loads into every Pi session.
 pub const EXTENSION: &str = include_str!("../../assets/pi/treehouse.ts");
 
 /// Writes the bridge extension where Pi can load it and returns its path.
 pub fn extension_path() -> std::io::Result<std::path::PathBuf> {
     let dir = crate::config::Config::data_dir().join("pi");
-    std::fs::create_dir_all(&dir)?;
     let path = dir.join("treehouse.ts");
     if std::fs::read_to_string(&path).ok().as_deref() != Some(EXTENSION) {
-        std::fs::write(&path, EXTENSION)?;
+        files::write(&path, EXTENSION, Access::Default)?;
     }
     Ok(path)
 }
@@ -46,10 +47,9 @@ pub fn skill_paths() -> std::io::Result<Vec<std::path::PathBuf>> {
         .iter()
         .map(|(name, source)| {
             let dir = root.join(name);
-            std::fs::create_dir_all(&dir)?;
             let path = dir.join("SKILL.md");
             if std::fs::read_to_string(&path).ok().as_deref() != Some(*source) {
-                std::fs::write(&path, source)?;
+                files::write(&path, source, Access::Default)?;
             }
             Ok(dir)
         })

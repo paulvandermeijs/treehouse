@@ -3,6 +3,8 @@
 use serde_json::{Map, Value, json};
 use std::path::PathBuf;
 
+use crate::files::{self, Access};
+
 /// The providers Settings › Providers offers, with their key variables, in
 /// the order the page and the model picker list them. Only Pi's built-in
 /// providers that take a single API key.
@@ -65,15 +67,8 @@ fn read() -> Map<String, Value> {
 
 fn write(map: Map<String, Value>) -> std::io::Result<()> {
     let dir = agent_dir().ok_or_else(|| std::io::Error::other("no home folder"))?;
-    std::fs::create_dir_all(&dir)?;
-    let path = dir.join("auth.json");
-    std::fs::write(&path, serde_json::to_string_pretty(&Value::Object(map))?)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
+    let json = serde_json::to_string_pretty(&Value::Object(map))?;
+    files::write(&dir.join("auth.json"), json, Access::Private)
 }
 
 pub fn credential(provider: &str) -> Credential {

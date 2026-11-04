@@ -70,4 +70,4 @@ Treehouse uses Pi's own configuration and credentials. A key added in **Settings
 | Project trust | `~/.pi/agent/trust.json` (shared with Pi) |
 | Provider keys | `~/.pi/agent/auth.json` (shared with Pi) |
 
-On macOS and Windows the first two use the platform's config and data folders.
+On macOS and Windows the first two use the platform's config and data folders. The data folder is readable only by you, since chat histories can hold secrets from tool output, and so is `auth.json`.

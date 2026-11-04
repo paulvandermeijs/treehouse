@@ -81,6 +81,7 @@ pub fn worktree_location(template: &str, project: &Path, branch: &str) -> PathBu
 
 /// Creates a worktree with a new branch off the current HEAD.
 pub fn add_worktree(project: &Path, branch: &str, location: &Path) -> Result<()> {
+    check_branch_name(project, branch)?;
     exclude_from_project(project, location);
     git(
         project,
@@ -93,6 +94,23 @@ pub fn add_worktree(project: &Path, branch: &str, location: &Path) -> Result<()>
         ],
     )
     .map(|_| ())
+}
+
+/// Refuses a branch name git wouldn't take before it reaches `git worktree
+/// add`, since names can come from Pi: one starting with `-` would be read
+/// as an option, and git would refuse the others only after
+/// `exclude_from_project` has run.
+pub fn check_branch_name(project: &Path, branch: &str) -> Result<()> {
+    let invalid = || anyhow::anyhow!("\"{branch}\" isn't a valid branch name.");
+    if branch.is_empty() || branch.starts_with('-') {
+        return Err(invalid());
+    }
+    // `--branch` also expands shorthands such as `@{-1}` to another branch's
+    // name; only a name that comes back unchanged is taken as it is.
+    match git(project, &["check-ref-format", "--branch", branch]) {
+        Ok(out) if out.trim_end_matches('\n') == branch => Ok(()),
+        _ => Err(invalid()),
+    }
 }
 
 /// What removing a worktree, and perhaps its branch, would throw away.
@@ -670,6 +688,28 @@ mod tests {
         let stat = numstat_totals("3\t1\tsrc/a.rs\n-\t-\tlogo.png\n10\t0\tdocs/b.md\n");
         assert_eq!((stat.files, stat.additions, stat.deletions), (3, 13, 1));
         assert_eq!(numstat_totals("").files, 0);
+    }
+
+    #[test]
+    fn branch_names_git_would_refuse_are_turned_down() {
+        let dir = tempfile::tempdir().unwrap();
+        let repo = dir.path();
+        init_repository(repo).unwrap();
+        for good in ["feat/x", "fix-1", "a.b"] {
+            assert!(check_branch_name(repo, good).is_ok(), "{good}");
+        }
+        for bad in [
+            "", "-f", "--force", "../up", "a..b", "a b", "x.lock", "@{-1}", "HEAD", "a~1", "/a",
+        ] {
+            assert!(check_branch_name(repo, bad).is_err(), "{bad}");
+        }
+        let location = dir.path().join("elsewhere");
+        let refused = add_worktree(repo, "--orphan", &location).unwrap_err();
+        assert_eq!(
+            refused.to_string(),
+            "\"--orphan\" isn't a valid branch name."
+        );
+        assert!(!location.exists());
     }
 
     #[test]

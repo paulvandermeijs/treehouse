@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use crate::approval::{AllowedPattern, AlwaysAsk, ApprovalMode};
+use crate::files::{self, Access};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -112,6 +113,12 @@ impl Config {
             .join("treehouse")
     }
 
+    /// Creates the data folder for its owner alone: Pi's session files keep
+    /// tool output, which can hold secrets.
+    pub fn create_data_dir() {
+        let _ = files::create_private_dir(&Self::data_dir());
+    }
+
     pub fn load() -> Self {
         Self::path()
             .and_then(|path| std::fs::read_to_string(path).ok())
@@ -121,11 +128,8 @@ impl Config {
 
     pub fn save(&self) {
         let Some(path) = Self::path() else { return };
-        if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
-        }
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = std::fs::write(path, json);
+            let _ = files::write(&path, json, Access::Default);
         }
     }
 

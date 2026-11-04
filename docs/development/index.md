@@ -14,6 +14,10 @@ cargo fmt
 
 `cargo test` and `cargo clippy` don't rebuild `target/debug/treehouse`; run `cargo build` before launching the app to check a change.
 
+`.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` on Linux for pull requests and pushes to branches other than `master`, and `cargo audit` once a week. Dependabot (`.github/dependabot.yml`) suggests crate and action updates weekly.
+
+Treehouse writes its own files (settings, `sessions.json`, `ui.json`, Pi's `trust.json` and `auth.json`) with `files::write`, through a temporary file and a rename, so a crash never leaves half a file.
+
 ## Versions and releases
 
 Treehouse follows [semver](https://semver.org): a change to the app bumps `version` in `Cargo.toml` before it's pushed to `master`, the minor version for features and the patch version for fixes. That push publishes a GitHub release `vX.Y.Z`, built by `.github/workflows/release.yml` for macOS (Apple silicon and Intel), Linux (`.deb` and AppImage) and Windows. The macOS app is signed with a Developer ID and notarized (`.github/scripts/sign-macos.sh`) using the repository secrets `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `APPLE_API_KEY`, `APPLE_API_KEY_ID` and `APPLE_API_ISSUER`; without them it's only ad-hoc signed. Signing runs in a job of its own (`sign-macos`) that only downloads the unsigned app, so the build jobs, which run every crate's build script, never see the secrets; only the release job can write to the repository, and actions are pinned to commits. Run the workflow by hand from the Actions tab to retry a release that failed; it skips versions that are already released.
@@ -44,7 +48,8 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/trust.rs` | Project trust, read from and saved to Pi's `trust.json` |
 | `src/mcp.rs` | Reads Pi's MCP sign-in messages |
 | `src/workspace.rs` | Projects, worktrees and sub-agents; reports sub-agent results to their parent |
-| `src/git.rs` | Worktree list/add/remove, the diff since the base branch, branch state, and the merge checks and merge |
+| `src/files.rs` | Writing files through a temporary file and a rename; the private data folder |
+| `src/git.rs` | Worktree list/add/remove (refusing branch names `git check-ref-format` doesn't accept), the diff since the base branch, branch state, and the merge checks and merge |
 | `src/setup.rs` | Preparing a new worktree from `.agents/linked` and `.agents/prepare` |
 | `src/theme.rs`, `assets/themes/treehouse.json` | Catppuccin Mocha and Latte, with IBM Plex Sans and Mono |
 | `src/ui/` | The window: sidebar, chat, tool output, diff dock, command palette, settings |

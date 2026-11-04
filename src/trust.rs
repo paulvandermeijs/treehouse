@@ -9,6 +9,8 @@
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 
+use crate::files::{self, Access};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Trust {
     Trusted,
@@ -99,9 +101,10 @@ pub fn save_in(store: &Path, folder: &Path, decision: Decision) -> std::io::Resu
             false
         }
     });
-    let result = std::fs::write(
+    let result = files::write(
         store,
         format!("{}\n", serde_json::to_string_pretty(&sorted)?),
+        Access::Default,
     );
     if locked {
         let _ = std::fs::remove_dir(&lock);

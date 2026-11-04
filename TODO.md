@@ -18,17 +18,12 @@ The design lives on the [Treehouse design canvas](https://claude.ai/artifact/FNq
 
 ## Security
 
-Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3, 4, 6, 7 and 8 are fixed. Fix 2 before auto mode.
+Open findings from the [security evaluation](https://claude.ai/artifact/Fir8dZeBaEgBz63tBP9ELo), by its numbers. 1, 3, 4, 6, 7, 8 and 11–14 are fixed. Fix 2 before auto mode.
 
 - **2 · Links (high):** done but for the hover: every link should show its full target in a tooltip (a globe for links that open, a warning sign for ones that ask, "· not github.com" when the text names another site). gpui-kit's `TextView` has no link hover hook or tooltip, so it needs one upstream; drawing links through an inline Markdown plugin instead would lose their wrapping and selection.
 - **5 · MCP calls (medium):** they run without asking in Ask before bash. Ask by default, with Always allow per server or tool. (Overlaps the MCP item above.)
 - **9 · New worktrees (medium):** Pi starts worktrees with a task without asking, and a trusted project's `.agents/prepare` runs at once. Show the task on the card; ask in auto mode.
 - **10 · Trust prompt (low):** say what trusting runs: the project's `.pi` extensions, its MCP servers and `.agents/prepare`.
-- **11 · File writes (low):** create `auth.json` 0600 from the start, and write settings, trust and the session index through a temporary file and a rename.
-- **12 · Chat histories (low):** create Treehouse's data folder 0700; tool output can hold secrets.
-- **13 · CI (low):** a workflow for pull requests, a weekly `cargo audit` or `cargo deny`, and Dependabot for crates and actions.
-- **14 · Branch names (low):** check names from Pi with `git check-ref-format --branch` before `git worktree add`.
-
 ## Small fixes
 
 - Two sub-agents running at once may still edit the same file, though the `subagent` tool asks Pi not to. If that shows up in practice, flag the overlap on their cards in the parent's chat.

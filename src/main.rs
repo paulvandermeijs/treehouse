@@ -4,6 +4,7 @@ mod actions;
 mod approval;
 mod assets;
 mod config;
+mod files;
 mod git;
 mod history;
 mod links;
@@ -41,6 +42,7 @@ fn main() {
         .with_assets(assets::Assets)
         .run(|cx| {
             gpui_kit::init(cx);
+            config::Config::create_data_dir();
             cx.set_global(config::Config::load());
             theme::init(cx);
             actions::init(cx);
