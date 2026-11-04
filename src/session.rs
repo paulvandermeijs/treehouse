@@ -918,7 +918,46 @@ impl Session {
     /// `None` makes a sub-agent follow its parent again.
     pub fn set_approval_mode(&mut self, mode: Option<ApprovalMode>, cx: &mut Context<Self>) {
         self.approval_mode = mode;
+        self.save_chat_settings(cx);
         self.resume_auto(cx);
+    }
+
+    fn chat_key(&self) -> crate::history::ChatKey {
+        crate::history::ChatKey {
+            worktree: self.cwd.clone(),
+            subagent: match &self.kind {
+                SessionKind::SubAgent { tool_call_id, .. } => Some(tool_call_id.clone()),
+                SessionKind::Worktree => None,
+            },
+        }
+    }
+
+    /// Keeps the status bar's picks for the next start. Tools the same as
+    /// the setting aren't saved, so a chat follows a later change to it.
+    fn save_chat_settings(&self, cx: &App) {
+        let defaults = Config::global(cx).tools == self.tools && self.mcp_tools;
+        crate::history::remember_chat_settings(
+            self.chat_key(),
+            crate::history::ChatSettings {
+                approval_mode: self.approval_mode,
+                tools: (!defaults).then(|| self.tools.clone()),
+                mcp_tools: (!defaults).then_some(self.mcp_tools),
+            },
+        );
+    }
+
+    /// Applies the picks saved for this chat; `false` when it has no tools
+    /// of its own saved.
+    pub fn load_chat_settings(&mut self) -> bool {
+        let saved = crate::history::chat_settings(&self.chat_key());
+        self.approval_mode = saved.approval_mode;
+        if let Some(tools) = saved.tools {
+            self.tools = tools;
+            self.mcp_tools = saved.mcp_tools.unwrap_or(true);
+            true
+        } else {
+            false
+        }
     }
 
     /// The tools Pi gets: the chat's picks, the bridge's own and MCP's.
@@ -950,6 +989,7 @@ impl Session {
     pub fn set_tools(&mut self, tools: Vec<String>, mcp_tools: bool, cx: &mut Context<Self>) {
         self.tools = tools;
         self.mcp_tools = mcp_tools;
+        self.save_chat_settings(cx);
         if let Some(client) = &self.client {
             client.send(command::set_tools(&self.active_tools()));
         }

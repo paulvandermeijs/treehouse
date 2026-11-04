@@ -37,6 +37,8 @@ Under the message box, every chat (the main one and one docked on the right) has
 - **Approval mode:** see [Approvals](./approvals). A sub-agent follows its parent's mode, the chat that started it, and its menu's **Same as parent** says so; pick another mode to change it for that sub-agent only.
 - **Context:** a ring that fills with the share of the model's context window in use, next to the token count. It turns yellow from 70% and red from 90%; hover for the exact numbers. Pi compacts the context on its own near the limit, and `/compact` does it now. When the window size isn't known the ring is dashed.
 
+A chat keeps its tools and approval mode when Treehouse restarts; a sub-agent that follows its parent keeps following.
+
 A narrow pane keeps every control but shortens labels: first the provider goes and tools become a count, then the approval mode shows only its shield, with its name in the tooltip.
 
 ## What the chat shows

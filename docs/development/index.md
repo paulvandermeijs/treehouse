@@ -16,7 +16,7 @@ cargo fmt
 
 `.github/workflows/ci.yml` runs `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings` and `cargo test` on Linux for pull requests and pushes to branches other than `master`, and `cargo audit` once a week. Dependabot (`.github/dependabot.yml`) suggests crate and action updates weekly.
 
-Treehouse writes its own files (settings, `sessions.json`, `ui.json`, Pi's `trust.json` and `auth.json`) with `files::write`, through a temporary file and a rename, so a crash never leaves half a file.
+Treehouse writes its own files (settings, `sessions.json`, `chats.json`, `ui.json`, Pi's `trust.json` and `auth.json`) with `files::write`, through a temporary file and a rename, so a crash never leaves half a file.
 
 ## Versions and releases
 
@@ -41,7 +41,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/models.rs` | The model picker's list: favorites, recent, provider and maker groups, filtering; and the model list for Settings |
 | `src/transcript.rs` | Turns Pi's events into chat items: messages, thinking, tool calls, notes, errors |
 | `src/steps.rs` | Folds a turn's finished steps into one summary line |
-| `src/history.rs` | Which Pi session file holds each worktree's chat, and reading one back |
+| `src/history.rs` | Which Pi session file holds each worktree's chat, reading one back, and each chat's status bar picks (`chats.json`) |
 | `assets/pi/skills/` | The built-in skills behind `/commit`, `/sync`, `/finish-branch` and `/setup-worktrees`, loaded with `--skill` |
 | `src/slash.rs` | The slash menu's commands: matching, Pi's skills and templates, `/compact`, `/new` and the lifecycle commands |
 | `src/approval.rs` | Decides which tool calls need the user's approval |

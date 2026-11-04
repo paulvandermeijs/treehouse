@@ -201,6 +201,7 @@ impl Workspace {
             );
             session.trusted = trusted;
             session.base = (!is_main).then(|| base.clone());
+            session.load_chat_settings();
             session
         });
         let subscription = cx.subscribe(&session, Self::on_session_event);
@@ -230,6 +231,10 @@ impl Workspace {
         let Some(saved) = crate::history::saved(worktree) else {
             return Vec::new();
         };
+        let parent_tools = {
+            let p = parent.read(cx);
+            (p.tools.clone(), p.mcp_tools)
+        };
         saved
             .subagents
             .into_iter()
@@ -244,6 +249,10 @@ impl Workspace {
                         Session::new(kind, worktree.to_path_buf(), project.to_path_buf(), cx);
                     session.trusted = trusted;
                     session.parent = Some(parent.downgrade());
+                    // Without tools of its own saved, it has its parent's.
+                    if !session.load_chat_settings() {
+                        (session.tools, session.mcp_tools) = parent_tools.clone();
+                    }
                     session.resume(saved.file);
                     session
                 });

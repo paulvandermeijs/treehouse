@@ -114,6 +114,112 @@ pub fn forget(worktree: &Path) {
     update(|index| {
         index.remove(worktree);
     });
+    update_chats(|chats| {
+        chats.worktrees.remove(worktree);
+        chats.subagents.remove(worktree);
+    });
+}
+
+/// What a chat's status bar picked that isn't the default: its approval
+/// mode and its tools. Kept in `chats.json` beside the index, written at
+/// once, so a choice comes back even when Pi never ran for that chat.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChatSettings {
+    pub approval_mode: Option<crate::approval::ApprovalMode>,
+    pub tools: Option<Vec<String>>,
+    pub mcp_tools: Option<bool>,
+}
+
+/// A worktree's chat, or one of its sub-agents by the tool call that
+/// started it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ChatKey {
+    pub worktree: PathBuf,
+    pub subagent: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+struct Chats {
+    worktrees: BTreeMap<PathBuf, ChatSettings>,
+    /// By worktree, then by the tool call that started the sub-agent.
+    subagents: BTreeMap<PathBuf, BTreeMap<String, ChatSettings>>,
+}
+
+impl Chats {
+    fn get(&self, key: &ChatKey) -> Option<&ChatSettings> {
+        match &key.subagent {
+            Some(id) => self.subagents.get(&key.worktree)?.get(id),
+            None => self.worktrees.get(&key.worktree),
+        }
+    }
+
+    fn set(&mut self, key: ChatKey, settings: Option<ChatSettings>) {
+        match key.subagent {
+            Some(id) => {
+                let map = self.subagents.entry(key.worktree.clone()).or_default();
+                match settings {
+                    Some(settings) => {
+                        map.insert(id, settings);
+                    }
+                    None => {
+                        map.remove(&id);
+                    }
+                }
+                if map.is_empty() {
+                    self.subagents.remove(&key.worktree);
+                }
+            }
+            None => match settings {
+                Some(settings) => {
+                    self.worktrees.insert(key.worktree, settings);
+                }
+                None => {
+                    self.worktrees.remove(&key.worktree);
+                }
+            },
+        }
+    }
+}
+
+fn chats_path() -> PathBuf {
+    Config::data_dir().join("chats.json")
+}
+
+fn read_chats(path: &Path) -> Chats {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default()
+}
+
+fn update_chats(change: impl FnOnce(&mut Chats)) {
+    let path = chats_path();
+    let mut chats = read_chats(&path);
+    let before = chats.clone();
+    change(&mut chats);
+    if chats != before
+        && let Ok(json) = serde_json::to_string_pretty(&chats)
+    {
+        let _ = files::write(&path, json, Access::Default);
+    }
+}
+
+pub fn chat_settings(key: &ChatKey) -> ChatSettings {
+    read_chats(&chats_path())
+        .get(key)
+        .cloned()
+        .unwrap_or_default()
+}
+
+pub fn remember_chat_settings(key: ChatKey, settings: ChatSettings) {
+    update_chats(|chats| {
+        chats.set(
+            key,
+            (settings != ChatSettings::default()).then_some(settings),
+        )
+    });
 }
 
 /// The entries of a session file's current branch, oldest first.
@@ -154,7 +260,10 @@ fn active_branch(text: &str) -> Vec<Value> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Saved, SavedSubAgent, active_branch, read_index, write_index};
+    use super::{
+        ChatKey, ChatSettings, Chats, Saved, SavedSubAgent, active_branch, read_index, write_index,
+    };
+    use crate::approval::ApprovalMode;
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
@@ -173,6 +282,30 @@ mod tests {
             .map(|e| e["id"].as_str().unwrap().to_string())
             .collect();
         assert_eq!(ids, ["a", "c"]);
+    }
+
+    #[test]
+    fn chats_keep_worktrees_and_subagents_apart() {
+        let mut chats = Chats::default();
+        let main = ChatKey {
+            worktree: "/code/app#1".into(),
+            subagent: None,
+        };
+        let sub = ChatKey {
+            worktree: "/code/app#1".into(),
+            subagent: Some("call_7".into()),
+        };
+        let auto = ChatSettings {
+            approval_mode: Some(ApprovalMode::Auto),
+            ..Default::default()
+        };
+        chats.set(sub.clone(), Some(auto.clone()));
+        assert_eq!(chats.get(&main), None);
+        assert_eq!(chats.get(&sub), Some(&auto));
+        let json = serde_json::to_string(&chats).unwrap();
+        assert_eq!(serde_json::from_str::<Chats>(&json).unwrap(), chats);
+        chats.set(sub.clone(), None);
+        assert_eq!(chats, Chats::default());
     }
 
     #[test]
