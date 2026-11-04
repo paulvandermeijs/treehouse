@@ -8,7 +8,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::{ActiveTheme as _, IconName, Sizable as _, h_flex, v_flex};
+use gpui_kit::component::{Icon, IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::path::PathBuf;
@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use super::app::{Fold, TreehouseApp};
 use super::{BAR_HEIGHT, RAIL_WIDTH, SIDEBAR_WIDTH, icon, status_dot};
 use crate::actions::{CommandPalette, OpenProject, OpenSettings, ShowDiff, ToggleTheme};
+use crate::config::ThemeChoice;
 use crate::session::{Session, SessionKind};
 use crate::theme::{Palette, mix, palette, toggle_label};
 
@@ -364,18 +365,19 @@ pub fn render(
                             window.dispatch_action(Box::new(CommandPalette), cx)
                         }),
                 )
-                .child(
+                .child({
+                    let next = crate::theme::toggle_next(cx);
                     icon_button(
                         "toggle-theme",
-                        if cx.theme().is_dark() {
-                            IconName::Sun
-                        } else {
-                            IconName::Moon
+                        match next {
+                            ThemeChoice::Latte => Icon::from(IconName::Sun),
+                            ThemeChoice::Christmas => Icon::from(Lucide::TreePine),
+                            _ => Icon::from(IconName::Moon),
                         },
                     )
                     .tooltip(toggle_label(cx))
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleTheme), cx)),
-                ),
+                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleTheme), cx))
+                }),
         )
         .child(
             v_flex()

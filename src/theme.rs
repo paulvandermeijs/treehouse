@@ -1,10 +1,12 @@
-//! Catppuccin Mocha and Latte, as the design specifies them.
+//! Catppuccin Mocha and Latte as the design specifies them, plus Treehouse
+//! Christmas for the holidays.
 //!
 //! The gpui-kit theme carries most colours. The design also names a few
 //! Catppuccin roles the kit has no slot for (Mantle, Subtext 1, the darker
-//! diff greens and reds in Latte); [`Palette`] holds those.
+//! diff greens and reds in Latte); [`Palette`] holds those. Christmas gets
+//! its own Palette, in the same roles.
 
-use gpui_kit::component::{ActiveTheme as _, Theme, ThemeMode, ThemeRegistry};
+use gpui_kit::component::{ActiveTheme as _, Theme, ThemeRegistry};
 use gpui_kit::{App, Global, Hsla, SharedString, Window, rgb};
 use std::borrow::Cow;
 use std::sync::Mutex;
@@ -14,6 +16,7 @@ use crate::config::{Config, ThemeChoice};
 const THEMES: &str = include_str!("../assets/themes/treehouse.json");
 const MOCHA: &str = "Treehouse Mocha";
 const LATTE: &str = "Treehouse Latte";
+const CHRISTMAS: &str = "Treehouse Christmas";
 
 const FONTS: [&[u8]; 8] = [
     include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf"),
@@ -166,50 +169,91 @@ pub fn mono() -> SharedString {
         .unwrap_or(SharedString::new_static(MONO))
 }
 
-/// Switches between Mocha and Latte, or follows the system appearance.
+/// Switches between Mocha, Latte and Christmas, or follows the system
+/// appearance.
+///
+/// Applies the chosen theme from the registry by name, which works with more
+/// dark themes than the one: gpui-kit keeps a single dark and a single light
+/// theme, and `Theme::change` would apply whichever dark theme was applied
+/// last.
 pub fn apply(choice: ThemeChoice, window: Option<&mut Window>, cx: &mut App) {
     // Tell macOS too, so its own drawing (the title bar buttons, menus,
     // native dialogs) matches the theme rather than the system setting.
     cx.set_window_appearance(match choice {
-        ThemeChoice::Mocha => Some(gpui_kit::WindowAppearance::Dark),
+        ThemeChoice::Mocha | ThemeChoice::Christmas => Some(gpui_kit::WindowAppearance::Dark),
         ThemeChoice::Latte => Some(gpui_kit::WindowAppearance::Light),
         ThemeChoice::System => None,
     });
-    let mode = match choice {
-        ThemeChoice::Mocha => ThemeMode::Dark,
-        ThemeChoice::Latte => ThemeMode::Light,
+    let dark = match choice {
+        ThemeChoice::Mocha | ThemeChoice::Christmas => true,
+        ThemeChoice::Latte => false,
         ThemeChoice::System => match window {
-            Some(window) => {
-                if matches!(
-                    window.appearance(),
-                    gpui_kit::WindowAppearance::Dark | gpui_kit::WindowAppearance::VibrantDark
-                ) {
-                    ThemeMode::Dark
-                } else {
-                    ThemeMode::Light
-                }
-            }
-            None => ThemeMode::Dark,
+            Some(window) => matches!(
+                window.appearance(),
+                gpui_kit::WindowAppearance::Dark | gpui_kit::WindowAppearance::VibrantDark
+            ),
+            None => true,
         },
     };
-    Theme::change(mode, None, cx);
+    let name = match choice {
+        ThemeChoice::Mocha => MOCHA,
+        ThemeChoice::Latte => LATTE,
+        ThemeChoice::Christmas => CHRISTMAS,
+        // Matching the system keeps the Catppuccin themes.
+        ThemeChoice::System => {
+            if dark {
+                MOCHA
+            } else {
+                LATTE
+            }
+        }
+    };
     let size = Config::global(cx).text_size;
-    Theme::update(cx, |theme| theme.font_size = gpui_kit::px(size));
-    // Changing the mode loads the theme file's fonts again.
+    if let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() {
+        Theme::update(cx, |theme| {
+            theme.apply_config(&config);
+            theme.font_size = gpui_kit::px(size);
+        });
+    }
+    // Applying a theme loads the theme file's fonts again.
     apply_fonts(cx);
     cx.refresh_windows();
 }
 
-/// The current theme's name for the menu that switches it.
-pub fn toggle_label(cx: &App) -> &'static str {
-    if cx.theme().is_dark() {
-        "Switch to Latte"
-    } else {
-        "Switch to Mocha"
+/// The theme the toggle switches to, cycling Mocha, Latte and Christmas so
+/// the seasonal one stays a click away; from Match system, the other mode's
+/// Catppuccin theme. `dark` is whether the mode is dark now.
+fn toggle_target(choice: ThemeChoice, dark: bool) -> ThemeChoice {
+    match choice {
+        ThemeChoice::Mocha => ThemeChoice::Latte,
+        ThemeChoice::Latte => ThemeChoice::Christmas,
+        ThemeChoice::Christmas => ThemeChoice::Mocha,
+        ThemeChoice::System => {
+            if dark {
+                ThemeChoice::Latte
+            } else {
+                ThemeChoice::Mocha
+            }
+        }
     }
 }
 
-/// Catppuccin roles the design uses beyond the kit's theme slots.
+/// The theme the View menu's "Toggle theme" switches to.
+pub fn toggle_next(cx: &App) -> ThemeChoice {
+    toggle_target(Config::global(cx).theme, cx.theme().is_dark())
+}
+
+/// The current theme's name for the menu that switches it.
+pub fn toggle_label(cx: &App) -> &'static str {
+    match toggle_next(cx) {
+        ThemeChoice::Latte => "Switch to Latte",
+        ThemeChoice::Christmas => "Switch to Christmas",
+        _ => "Switch to Mocha",
+    }
+}
+
+/// Roles the design uses beyond the kit's theme slots: Catppuccin roles for
+/// Mocha and Latte, Treehouse's own for Christmas.
 #[derive(Clone, Copy)]
 pub struct Palette {
     pub mantle: Hsla,
@@ -246,7 +290,41 @@ pub struct Palette {
 
 pub fn palette(cx: &App) -> Palette {
     let c = |hex: u32| -> Hsla { rgb(hex).into() };
-    if cx.theme().is_dark() {
+    if cx.theme().theme_name() == CHRISTMAS {
+        // A winter night: dark pine greens, with holly red, tinsel gold and
+        // frost blue as accents.
+        Palette {
+            mantle: c(0x121b16),
+            base: c(0x16211b),
+            surface0: c(0x263a2e),
+            surface1: c(0x324a3b),
+            subtext1: c(0xc6d5cb),
+            subtext0: c(0xa3b8ab),
+            text: c(0xe3ede6),
+            blue: c(0x79b8d8),
+            // Borders of Mermaid diagram nodes.
+            lavender: c(0x9fc1dd),
+            // Auto mode: calls that may run without you.
+            mauve: c(0xc29ae0),
+            green: c(0x7ed092),
+            red: c(0xe87f78),
+            yellow: c(0xe8c064),
+            // Uncommitted changes in the sidebar.
+            peach: c(0xdd8f5c),
+            // Text on a gold tint, the tinsel itself.
+            yellow_text: c(0xe8c064),
+            // Commands you run with `!`: the tinsel gold, a note to take
+            // care that doesn't read as an error.
+            shell: c(0xe8c064),
+            shell_text: c(0xe8c064),
+            // The icon on the shell badge.
+            on_shell: c(0x0e1613),
+            // Text colour of added lines; brighter than the primary green.
+            add: c(0x7ed092),
+            delete: c(0xe87f78),
+            on_accent: c(0x0e1613),
+        }
+    } else if cx.theme().is_dark() {
         Palette {
             mantle: c(0x181825),
             base: c(0x1e1e2e),
@@ -313,7 +391,7 @@ pub fn mix(a: Hsla, b: Hsla, amount: f32) -> Hsla {
 
 #[cfg(test)]
 mod tests {
-    use super::{FontStatus, font_status, resolve};
+    use super::{FontStatus, ThemeChoice, font_status, resolve, toggle_target};
     use gpui_kit::SharedString;
 
     fn installed() -> Vec<String> {
@@ -321,6 +399,28 @@ mod tests {
             .iter()
             .map(|s| s.to_string())
             .collect()
+    }
+
+    #[test]
+    fn toggling_cycles_mocha_latte_and_christmas() {
+        assert_eq!(toggle_target(ThemeChoice::Mocha, true), ThemeChoice::Latte);
+        assert_eq!(
+            toggle_target(ThemeChoice::Latte, false),
+            ThemeChoice::Christmas
+        );
+        assert_eq!(
+            toggle_target(ThemeChoice::Christmas, true),
+            ThemeChoice::Mocha
+        );
+    }
+
+    #[test]
+    fn toggling_from_match_system_picks_the_other_mode() {
+        assert_eq!(toggle_target(ThemeChoice::System, true), ThemeChoice::Latte);
+        assert_eq!(
+            toggle_target(ThemeChoice::System, false),
+            ThemeChoice::Mocha
+        );
     }
 
     #[test]

@@ -1381,16 +1381,19 @@ fn appearance_page() -> SettingPage {
                         opts(&[
                             ("mocha", "Mocha"),
                             ("latte", "Latte"),
+                            ("christmas", "Christmas"),
                             ("system", "Match system"),
                         ]),
                         |cx| match Config::global(cx).theme {
                             ThemeChoice::Mocha => "mocha".into(),
                             ThemeChoice::Latte => "latte".into(),
+                            ThemeChoice::Christmas => "christmas".into(),
                             ThemeChoice::System => "system".into(),
                         },
                         |v: SharedString, cx| {
                             let choice = match v.as_ref() {
                                 "latte" => ThemeChoice::Latte,
+                                "christmas" => ThemeChoice::Christmas,
                                 "system" => ThemeChoice::System,
                                 _ => ThemeChoice::Mocha,
                             };
@@ -1399,7 +1402,7 @@ fn appearance_page() -> SettingPage {
                         },
                     ),
                 )
-                .description("Catppuccin"),
+                .description("Catppuccin, plus Christmas"),
             )
             .item(SettingItem::new(
                 "Text size",

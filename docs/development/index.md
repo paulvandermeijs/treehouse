@@ -52,7 +52,7 @@ Pi process → PiClient → Session → Transcript items → ChatView
 | `src/files.rs` | Writing files through a temporary file and a rename; the private data folder |
 | `src/git.rs` | Worktree list/add/remove (refusing branch names `git check-ref-format` doesn't accept), the diff since the base branch, branch state, and the merge checks and merge |
 | `src/setup.rs` | Preparing a new worktree from `.agents/linked` and `.agents/prepare` |
-| `src/theme.rs`, `assets/themes/treehouse.json` | Catppuccin Mocha and Latte, with IBM Plex Sans and Mono |
+| `src/theme.rs`, `assets/themes/treehouse.json` | Catppuccin Mocha and Latte, a Christmas theme of our own, with IBM Plex Sans and Mono |
 | `src/ui/` | The window: sidebar, chat, tool output, diff dock, command palette, settings |
 
 Most of the chat's behaviour is unit-tested in `src/transcript.rs` by feeding it Pi's JSON events.
@@ -86,8 +86,8 @@ Not built yet, from the design's output boards: data tables (long tables and CSV
 
 ## Design
 
-The UI follows the Treehouse design canvas: Catppuccin Mocha and Latte, IBM Plex Sans and Mono. Colours come from `theme::Palette` in `src/theme.rs`. Layouts the kit doesn't provide, such as the sidebar, are built by hand from gpui-kit primitives.
+The UI follows the Treehouse design canvas: Catppuccin Mocha and Latte, plus a Christmas theme for the holidays, with IBM Plex Sans and Mono. Colours come from `theme::Palette` in `src/theme.rs`. Layouts the kit doesn't provide, such as the sidebar, are built by hand from gpui-kit primitives.
 
 ## Licences
 
-Treehouse is released under the [MIT License](https://github.com/paulvandermeijs/treehouse/blob/master/LICENSE). IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The colours are Catppuccin's (MIT).
+Treehouse is released under the [MIT License](https://github.com/paulvandermeijs/treehouse/blob/master/LICENSE). IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The Mocha and Latte colours are Catppuccin's (MIT); the Christmas colours are Treehouse's own.

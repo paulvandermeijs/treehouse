@@ -13,6 +13,7 @@ pub enum ThemeChoice {
     #[default]
     Mocha,
     Latte,
+    Christmas,
     System,
 }
 

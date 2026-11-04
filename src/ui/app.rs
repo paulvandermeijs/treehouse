@@ -3,7 +3,7 @@
 use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
 use gpui_kit::component::command::CommandState;
 use gpui_kit::component::input::{Input, InputState};
-use gpui_kit::component::{ActiveTheme as _, IconName, WindowExt as _, h_flex, v_flex};
+use gpui_kit::component::{IconName, WindowExt as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use std::collections::HashMap;
@@ -1045,11 +1045,7 @@ fn register_actions(window: AnyWindowHandle, app: WeakEntity<TreehouseApp>, cx: 
         window.toggle_fullscreen()
     });
     route::<ToggleTheme>(window, app.clone(), cx, |_, window, cx| {
-        let next = if cx.theme().is_dark() {
-            ThemeChoice::Latte
-        } else {
-            ThemeChoice::Mocha
-        };
+        let next = crate::theme::toggle_next(cx);
         Config::update(cx, |c| c.theme = next);
         crate::theme::apply(next, Some(window), cx);
     });

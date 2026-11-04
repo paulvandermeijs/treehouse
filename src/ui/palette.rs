@@ -3,13 +3,14 @@
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::command::{Command, CommandGroup, CommandItem, CommandState};
 use gpui_kit::component::kbd::Kbd;
-use gpui_kit::component::{ActiveTheme as _, Icon, IconName, WindowExt as _, h_flex};
+use gpui_kit::component::{Icon, IconName, WindowExt as _, h_flex};
 use gpui_kit::*;
 use std::rc::Rc;
 
 use super::app::TreehouseApp;
 use super::icon;
 use crate::actions::*;
+use crate::config::ThemeChoice;
 use crate::session::Session;
 use crate::theme::{palette, toggle_label};
 use crate::workspace::Workspace;
@@ -62,14 +63,21 @@ fn groups(cx: &App) -> Vec<(&'static str, Vec<Entry>)> {
                 entry("Toggle full screen", Lucide::Expand, ToggleFullScreen),
                 entry(
                     toggle_label(cx),
-                    if cx.theme().is_dark() {
-                        IconName::Sun
-                    } else {
-                        IconName::Moon
+                    match crate::theme::toggle_next(cx) {
+                        ThemeChoice::Latte => Icon::from(IconName::Sun),
+                        ThemeChoice::Christmas => Icon::from(Lucide::TreePine),
+                        _ => Icon::from(IconName::Moon),
                     },
                     ToggleTheme,
                 )
-                .keywords(&["theme", "dark", "light", "mocha", "latte"]),
+                .keywords(&[
+                    "theme",
+                    "dark",
+                    "light",
+                    "mocha",
+                    "latte",
+                    "christmas",
+                ]),
             ],
         ),
         (

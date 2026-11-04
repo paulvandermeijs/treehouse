@@ -54,6 +54,7 @@ gpui_kit::assets::icon_assets!(
         MoveUpRight,
         ZoomIn,
         ZoomOut,
+        TreePine,
     ]
 );
 

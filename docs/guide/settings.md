@@ -61,7 +61,7 @@ The page also shows the commit author, read from `git config user.name`. Prepari
 
 | Setting | Key | Default |
 | --- | --- | --- |
-| Theme | `theme` | Mocha (`mocha`, `latte` or `system`) |
+| Theme | `theme` | Mocha (`mocha`, `latte`, `christmas` or `system`) |
 | Text size | `text_size` | 14 (13 to 16) |
 | Interface font | `ui_font` | IBM Plex Sans |
 | Code font | `code_font` | IBM Plex Mono |
@@ -71,7 +71,7 @@ The page also shows the commit author, read from `git config user.name`. Prepari
 
 The font fields take the name of a font family you have installed, as Font Book, `fc-list` or Windows' Fonts settings list it. A font applies as soon as its name matches; while it doesn't, Treehouse keeps the font it was using. A name that only differs in case or spaces offers the installed spelling. Leave a field empty for IBM Plex, which comes with Treehouse. The code font is used for code, paths, commands, diffs and model ids.
 
-**Toggle Theme** in the View menu or command palette switches between Mocha and Latte. **Match system** follows the system's light or dark setting.
+**Toggle Theme** in the View menu or command palette cycles Mocha, Latte and Christmas, so the seasonal one stays a click away; from **Match system** it switches to the other mode. **Match system** follows the system's light or dark setting.
 
 ## Environment variables
 
