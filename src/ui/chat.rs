@@ -1406,34 +1406,35 @@ impl ChatView {
                                 menu = menu.item(
                                     PopupMenuItem::element(move |_, cx| {
                                         let p = palette(cx);
-                                        h_flex()
-                                            .gap_2()
-                                            .items_start()
+                                        // The check shares the name's line, so it
+                                        // stays centred on it at any text size.
+                                        v_flex()
                                             .py(px(2.))
                                             .w(px(300.))
                                             .child(
-                                                div().flex_none().w(px(14.)).pt(px(2.)).children(
-                                                    (choice == mode).then(|| {
-                                                        icon(Lucide::Check)
-                                                            .size(px(14.))
-                                                            .text_color(p.blue)
-                                                    }),
-                                                ),
-                                            )
-                                            .child(
-                                                v_flex()
-                                                    .min_w_0()
+                                                h_flex()
+                                                    .gap_2()
+                                                    .child(div().flex_none().w(px(14.)).children(
+                                                        (choice == mode).then(|| {
+                                                            icon(Lucide::Check)
+                                                                .size(px(14.))
+                                                                .text_color(p.blue)
+                                                        }),
+                                                    ))
                                                     // The menu's own size, like the
                                                     // thinking menu's items.
                                                     .child(
                                                         div().font_medium().child(choice.label()),
-                                                    )
-                                                    .child(
-                                                        div()
-                                                            .text_size(px(12.))
-                                                            .text_color(p.subtext0)
-                                                            .child(choice.description()),
                                                     ),
+                                            )
+                                            .child(
+                                                div()
+                                                    // Under the name: the check's width
+                                                    // and the gap.
+                                                    .pl(px(22.))
+                                                    .text_size(px(12.))
+                                                    .text_color(p.subtext0)
+                                                    .child(choice.description()),
                                             )
                                     })
                                     .on_click(
