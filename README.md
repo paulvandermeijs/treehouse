@@ -56,4 +56,4 @@ npm run dev
 
 ## Licences
 
-Treehouse is released under the [MIT License](LICENSE). IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The colours are Catppuccin's (MIT).
+Treehouse is released under the [MIT License](LICENSE). IBM Plex Sans and IBM Plex Mono are bundled under the SIL Open Font License (`assets/fonts/OFL.txt`). The colours are Catppuccin's (MIT), and the spinner's motion follows svg-spinners' `ring-resize` (MIT).
