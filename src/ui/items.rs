@@ -6,7 +6,7 @@
 use super::spinner::Spinner;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::button::{Button, ButtonVariants as _, DropdownButton};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::shimmer::ShimmerText;
@@ -23,7 +23,8 @@ use crate::approval::Reason;
 use crate::links::LinkAction;
 use crate::preview::{Arg, FileAction, FileChange, Preview, mcp_parts};
 use crate::session::{
-    AgentStatus, ApprovalChoice, MergeChoice, PendingApproval, PendingMerge, Session,
+    AgentStatus, AllowRule, ApprovalChoice, McpTool, MergeChoice, PendingApproval, PendingMerge,
+    Session,
 };
 use crate::setup::LinkOutcome;
 use crate::steps::{Fold, Segment};
@@ -1301,7 +1302,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             "Wants to merge".into_any_element()
         }
         ToolStatus::AwaitingApproval => match tool.name.as_str() {
-            "bash" => "Wants to run",
+            "bash" | "codemode" => "Wants to run",
             "edit" => "Wants to edit",
             "write" => "Wants to write",
             _ => "Wants to use",
@@ -1413,6 +1414,19 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
             .text_ellipsis()
             .whitespace_nowrap(),
         )
+        // Ran without asking because of an Always allow; says so for review.
+        .when(tool.always_allowed, |this| {
+            this.child(
+                div()
+                    .flex_none()
+                    .px(px(6.))
+                    .rounded(px(4.))
+                    .border_1()
+                    .border_color(p.surface0)
+                    .text_size(px(11.5))
+                    .child("always allowed"),
+            )
+        })
         .when_some(result, |this, result| {
             this.child(
                 div()
@@ -2071,15 +2085,25 @@ fn render_approval(
             .text_color(p.subtext1)
             .child(name)
     };
-    let (title, name, primary): (&str, Option<String>, &str) = match &*approval.preview {
-        Preview::Command(_) => ("Wants to run a command", None, "Run ⏎"),
+    // A `codemode` script reaching MCP tools gets its own card: which tools
+    // it calls, and its code.
+    let script = approval.tool_name == "codemode"
+        && (!approval.mcp_tools.is_empty() || approval.reason == Reason::UnreadableScript);
+    let script_title = match approval.mcp_tools.len() {
+        0 => "Wants to run a script".to_string(),
+        1 => "Wants to run a script that uses an MCP tool".to_string(),
+        n => format!("Wants to run a script that uses {n} MCP tools"),
+    };
+    let (title, name, primary): (SharedString, Option<String>, &str) = match &*approval.preview {
+        _ if script => (script_title.into(), None, "Run ⏎"),
+        Preview::Command(_) => ("Wants to run a command".into(), None, "Run ⏎"),
         Preview::File(change) => match change.action {
-            FileAction::Edit => ("Wants to edit a file", None, "Edit ⏎"),
-            FileAction::Write => ("Wants to write a file", None, "Write ⏎"),
-            FileAction::Create => ("Wants to create a file", None, "Create ⏎"),
+            FileAction::Edit => ("Wants to edit a file".into(), None, "Edit ⏎"),
+            FileAction::Write => ("Wants to write a file".into(), None, "Write ⏎"),
+            FileAction::Create => ("Wants to create a file".into(), None, "Create ⏎"),
         },
         Preview::Args(_) => (
-            "Wants to use",
+            "Wants to use".into(),
             Some(match mcp_parts(&approval.tool_name) {
                 Some(("", tool)) => tool.to_string(),
                 Some((server, tool)) => format!("{server} · {tool}"),
@@ -2090,6 +2114,7 @@ fn render_approval(
     };
 
     let sub: Option<AnyElement> = match &*approval.preview {
+        _ if script => None,
         Preview::Command(_) => Some(sub_line(
             &[(&format!("Pi wants to run this in {branch}:"), false)],
             &p,
@@ -2137,6 +2162,7 @@ fn render_approval(
     };
 
     let body: Option<AnyElement> = match &*approval.preview {
+        _ if script => Some(render_approval_script(approval, cx)),
         Preview::Command(command) => Some(
             div()
                 .px_3()
@@ -2206,6 +2232,7 @@ fn render_approval(
                             }
                         }),
                 )
+                .children(always_allow_tools(approval, &session))
                 .when_some(approval.pattern.clone(), |this, pattern| {
                     let (session, id) = (session.clone(), request_id.clone());
                     this.child(
@@ -2221,7 +2248,7 @@ fn render_approval(
                                 session.update(cx, |s, cx| {
                                     s.resolve_approval(
                                         &id,
-                                        ApprovalChoice::AlwaysAllow(pattern),
+                                        ApprovalChoice::AlwaysAllow(AllowRule::Pattern(pattern)),
                                         cx,
                                     )
                                 })
@@ -2246,6 +2273,133 @@ fn render_approval(
                             }
                         }),
                 ),
+        )
+        .into_any_element()
+}
+
+/// "Always allow" for the MCP tools a call uses that aren't allowed yet. A
+/// single tool's button names it, with the whole server one click further
+/// in its menu.
+fn always_allow_tools(approval: &PendingApproval, session: &Entity<Session>) -> Option<AnyElement> {
+    let asking: Vec<&McpTool> = approval.mcp_tools.iter().filter(|t| !t.allowed).collect();
+    if asking.is_empty() {
+        return None;
+    }
+    let resolve = {
+        let (session, id) = (session.clone(), approval.request_id.clone());
+        move |tools: Vec<(String, Option<String>)>, cx: &mut App| {
+            session.update(cx, |s, cx| {
+                s.resolve_approval(
+                    &id,
+                    ApprovalChoice::AlwaysAllow(AllowRule::Tools(tools)),
+                    cx,
+                )
+            })
+        }
+    };
+    let tools: Vec<(String, Option<String>)> = asking
+        .iter()
+        .map(|t| (t.server.clone(), Some(t.tool.clone())))
+        .collect();
+    let button = |label: String| {
+        let resolve = resolve.clone();
+        let tools = tools.clone();
+        Button::new("always-allow")
+            .small()
+            .flex_shrink(1.)
+            .min_w_0()
+            .label(label.clone())
+            .tooltip(label)
+            .on_click(move |_, _, cx| resolve(tools.clone(), cx))
+    };
+    if approval.tool_name != "codemode"
+        && let [tool] = asking.as_slice()
+    {
+        let (server, name) = (tool.server.clone(), tool.tool.clone());
+        return Some(
+            DropdownButton::new("always-allow-menu")
+                .small()
+                .button(button(format!("Always allow {name}")))
+                .dropdown_menu(move |menu, _, _| {
+                    let (one, all) = (resolve.clone(), resolve.clone());
+                    let (s1, n1, s2) = (server.clone(), name.clone(), server.clone());
+                    menu.item(
+                        PopupMenuItem::new(format!("Always allow {server} · {name}")).on_click(
+                            move |_, _, cx| one(vec![(s1.clone(), Some(n1.clone()))], cx),
+                        ),
+                    )
+                    .item(
+                        PopupMenuItem::new(format!("Always allow every {server} tool"))
+                            .on_click(move |_, _, cx| all(vec![(s2.clone(), None)], cx)),
+                    )
+                })
+                .into_any_element(),
+        );
+    }
+    let label = match asking.as_slice() {
+        [tool] => format!("Always allow {} · {}", tool.server, tool.tool),
+        many => format!("Always allow these {} tools", many.len()),
+    };
+    Some(button(label).into_any_element())
+}
+
+/// A `codemode` script's MCP tools, each allowed or asking, over its code.
+fn render_approval_script(approval: &PendingApproval, cx: &mut Context<ChatView>) -> AnyElement {
+    let p = palette(cx);
+    let code = approval.input["code"]
+        .as_str()
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    v_flex()
+        .rounded(px(6.))
+        .bg(p.mantle)
+        .border_1()
+        .border_color(p.surface0)
+        .overflow_hidden()
+        .when(!approval.mcp_tools.is_empty(), |this| {
+            this.child(
+                v_flex()
+                    .gap(px(2.))
+                    .px_3()
+                    .py_2()
+                    .border_b_1()
+                    .border_color(p.surface0)
+                    .children(approval.mcp_tools.iter().map(|tool| {
+                        h_flex()
+                            .gap_2()
+                            .font_family(crate::theme::mono())
+                            .text_size(px(12.))
+                            .text_color(p.text)
+                            .child(icon(Lucide::Plug).size(px(14.)).text_color(p.subtext1))
+                            .child(format!("{} · {}", tool.server, tool.tool))
+                            .child(div().flex_1())
+                            .child(if tool.allowed {
+                                h_flex()
+                                    .gap_1()
+                                    .font_family(crate::theme::sans())
+                                    .text_size(px(11.5))
+                                    .text_color(p.green)
+                                    .child(icon(Lucide::Check).size(px(12.)))
+                                    .child("allowed")
+                            } else {
+                                h_flex()
+                                    .font_family(crate::theme::sans())
+                                    .text_size(px(11.5))
+                                    .text_color(p.yellow_text)
+                                    .child("asks")
+                            })
+                    })),
+            )
+        })
+        .child(
+            div()
+                .px_3()
+                .py_2()
+                .font_family(crate::theme::mono())
+                .text_size(px(12.5))
+                .text_color(p.text)
+                .child(SharedString::from(code)),
         )
         .into_any_element()
 }
@@ -2298,6 +2452,10 @@ fn why_asking(request_id: &str, reason: Reason, p: &Palette) -> AnyElement {
                             Some(lead.len()..lead.len() + rule.len()),
                         )
                     }
+                    None if reason == Reason::UnreadableScript => (
+                        "Asking because the script picks its tools while it runs, so Treehouse can't tell which it calls.".to_string(),
+                        None,
+                    ),
                     None => (
                         "Asking because the command runs code Treehouse can't read, so it can't tell whether it deletes or pushes.".to_string(),
                         None,

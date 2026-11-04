@@ -265,6 +265,7 @@ mod tests {
             started: Instant::now(),
             duration: None,
             previous_content: None,
+            always_allowed: false,
         })
     }
 

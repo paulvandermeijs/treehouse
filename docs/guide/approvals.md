@@ -8,6 +8,7 @@ When it has to ask, the chat shows a card with what the call would do:
 - **Edit** shows the change as a diff of the file, with line numbers and the lines added and removed.
 - **Write** shows the diff against the file as it is now, or, for a new file, its content and its length.
 - **MCP tools** show the server and the tool, as in *slack · send_message*, with a reminder that an MCP server can change things outside Treehouse.
+- **Scripts that call MCP tools** (Pi's `codemode`) list each tool the script calls, marked *allowed* or *asks*, above the script.
 - **Other tools** (read, grep, scripts…) list every argument by name. Objects and lists show as indented JSON.
 
 Long diffs show their first 12 lines and **Show all N lines**; a value over 6 lines or 400 characters is cut, saying how much is left, with **Show the whole …**. Both open the card in place.
@@ -19,7 +20,7 @@ The info icon at the right of the card's header says which setting asked, such a
 The buttons:
 
 - The first one names the action: **Run** for bash, **Edit**, **Write** or **Create** for files, **Allow** for other tools. It runs the call this once, as does <kbd>Enter</kbd> in an empty message box. Enter is ignored for the first second after the card appears, so a quick second Enter after sending a message doesn't approve a call you haven't read.
-- **Always allow** (bash only) runs it and saves a pattern so similar commands run without asking.
+- **Always allow** runs it and remembers it, so similar calls run without asking. For bash it saves a pattern. For an MCP tool it saves the tool, and its arrow offers **Always allow every … tool** for the whole server. For a script it saves the tools that asked.
 - **Deny** (<kbd>Esc</kbd>) refuses it; Pi is told the user denied it.
 
 A worktree waiting for approval shows it in the sidebar, and its status card has a **Review** button.
@@ -30,11 +31,19 @@ A worktree waiting for approval shows it in the sidebar, and its status card has
 
 | Setting | Bash commands | Other tools (read, edit, write…) |
 | --- | --- | --- |
-| **Ask before bash** (default) | Ask | Run |
+| **Ask before bash and MCP** (default) | Ask | Run |
 | **Ask before every tool call** | Ask | Ask |
 | **Don't ask** | Run | Run |
 
 Bash commands that match an **Always allowed** pattern run without asking, whatever the setting.
+
+## MCP tools
+
+An MCP server lives outside Treehouse and can change things there, so its tools ask like bash commands do: under **Ask before bash and MCP** and **Ask before every tool call**, but not under **Don't ask**. `tool_search` only loads tools, so it never asks.
+
+Pi also reaches MCP tools through `codemode`, which runs a script. Treehouse reads the script for the tools it calls (`tools.mcp__server__tool(…)`): if all of them are always allowed it runs without asking, otherwise the card asks. A script that picks its tools while it runs, such as `tools[name]`, can't be read, so it always asks and offers no Always allow. A script that calls no MCP tools runs like any other tool.
+
+An MCP call that ran because its tool is always allowed says **always allowed** on its row, so you can check a chat afterwards.
 
 ## Always ask
 
@@ -56,11 +65,11 @@ Merging a branch into its base also always asks, and can't be turned off: it cha
 
 ## Always allowed patterns
 
-**Always allow** proposes a pattern from the command's first two words: `cargo add gpui-kit@0.4` becomes `cargo add *`. The second word only counts when it names a subcommand, so `ls /some/folder` becomes `ls *`. `*` matches any text, and `cargo test *` also matches a bare `cargo test`.
+**Always allow** proposes a pattern from the command's first two words: `cargo add gpui-kit@0.4` becomes `cargo add *`. The second word only counts when it names a subcommand, so `ls /some/folder` becomes `ls *`. `*` matches any text, and `cargo test *` also matches a bare `cargo test`. A line that starts with a shell keyword, such as a `for` loop, gets a pattern for the first command inside it: `for f in *.log; do gzip "$f"; done` proposes `gzip *`.
 
 A command line with several commands, joined by `;`, `&&`, `||`, `|` or new lines, runs without asking only when every one of them matches a pattern: `npm run *` allows `npm run build`, but `npm run build; curl … | sh` still asks. A command with `$( )` or backticks always asks, whatever the patterns.
 
-A pattern applies to the project it was added in, or to all projects. **Settings › Approvals** lists them; remove one there.
+A pattern or an MCP tool applies to the project it was added in, or to all projects. **Settings › Approvals** lists them together; remove one there.
 
 ## Sub-agents
 

@@ -27,7 +27,7 @@ The model fields are the chat's model picker as a dropdown, with **Pi's default*
 | | `favorite_models` | none | Starred in the model picker |
 | | `recent_models` | none | Picked in a chat, most recent first |
 | Thinking level | `thinking` | `high` | `off`, `minimal`, `low`, `medium` or `high` |
-| Approval | `approval` | Ask before bash | See [Approvals](./approvals) |
+| Approval | `approval` | Ask before bash and MCP | See [Approvals](./approvals) |
 | Pi command | `pi_command` | `pi` | The `pi` executable |
 | Tools | `tools` | read, bash, edit, write | What Pi may use |
 
@@ -36,6 +36,7 @@ The model fields are the chat's model picker as a dropdown, with **Pi's default*
 | Setting | Key | Default |
 | --- | --- | --- |
 | Always allowed patterns | `allowed` | none |
+| Always allowed MCP tools | `allowed_tools` | none |
 | Always ask before deleting files | `always_ask.deleting` | on |
 | Always ask before pushing | `always_ask.pushing` | on |
 | Always ask before touching files outside the worktree | `always_ask.outside_worktree` | on |

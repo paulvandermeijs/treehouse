@@ -23,7 +23,7 @@ impl ApprovalMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::AskBeforeBash => "Ask before bash",
+            Self::AskBeforeBash => "Ask before bash and MCP",
             Self::AskEveryTool => "Ask before every tool call",
             Self::DontAsk => "Don't ask",
         }
@@ -36,6 +36,33 @@ pub struct AllowedPattern {
     pub pattern: String,
     /// The project folder the pattern applies to; `None` means all projects.
     pub project: Option<std::path::PathBuf>,
+}
+
+/// An MCP tool, or every tool of a server, added with "Always allow".
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AllowedTool {
+    pub server: String,
+    /// `None` allows every tool of the server.
+    pub tool: Option<String>,
+    /// The project folder it applies to; `None` means all projects.
+    pub project: Option<std::path::PathBuf>,
+}
+
+impl AllowedTool {
+    fn covers(&self, server: &str, tool: &str, project: &Path) -> bool {
+        self.server == server
+            && self.tool.as_deref().is_none_or(|t| t == tool)
+            && self.project.as_deref().is_none_or(|p| p == project)
+    }
+
+    /// As Settings lists it: `slack · send_message`, `figma · every tool`.
+    pub fn label(&self) -> String {
+        format!(
+            "{} · {}",
+            self.server,
+            self.tool.as_deref().unwrap_or("every tool")
+        )
+    }
 }
 
 /// The "always ask, whatever the approval setting" toggles.
@@ -59,6 +86,9 @@ impl Default for AlwaysAsk {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Decision {
     Allow,
+    /// An MCP call that runs because the user always allowed its tool; the
+    /// chat says so, so it can be checked afterwards.
+    AlwaysAllowed,
     Ask(Reason),
 }
 
@@ -73,6 +103,8 @@ pub enum Reason {
     /// `eval`, a script piped into `sh`, or code given inline to an
     /// interpreter: it could delete or push without saying so.
     Unreadable,
+    /// A `codemode` script that picks its tools while it runs.
+    UnreadableScript,
 }
 
 impl Reason {
@@ -84,7 +116,7 @@ impl Reason {
             Self::Deleting => Some(("Deleting files", "Approvals")),
             Self::Pushing => Some(("Pushing", "Approvals")),
             Self::OutsideWorktree => Some(("Touching files outside the worktree", "Approvals")),
-            Self::Unreadable => None,
+            Self::Unreadable | Self::UnreadableScript => None,
         }
     }
 }
@@ -100,7 +132,78 @@ pub struct ToolCallRequest<'a> {
 pub struct Policy<'a> {
     pub mode: ApprovalMode,
     pub allowed: &'a [AllowedPattern],
+    pub allowed_tools: &'a [AllowedTool],
     pub always_ask: &'a AlwaysAsk,
+}
+
+/// The MCP tools a call uses.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum McpCalls {
+    /// `(server, tool)`, each once.
+    Tools(Vec<(String, String)>),
+    /// A script that picks its tools while it runs.
+    Unreadable,
+}
+
+/// The MCP tools a call reaches: an `mcp__server__tool` call itself, or the
+/// ones a `codemode` script calls. `None` when it uses none.
+pub fn mcp_calls(tool_name: &str, input: &Value) -> Option<McpCalls> {
+    if let Some((server, tool)) = crate::preview::mcp_parts(tool_name) {
+        return Some(McpCalls::Tools(vec![(server.into(), tool.into())]));
+    }
+    if tool_name != "codemode" {
+        return None;
+    }
+    script_tools(input.get("code").and_then(Value::as_str).unwrap_or(""))
+}
+
+/// Reads a script for `tools.mcp__server__tool` and `tools["…"]`. Any other
+/// use of `tools`, such as `tools[name]` or passing it on, could reach any
+/// tool, so the script counts as unreadable.
+fn script_tools(code: &str) -> Option<McpCalls> {
+    let ident = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == '$';
+    let mut found: Vec<(String, String)> = Vec::new();
+    let mut rest = code;
+    let mut offset = 0;
+    while let Some(at) = rest.find("tools") {
+        let start = offset + at;
+        let end = start + "tools".len();
+        rest = &rest[at + "tools".len()..];
+        offset = end;
+        // A whole word, not `mytools` or `tools2`, and not a property such
+        // as `x.tools`, which is something else.
+        let before = code[..start].chars().next_back();
+        if before.is_some_and(|c| ident(c) || c == '.') || rest.starts_with(ident) {
+            continue;
+        }
+        let after = rest.trim_start();
+        let name = if let Some(member) = after.strip_prefix('.') {
+            member.trim_start().split(|c: char| !ident(c)).next()
+        } else if let Some(index) = after.strip_prefix('[') {
+            let index = index.trim_start();
+            match index.chars().next() {
+                Some(q @ ('"' | '\'' | '`')) => index[1..]
+                    .split_once(q)
+                    .filter(|(name, tail)| {
+                        !name.contains("${") && tail.trim_start().starts_with(']')
+                    })
+                    .map(|(name, _)| name),
+                _ => None,
+            }
+        } else {
+            None
+        };
+        let Some(name) = name else {
+            return Some(McpCalls::Unreadable);
+        };
+        if let Some((server, tool)) = crate::preview::mcp_parts(name) {
+            let pair = (server.to_string(), tool.to_string());
+            if !found.contains(&pair) {
+                found.push(pair);
+            }
+        }
+    }
+    (!found.is_empty()).then_some(McpCalls::Tools(found))
 }
 
 impl Policy<'_> {
@@ -116,8 +219,38 @@ impl Policy<'_> {
             return Decision::Allow;
         }
 
+        // It only loads tools; using one is what asks.
+        if call.tool_name == "tool_search" {
+            return Decision::Allow;
+        }
+
         if self.always_ask.outside_worktree && touches_outside(call) {
             return Decision::Ask(Reason::OutsideWorktree);
+        }
+
+        // MCP servers live outside Treehouse and can change things there,
+        // so they ask like bash does.
+        match mcp_calls(call.tool_name, call.input) {
+            Some(McpCalls::Unreadable) => {
+                return match self.mode {
+                    ApprovalMode::DontAsk => Decision::Allow,
+                    _ => Decision::Ask(Reason::UnreadableScript),
+                };
+            }
+            Some(McpCalls::Tools(tools)) => {
+                if tools
+                    .iter()
+                    .all(|(server, tool)| self.tool_allowed(server, tool, call.project))
+                {
+                    return Decision::AlwaysAllowed;
+                }
+                return match self.mode {
+                    ApprovalMode::DontAsk => Decision::Allow,
+                    ApprovalMode::AskBeforeBash => Decision::Ask(Reason::AskBeforeBash),
+                    ApprovalMode::AskEveryTool => Decision::Ask(Reason::AskEveryTool),
+                };
+            }
+            None => {}
         }
 
         if call.tool_name == "bash" {
@@ -152,6 +285,12 @@ impl Policy<'_> {
         }
     }
 
+    pub fn tool_allowed(&self, server: &str, tool: &str, project: &Path) -> bool {
+        self.allowed_tools
+            .iter()
+            .any(|allowed| allowed.covers(server, tool, project))
+    }
+
     /// Every command in the line has to match a pattern: allowing
     /// `npm run *` mustn't allow `npm run build; curl … | sh`. Code inside
     /// `$( )` or backticks is never allowed by a pattern.
@@ -173,7 +312,45 @@ impl Policy<'_> {
 /// for example `cargo add gpui-kit@0.4` becomes `cargo add *`. The second
 /// word only counts when it names a subcommand, not a flag or a path, so
 /// `ls /some/folder` becomes `ls *`.
-pub fn propose_pattern(command: &str) -> String {
+///
+/// A line that starts with a shell keyword, such as a `for` loop, gets a
+/// pattern for the first command inside it, or none: `for i *` would never
+/// match anything useful.
+pub fn propose_pattern(command: &str) -> Option<String> {
+    let first = command.split_whitespace().next()?;
+    if !SHELL_KEYWORDS.contains(&first) {
+        return Some(pattern_from(command));
+    }
+    crate::shell::parse(command)
+        .commands
+        .iter()
+        .find_map(|part| {
+            let keywords = part
+                .words
+                .iter()
+                .take_while(|w| LEADING_KEYWORDS.contains(&w.as_str()))
+                .count();
+            let program = part.words.get(keywords)?;
+            if SHELL_KEYWORDS.contains(&program.as_str()) {
+                return None;
+            }
+            // As written, so a quoted argument isn't taken for a subcommand.
+            let text: Vec<&str> = part.text.split_whitespace().skip(keywords).collect();
+            Some(pattern_from(&text.join(" ")))
+        })
+}
+
+/// Words that start or end a shell construct rather than name a command.
+const SHELL_KEYWORDS: &[&str] = &[
+    "for", "while", "until", "if", "then", "else", "elif", "fi", "do", "done", "case", "esac",
+    "select", "in", "function", "{", "}", "!", "[[", "]]",
+];
+/// Keywords followed by a command on the same line, as in `do echo hi`.
+const LEADING_KEYWORDS: &[&str] = &[
+    "do", "then", "else", "if", "elif", "while", "until", "!", "{",
+];
+
+fn pattern_from(command: &str) -> String {
     let mut words = command.split_whitespace();
     let Some(program) = words.next() else {
         return "*".to_string();
@@ -450,7 +627,7 @@ mod tests {
     impl From<super::Decision> for Decision {
         fn from(decision: super::Decision) -> Self {
             match decision {
-                super::Decision::Allow => Self::Allow,
+                super::Decision::Allow | super::Decision::AlwaysAllowed => Self::Allow,
                 super::Decision::Ask(_) => Self::Ask,
             }
         }
@@ -461,6 +638,7 @@ mod tests {
         let policy = Policy {
             mode,
             allowed: &[],
+            allowed_tools: &[],
             always_ask: &always_ask,
         };
         match policy.decide(&ToolCallRequest {
@@ -470,7 +648,7 @@ mod tests {
             project: Path::new("/code/app"),
         }) {
             super::Decision::Ask(reason) => Some(reason),
-            super::Decision::Allow => None,
+            super::Decision::Allow | super::Decision::AlwaysAllowed => None,
         }
     }
 
@@ -523,6 +701,7 @@ mod tests {
         let policy = Policy {
             mode,
             allowed,
+            allowed_tools: &[],
             always_ask: &always_ask,
         };
         policy
@@ -767,6 +946,7 @@ mod tests {
         let policy = Policy {
             mode: ApprovalMode::DontAsk,
             allowed: &[],
+            allowed_tools: &[],
             always_ask: &always_ask,
         };
         let call = |path: &str| -> Decision {
@@ -790,17 +970,179 @@ mod tests {
     #[test]
     fn proposes_patterns_from_two_words() {
         assert_eq!(
-            propose_pattern("cargo add gpui-kit@0.4 --features editor"),
-            "cargo add *"
+            propose_pattern("cargo add gpui-kit@0.4 --features editor").as_deref(),
+            Some("cargo add *")
         );
-        assert_eq!(propose_pattern("ls"), "ls *");
+        assert_eq!(propose_pattern("ls").as_deref(), Some("ls *"));
         assert_eq!(
-            propose_pattern("ls /Users/someone/node_modules/pi/docs/"),
-            "ls *"
+            propose_pattern("ls /Users/someone/node_modules/pi/docs/").as_deref(),
+            Some("ls *")
         );
-        assert_eq!(propose_pattern("grep -rn foo src"), "grep *");
-        assert_eq!(propose_pattern("npm run test:unit"), "npm run *");
+        assert_eq!(
+            propose_pattern("grep -rn foo src").as_deref(),
+            Some("grep *")
+        );
+        assert_eq!(
+            propose_pattern("npm run test:unit").as_deref(),
+            Some("npm run *")
+        );
         assert!(pattern_matches("git status", "git status"));
         assert!(!pattern_matches("git status", "git status --short"));
+    }
+
+    fn mcp(
+        mode: ApprovalMode,
+        tool: &str,
+        input: Value,
+        allowed: &[AllowedTool],
+    ) -> super::Decision {
+        let always_ask = AlwaysAsk::default();
+        Policy {
+            mode,
+            allowed: &[],
+            allowed_tools: allowed,
+            always_ask: &always_ask,
+        }
+        .decide(&ToolCallRequest {
+            tool_name: tool,
+            input: &input,
+            worktree: Path::new("/code/app/.worktrees/feat"),
+            project: Path::new("/code/app"),
+        })
+    }
+
+    fn allow_tool(server: &str, tool: Option<&str>, project: Option<&str>) -> AllowedTool {
+        AllowedTool {
+            server: server.into(),
+            tool: tool.map(Into::into),
+            project: project.map(Into::into),
+        }
+    }
+
+    #[test]
+    fn mcp_tools_ask_like_bash() {
+        use super::Decision as D;
+        let send = "mcp__slack__send_message";
+        let args = json!({"channel": "#releases"});
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, send, args.clone(), &[]),
+            D::Ask(Reason::AskBeforeBash)
+        );
+        assert_eq!(
+            mcp(ApprovalMode::DontAsk, send, args.clone(), &[]),
+            D::Allow
+        );
+        // Loading tools never asks, not even with every call asking.
+        assert_eq!(
+            mcp(
+                ApprovalMode::AskEveryTool,
+                "tool_search",
+                json!({"query": "x"}),
+                &[]
+            ),
+            D::Allow
+        );
+        // A tool, a whole server, or another project's rule.
+        let tool = [allow_tool("slack", Some("send_message"), Some("/code/app"))];
+        assert_eq!(
+            mcp(ApprovalMode::AskEveryTool, send, args.clone(), &tool),
+            D::AlwaysAllowed
+        );
+        let server = [allow_tool("slack", None, None)];
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, send, args.clone(), &server),
+            D::AlwaysAllowed
+        );
+        let other = [allow_tool("slack", None, Some("/code/site"))];
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, send, args.clone(), &other),
+            D::Ask(Reason::AskBeforeBash)
+        );
+        let other_tool = [allow_tool("slack", Some("read_channel"), None)];
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, send, args, &other_tool),
+            D::Ask(Reason::AskBeforeBash)
+        );
+    }
+
+    #[test]
+    fn codemode_asks_for_the_mcp_tools_its_script_calls() {
+        use super::Decision as D;
+        let code = |c: &str| json!({ "code": c });
+        let script = "const f = await tools.mcp__figma__get_metadata({ fileKey: 'x' });\n\
+                      await tools['mcp__linear__create_issue']({ title: f.name });\n\
+                      await tools.mcp__figma__get_metadata({});";
+        assert_eq!(
+            mcp_calls("codemode", &code(script)),
+            Some(McpCalls::Tools(vec![
+                ("figma".into(), "get_metadata".into()),
+                ("linear".into(), "create_issue".into()),
+            ]))
+        );
+        let figma = [allow_tool("figma", None, None)];
+        assert_eq!(
+            mcp(
+                ApprovalMode::AskBeforeBash,
+                "codemode",
+                code(script),
+                &figma
+            ),
+            D::Ask(Reason::AskBeforeBash)
+        );
+        let both = [
+            allow_tool("figma", None, None),
+            allow_tool("linear", Some("create_issue"), None),
+        ];
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, "codemode", code(script), &both),
+            D::AlwaysAllowed
+        );
+
+        // Picking tools while it runs, or handing `tools` on, can't be read.
+        for unreadable in [
+            "for (const n of names) await tools[n]({});",
+            "await tools[`mcp__${server}__send`]({});",
+            "const t = tools; await t.mcp__slack__send_message({});",
+            "const { mcp__slack__send_message: send } = tools;",
+        ] {
+            assert_eq!(
+                mcp_calls("codemode", &code(unreadable)),
+                Some(McpCalls::Unreadable),
+                "{unreadable}"
+            );
+            assert_eq!(
+                mcp(
+                    ApprovalMode::AskBeforeBash,
+                    "codemode",
+                    code(unreadable),
+                    &both
+                ),
+                D::Ask(Reason::UnreadableScript)
+            );
+        }
+        // No MCP tools: like any other tool.
+        let plain = code("return [1, 2].map(x => x * 2); // mytools.x, a.tools");
+        assert_eq!(mcp_calls("codemode", &plain), None);
+        assert_eq!(
+            mcp(ApprovalMode::AskBeforeBash, "codemode", plain, &[]),
+            D::Allow
+        );
+    }
+
+    #[test]
+    fn patterns_skip_shell_keywords() {
+        assert_eq!(
+            propose_pattern("for i in {1..500}; do echo \"line $i\"; sleep 0.01; done").as_deref(),
+            Some("echo *")
+        );
+        assert_eq!(
+            propose_pattern("while true; do cargo test; done").as_deref(),
+            Some("true *")
+        );
+        assert_eq!(propose_pattern("for f in *.rs; done"), None);
+        assert_eq!(
+            propose_pattern("cargo test --all").as_deref(),
+            Some("cargo test *")
+        );
     }
 }

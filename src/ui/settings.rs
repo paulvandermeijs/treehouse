@@ -13,6 +13,7 @@ use gpui_kit::component::{IconName, Sizable as _, WindowExt as _, h_flex, v_flex
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 
+use super::icon;
 use super::model_picker::{ModelPicker, Pick};
 use crate::actions::SHORTCUTS;
 use crate::approval::ApprovalMode;
@@ -1053,11 +1054,11 @@ fn approvals_page() -> SettingPage {
                 .title("Always allowed")
                 .item(
                     SettingItem::render(|_, _, cx| allowed_list(cx))
-                        .keywords(["pattern", "allow", "bash"]),
+                        .keywords(["pattern", "allow", "bash", "mcp", "tool"]),
                 )
-                .footer(
-                    |_, _| "Added with \"Always allow\" on a bash approval. Use * as a wildcard.",
-                ),
+                .footer(|_, _| {
+                    "Added with Always allow on an approval. In a bash pattern, * matches any text."
+                }),
         )
         .group(
             SettingGroup::new()
@@ -1088,10 +1089,39 @@ fn approvals_page() -> SettingPage {
 
 fn allowed_list(cx: &mut App) -> AnyElement {
     let p = palette(cx);
-    let allowed = Config::global(cx).allowed.clone();
+    let config = Config::global(cx);
+    let scope = |project: &Option<std::path::PathBuf>| {
+        project
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "all projects".into())
+    };
+    // Bash patterns, then MCP tools, each removable by its index.
+    let rows: Vec<(Lucide, String, String, Removal)> = config
+        .allowed
+        .iter()
+        .enumerate()
+        .map(|(ix, a)| {
+            (
+                Lucide::Terminal,
+                a.pattern.clone(),
+                scope(&a.project),
+                Removal::Pattern(ix),
+            )
+        })
+        .chain(config.allowed_tools.iter().enumerate().map(|(ix, a)| {
+            (
+                Lucide::Plug,
+                a.label(),
+                scope(&a.project),
+                Removal::Tool(ix),
+            )
+        }))
+        .collect();
     v_flex()
         .w_full()
-        .when(allowed.is_empty(), |this| {
+        .when(rows.is_empty(), |this| {
             this.child(
                 div()
                     .text_size(px(13.))
@@ -1099,41 +1129,49 @@ fn allowed_list(cx: &mut App) -> AnyElement {
                     .child("Nothing yet."),
             )
         })
-        .children(allowed.into_iter().enumerate().map(|(ix, allowed)| {
-            let scope = allowed
-                .project
-                .as_ref()
-                .and_then(|p| p.file_name())
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "all projects".into());
-            let pattern = allowed.pattern.clone();
-            h_flex()
-                .h(px(38.))
-                .gap_3()
-                .child(
-                    div()
-                        .font_family(crate::theme::mono())
-                        .text_size(px(12.5))
-                        .child(pattern.clone()),
-                )
-                .child(div().flex_1())
-                .child(div().text_size(px(12.)).text_color(p.subtext0).child(scope))
-                .child(
-                    Button::new(("remove-pattern", ix))
-                        .ghost()
-                        .xsmall()
-                        .icon(IconName::Close)
-                        .tooltip(format!("Remove {pattern}"))
-                        .on_click(move |_, _, cx| {
-                            Config::update(cx, |c| {
-                                if ix < c.allowed.len() {
-                                    c.allowed.remove(ix);
-                                }
-                            })
-                        }),
-                )
-        }))
+        .children(
+            rows.into_iter()
+                .enumerate()
+                .map(|(row, (glyph, label, scope, removal))| {
+                    h_flex()
+                        .h(px(38.))
+                        .gap_3()
+                        .child(icon(glyph).size(px(14.)).text_color(p.subtext1))
+                        .child(
+                            div()
+                                .font_family(crate::theme::mono())
+                                .text_size(px(12.5))
+                                .child(label.clone()),
+                        )
+                        .child(div().flex_1())
+                        .child(div().text_size(px(12.)).text_color(p.subtext0).child(scope))
+                        .child(
+                            Button::new(("remove-allowed", row))
+                                .ghost()
+                                .xsmall()
+                                .icon(IconName::Close)
+                                .tooltip(format!("Remove {label}"))
+                                .on_click(move |_, _, cx| {
+                                    Config::update(cx, |c| match removal {
+                                        Removal::Pattern(ix) if ix < c.allowed.len() => {
+                                            c.allowed.remove(ix);
+                                        }
+                                        Removal::Tool(ix) if ix < c.allowed_tools.len() => {
+                                            c.allowed_tools.remove(ix);
+                                        }
+                                        _ => {}
+                                    })
+                                }),
+                        )
+                }),
+        )
         .into_any_element()
+}
+
+#[derive(Clone, Copy)]
+enum Removal {
+    Pattern(usize),
+    Tool(usize),
 }
 
 fn worktrees_page() -> SettingPage {

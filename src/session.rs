@@ -11,7 +11,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use crate::approval::{AllowedPattern, Decision, Policy, Reason, ToolCallRequest, propose_pattern};
+use crate::approval::{
+    AllowedPattern, AllowedTool, Decision, McpCalls, Policy, Reason, ToolCallRequest, mcp_calls,
+    propose_pattern,
+};
 use crate::config::Config;
 use crate::pi::rpc::{LaunchOptions, PiClient, PiMessage, command, str_field};
 use crate::preview::Preview;
@@ -55,6 +58,9 @@ pub struct PendingApproval {
     pub input: Value,
     /// The "Always allow" pattern proposed for a bash command.
     pub pattern: Option<String>,
+    /// The MCP tools the call uses: the tool itself, or the ones a
+    /// `codemode` script calls.
+    pub mcp_tools: Vec<McpTool>,
     pub asked: Instant,
     /// The setting that made it ask.
     pub reason: Reason,
@@ -67,6 +73,14 @@ pub struct PendingApproval {
 /// box approves it. Without it, a second Enter pressed quickly after sending
 /// a message could approve a call that only just appeared and wasn't read.
 pub const ENTER_APPROVES_AFTER: Duration = Duration::from_secs(1);
+
+/// An MCP tool an approval is about, and whether it's always allowed already.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct McpTool {
+    pub server: String,
+    pub tool: String,
+    pub allowed: bool,
+}
 
 impl PendingApproval {
     /// Whether Enter on an empty message box may approve this call by now.
@@ -888,7 +902,7 @@ impl Session {
         let approval = self.approvals.remove(ix);
         let answer = match &choice {
             ApprovalChoice::Run => "allow".to_string(),
-            ApprovalChoice::AlwaysAllow(pattern) => {
+            ApprovalChoice::AlwaysAllow(AllowRule::Pattern(pattern)) => {
                 let pattern = pattern.clone();
                 let project = self.project.clone();
                 Config::update(cx, |config| {
@@ -898,6 +912,22 @@ impl Session {
                     };
                     if !config.allowed.contains(&allowed) {
                         config.allowed.push(allowed);
+                    }
+                });
+                "allow".to_string()
+            }
+            ApprovalChoice::AlwaysAllow(AllowRule::Tools(tools)) => {
+                let project = self.project.clone();
+                Config::update(cx, |config| {
+                    for (server, tool) in tools {
+                        let allowed = AllowedTool {
+                            server: server.clone(),
+                            tool: tool.clone(),
+                            project: Some(project.clone()),
+                        };
+                        if !config.allowed_tools.contains(&allowed) {
+                            config.allowed_tools.push(allowed);
+                        }
                     }
                 });
                 "allow".to_string()
@@ -1230,22 +1260,40 @@ impl Session {
                 let tool_call_id = str_field(&payload, "toolCallId");
                 let input = payload["input"].clone();
                 let config = Config::global(cx);
-                let decision = Policy {
+                let policy = Policy {
                     mode: config.approval,
                     allowed: &config.allowed,
+                    allowed_tools: &config.allowed_tools,
                     always_ask: &config.always_ask,
-                }
-                .decide(&ToolCallRequest {
+                };
+                let decision = policy.decide(&ToolCallRequest {
                     tool_name: &tool_name,
                     input: &input,
                     worktree: &self.cwd,
                     project: &self.project,
                 });
+                let mcp_tools = match mcp_calls(&tool_name, &input) {
+                    Some(McpCalls::Tools(tools)) => tools
+                        .into_iter()
+                        .map(|(server, tool)| McpTool {
+                            allowed: policy.tool_allowed(&server, &tool, &self.project),
+                            server,
+                            tool,
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                };
                 match decision {
                     Decision::Allow => self.answer(&request_id, Some("allow")),
+                    Decision::AlwaysAllowed => {
+                        self.transcript
+                            .mark_always_allowed(&tool_call_id, &tool_name);
+                        self.flush_saves();
+                        self.answer(&request_id, Some("allow"));
+                    }
                     Decision::Ask(reason) => {
                         let pattern = (tool_name == "bash")
-                            .then(|| input["command"].as_str().map(propose_pattern))
+                            .then(|| input["command"].as_str().and_then(propose_pattern))
                             .flatten();
                         if let Some(tool) = self.transcript.tool_mut(&tool_call_id) {
                             tool.status = ToolStatus::AwaitingApproval;
@@ -1262,6 +1310,7 @@ impl Session {
                             tool_name,
                             input,
                             pattern,
+                            mcp_tools,
                             asked: Instant::now(),
                             reason,
                             preview,
@@ -1373,8 +1422,17 @@ impl Session {
 
 pub enum ApprovalChoice {
     Run,
-    AlwaysAllow(String),
+    AlwaysAllow(AllowRule),
     Deny(String),
+}
+
+/// What "Always allow" adds.
+#[derive(Clone, Debug)]
+pub enum AllowRule {
+    /// A bash command pattern.
+    Pattern(String),
+    /// MCP tools by `(server, tool)`; no tool allows the whole server.
+    Tools(Vec<(String, Option<String>)>),
 }
 
 /// Links, then runs the script, on a background thread, reporting each

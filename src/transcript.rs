@@ -87,6 +87,7 @@ pub const SETUP_ENTRY: &str = "treehouse:setup";
 pub const MCP_ATTENTION_ENTRY: &str = "treehouse:mcp-attention";
 pub const SIGN_IN_ENTRY: &str = "treehouse:sign-in";
 pub const HANDOVER_ENTRY: &str = "treehouse:handover";
+pub const ALWAYS_ALLOWED_ENTRY: &str = "treehouse:always-allowed";
 
 /// A finished setup row, as it's saved.
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -199,6 +200,8 @@ pub struct ToolCall {
     pub duration: Option<Duration>,
     /// For `write`: what the file held before Pi wrote it, if it existed.
     pub previous_content: Option<String>,
+    /// It ran without asking because the user always allowed its MCP tool.
+    pub always_allowed: bool,
 }
 
 impl ToolCall {
@@ -305,6 +308,9 @@ pub struct Transcript {
     stamps: HashMap<ItemId, u64>,
     /// The timestamp of the message being restored.
     clock: Option<u64>,
+    /// Always-allowed marks restored before their tool call, which a
+    /// session file can hold in either order.
+    always_allowed: std::collections::HashSet<String>,
     cwd: PathBuf,
 }
 
@@ -323,6 +329,7 @@ impl Transcript {
             typed: VecDeque::new(),
             stamps: HashMap::new(),
             clock: None,
+            always_allowed: Default::default(),
             cwd: cwd.into(),
         }
     }
@@ -374,6 +381,15 @@ impl Transcript {
                 if let Ok(mut card) = serde_json::from_value::<CommitCard>(data.clone()) {
                     card.id = self.alloc();
                     self.items.push(Item::Commits(card));
+                }
+            }
+            Some(ALWAYS_ALLOWED_ENTRY) => {
+                let call_id = str_field(data, "toolCallId");
+                match self.tool_mut(&call_id) {
+                    Some(tool) => tool.always_allowed = true,
+                    None => {
+                        self.always_allowed.insert(call_id);
+                    }
                 }
             }
             Some(NOTICE_ENTRY) => self.push_notice(text()),
@@ -727,6 +743,16 @@ impl Transcript {
     }
 
     /// The entries to save since this was last called.
+    /// An MCP call ran without asking because its tool is always allowed;
+    /// saved so the row still says so after a restart.
+    pub fn mark_always_allowed(&mut self, call_id: &str, name: &str) {
+        self.ensure_tool(call_id, name).always_allowed = true;
+        self.saves.push((
+            ALWAYS_ALLOWED_ENTRY,
+            serde_json::json!({ "toolCallId": call_id }),
+        ));
+    }
+
     pub fn take_saves(&mut self) -> Vec<(&'static str, Value)> {
         std::mem::take(&mut self.saves)
     }
@@ -922,6 +948,7 @@ impl Transcript {
                 started: Instant::now(),
                 duration: None,
                 previous_content: None,
+                always_allowed: self.always_allowed.remove(call_id),
             }));
         }
         self.tool_mut(call_id).unwrap()
@@ -1335,6 +1362,27 @@ mod tests {
 
     fn feed(transcript: &mut Transcript, events: &[Value]) -> Vec<Effect> {
         events.iter().map(|event| transcript.apply(event)).collect()
+    }
+
+    #[test]
+    fn always_allowed_marks_come_back_in_either_order() {
+        let call = |id: &str| {
+            json!({"type": "message", "message": {"role": "assistant", "timestamp": 1, "content": [
+                {"type": "toolCall", "id": id, "name": "mcp__figma__get_metadata", "arguments": {}}
+            ]}})
+        };
+        let mark = |id: &str| json!({"type": "custom", "customType": ALWAYS_ALLOWED_ENTRY, "data": {"toolCallId": id}});
+        let mut t = Transcript::new("/tmp");
+        t.restore(&[mark("a"), call("a"), call("b"), mark("b"), call("c")]);
+        let marked: Vec<bool> = t
+            .items()
+            .iter()
+            .filter_map(|item| match item {
+                Item::Tool(tool) => Some(tool.always_allowed),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(marked, [true, true, false]);
     }
 
     #[test]

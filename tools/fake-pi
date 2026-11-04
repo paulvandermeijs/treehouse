@@ -561,7 +561,13 @@ def run(message):
                          "children": [{"name": "Header", "type": "FRAME"}, {"name": "Cart", "type": "FRAME"}]}))
         tool(2, "m-code", "codemode", {"code": "// @options: {}\nconst frames = await tools.mcp__figma__get_metadata({ fileKey: 'Xy12ab' });\nreturn frames.children.map(c => c.name);"},
              "Script completed\n[\"Header\", \"Cart\"]")
-        say(3, "The Checkout frame has a Header and a Cart.")
+        # A script that also reaches a second server, and one that picks its
+        # tools while it runs, which can't be read.
+        tool(3, "m-mixed", "codemode", {"code": "const frame = await tools.mcp__figma__get_metadata({ fileKey: 'Xy12ab' });\nawait tools.mcp__linear__create_issue({ title: `Review ${frame.name}` });"},
+             "Script completed\nCreated LIN-42")
+        tool(4, "m-dyn", "codemode", {"code": "for (const name of names) await tools[name]({});"},
+             "Script completed")
+        say(5, "The Checkout frame has a Header and a Cart; LIN-42 tracks the review.")
         emit({"type": "message_end", "message": {"role": "assistant", "stopReason": "stop"}})
     elif message.startswith("Mangle"):
         # A model that writes its chat template into the tool name.

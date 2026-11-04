@@ -18,7 +18,7 @@ The first word of a message picks the script:
 | `Cards` | One of each approval card: an edit, writes through a link and to a new file, an MCP call, a long script, piped code |
 | `Long` | A long-running command |
 | `Mangle` | A garbled tool name |
-| `MCP` | MCP tool calls |
+| `MCP` | MCP tool calls: a tool search, a tool, and scripts that call one tool, two servers, and tools picked while running |
 | `Code` | Code blocks |
 | `Table` | A table |
 | `Links` | A web link, one whose text names another site, a `file:` link to a `.command` script, a `vscode:` link and a `javascript:` link |
