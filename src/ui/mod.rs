@@ -12,6 +12,7 @@ mod model_picker;
 mod palette;
 mod settings;
 mod sidebar;
+mod spinner;
 mod state;
 mod status_card;
 mod trust;
@@ -19,9 +20,9 @@ mod trust;
 pub use about::open as open_about;
 pub use app::TreehouseApp;
 
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::{App, IntoElement, ParentElement as _, Pixels, Styled as _, div, px};
+use spinner::Spinner;
 
 use crate::session::AgentStatus;
 use crate::theme::palette;
@@ -39,7 +40,7 @@ pub fn status_dot(status: AgentStatus, cx: &App) -> gpui_kit::AnyElement {
             .flex_none()
             .size(px(10.))
             .mx(px(-1.5))
-            .child(Spinner::new().with_size(px(10.)).color(p.subtext1))
+            .child(Spinner::new(px(10.), p.subtext1))
             .into_any_element(),
         AgentStatus::NeedsInput => dot.bg(p.blue).into_any_element(),
         AgentStatus::Finished => dot.bg(p.green).into_any_element(),

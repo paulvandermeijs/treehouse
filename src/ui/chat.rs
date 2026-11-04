@@ -470,13 +470,9 @@ impl ChatView {
             .text_size(px(12.5))
             .text_color(p.subtext1)
             .when(running && new == 0, |this| {
-                this.child(
-                    gpui_kit::component::spinner::Spinner::new()
-                        .with_size(px(10.))
-                        .color(p.subtext1),
-                )
-                .child("Pi is working")
-                .child(sep())
+                this.child(super::spinner::Spinner::new(px(10.), p.subtext1))
+                    .child("Pi is working")
+                    .child(sep())
             })
             .when(new > 0, |this| {
                 this.child(div().size(px(6.)).rounded_full().bg(p.blue))
@@ -1409,11 +1405,7 @@ fn status_pill(status: AgentStatus, cx: &App) -> impl IntoElement {
         .text_color(color)
         .text_size(px(11.5))
         .when(status == AgentStatus::Working, |this| {
-            this.child(
-                gpui_kit::component::spinner::Spinner::new()
-                    .with_size(px(11.))
-                    .color(color),
-            )
+            this.child(super::spinner::Spinner::new(px(11.), color))
         })
         .child(label)
 }
@@ -1515,7 +1507,7 @@ impl Render for ChatView {
                                             div()
                                                 .ml(px(4.))
                                                 .mr(px(8.))
-                                                .child(gpui_kit::component::spinner::Spinner::new().with_size(px(14.)).color(p.subtext1)),
+                                                .child(super::spinner::Spinner::new(px(14.), p.subtext1)),
                                         )
                                         .child(gpui_kit::component::shimmer::ShimmerText::new(if compacting { "Compacting context…" } else { "Working…" })),
                                 )

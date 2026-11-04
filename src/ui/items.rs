@@ -3,13 +3,13 @@
 //! One text column: the user's messages carry an avatar, Pi's don't. Icons sit
 //! in a 34px gutter, so text, cards and code blocks start on the same line.
 
+use super::spinner::Spinner;
 use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::Input;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::shimmer::ShimmerText;
-use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::text::{TextView, TextViewStyle};
 use gpui_kit::component::{IconName, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -863,7 +863,7 @@ fn render_sign_in(view: &ChatView, sign_in: &SignIn, cx: &mut Context<ChatView>)
                         .gap_2()
                         .text_size(px(13.5))
                         .font_medium()
-                        .child(Spinner::new().with_size(px(14.)).color(p.blue))
+                        .child(Spinner::new(px(14.), p.blue))
                         .child(format!("Signing in to {server}")),
                 )
                 .child(
@@ -1007,7 +1007,7 @@ fn render_error(
                             .flex_none()
                             .h(px(20.))
                             .items_center()
-                            .child(Spinner::new().xsmall().color(p.subtext0)),
+                            .child(Spinner::new(px(12.), p.subtext0)),
                     )
                 })
                 .when(!details.is_empty(), |this| {
@@ -1313,7 +1313,7 @@ fn render_tool(view: &ChatView, tool: &ToolCall, cx: &mut Context<ChatView>) -> 
         div()
             .ml(px(4.))
             .mr(px(8.))
-            .child(Spinner::new().with_size(px(14.)).color(p.subtext1))
+            .child(Spinner::new(px(14.), p.subtext1))
             .into_any_element()
     } else {
         div()
@@ -2633,12 +2633,7 @@ fn render_worktree_card(
     let worktree = created["path"]
         .as_str()
         .and_then(|path| workspace.worktree(std::path::Path::new(path)));
-    let spin = || {
-        Spinner::new()
-            .with_size(px(16.))
-            .color(p.blue)
-            .into_any_element()
-    };
+    let spin = || Spinner::new(px(16.), p.blue).into_any_element();
     let glyph = |name: Lucide, color: Hsla| icon(name).text_color(color).into_any_element();
 
     let (lead, detail, session) = match (tool.status, worktree) {
@@ -2879,13 +2874,7 @@ pub fn render_agent_card(
     let selected = view.docked_session == Some(child.entity_id());
 
     let (state, lead) = match status {
-        AgentStatus::Working => (
-            "Working",
-            Spinner::new()
-                .with_size(px(16.))
-                .color(p.blue)
-                .into_any_element(),
-        ),
+        AgentStatus::Working => ("Working", Spinner::new(px(16.), p.blue).into_any_element()),
         AgentStatus::NeedsInput => (
             "Needs input",
             icon(Lucide::Shield).text_color(p.blue).into_any_element(),
