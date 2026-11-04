@@ -1,7 +1,10 @@
 //! Folding a turn's steps into one summary line, as the design's collapsed
 //! steps board has it. Everything between the user's message and Pi's last
-//! reply (thinking, tool calls and the notes Pi writes between them) folds
-//! once Pi has moved on; what needs the user, cards and errors never do.
+//! reply (thinking, tool calls, the notes Pi writes between them and errors
+//! Pi got past) folds; what needs the user, cards and an error that ended
+//! the turn never do. While Pi works the fold holds every step from the
+//! first, and its line says what Pi is doing, so nothing below it appears
+//! and vanishes with each quick step.
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -33,24 +36,47 @@ fn is_card(tool: &ToolCall) -> bool {
     )
 }
 
-/// Whether an item can fold into a summary.
-fn is_step(item: &Item) -> bool {
+/// Whether an item can fold into a summary. `recovered` says whether an
+/// error is one Pi got past.
+fn is_step(item: &Item, recovered: bool) -> bool {
     match item {
         Item::Thinking { .. } | Item::Text { .. } => true,
         // A call waiting for approval needs the user.
         Item::Tool(tool) => !is_card(tool) && tool.status != ToolStatus::AwaitingApproval,
+        Item::Error { .. } => recovered,
         _ => false,
     }
+}
+
+/// Errors Pi got past: one it's retrying now, or one with more of the turn
+/// after it. An error that ended the turn stays in view.
+fn recovered_errors(items: &[Item], running: bool) -> Vec<bool> {
+    let mut recovered = vec![false; items.len()];
+    // Walking back: whether Pi did something after this point in the turn.
+    let mut went_on = false;
+    for (ix, item) in items.iter().enumerate().rev() {
+        match item {
+            Item::Error { retrying, .. } => {
+                recovered[ix] = went_on || (*retrying && running);
+            }
+            Item::Thinking { .. } | Item::Text { .. } | Item::Tool(_) => went_on = true,
+            _ if starts_turn(item) => went_on = false,
+            _ => {}
+        }
+    }
+    recovered
 }
 
 fn starts_turn(item: &Item) -> bool {
     matches!(item, Item::User { .. } | Item::Handover { .. })
 }
 
-fn is_live(item: &Item) -> bool {
+/// Whether an item is still happening: streaming, running or being retried.
+pub fn is_live(item: &Item) -> bool {
     match item {
         Item::Text { streaming, .. } | Item::Thinking { streaming, .. } => *streaming,
         Item::Tool(tool) => matches!(tool.status, ToolStatus::Running | ToolStatus::Preparing),
+        Item::Error { retrying, .. } => *retrying,
         _ => false,
     }
 }
@@ -58,6 +84,8 @@ fn is_live(item: &Item) -> bool {
 /// Splits the transcript into items to draw as they are and folds.
 /// `running` is whether Pi is working on the last turn.
 pub fn segments(items: &[Item], running: bool) -> Vec<Segment> {
+    let recovered = recovered_errors(items, running);
+    let step = |ix: usize| is_step(&items[ix], recovered[ix]);
     // Runs of consecutive steps, and which turn each belongs to.
     let mut runs: Vec<(Range<usize>, usize)> = Vec::new();
     let mut turn = 0;
@@ -66,9 +94,9 @@ pub fn segments(items: &[Item], running: bool) -> Vec<Segment> {
         if starts_turn(&items[ix]) {
             turn += 1;
         }
-        if is_step(&items[ix]) {
+        if step(ix) {
             let start = ix;
-            while ix < items.len() && is_step(&items[ix]) {
+            while ix < items.len() && step(ix) {
                 ix += 1;
             }
             runs.push((start..ix, turn));
@@ -82,10 +110,9 @@ pub fn segments(items: &[Item], running: bool) -> Vec<Segment> {
     for (n, (run, turn_of_run)) in runs.iter().enumerate() {
         let last_in_turn = runs.get(n + 1).is_none_or(|(_, t)| t != turn_of_run);
         let working = running && *turn_of_run == turn;
-        let end = if working && run.end == items.len() {
-            live_tail(items, run)
-        } else if last_in_turn && !working {
-            // The reply that ends the turn stays out.
+        // The reply that ends the turn stays out; while Pi works, so does
+        // the text it's writing at the end, which may be that reply.
+        let end = if last_in_turn && (!working || run.end == items.len()) {
             let mut end = run.end;
             while end > run.start && matches!(items[end - 1], Item::Text { .. }) {
                 end -= 1;
@@ -94,7 +121,11 @@ pub fn segments(items: &[Item], running: bool) -> Vec<Segment> {
         } else {
             run.end
         };
-        if end - run.start < MIN_FOLD {
+        // While Pi works every step folds, so short runs don't sit in the
+        // open and then collapse; a finished turn's few steps read better
+        // as they are.
+        let min = if working { 1 } else { MIN_FOLD };
+        if end - run.start < min {
             continue;
         }
         if drawn < run.start {
@@ -112,30 +143,14 @@ pub fn segments(items: &[Item], running: bool) -> Vec<Segment> {
     out
 }
 
-/// Where the part of a running turn's last run that stays in view starts:
-/// the step running now and Pi's latest note just before it.
-fn live_tail(items: &[Item], run: &Range<usize>) -> usize {
-    let end = run.end;
-    let note = |ix: usize| ix >= run.start && matches!(items[ix], Item::Text { .. });
-    if is_live(&items[end - 1]) {
-        if end >= 2 && note(end - 2) {
-            end - 2
-        } else {
-            end - 1
-        }
-    } else if note(end - 1) {
-        end - 1
-    } else {
-        end
-    }
-}
-
 /// What a fold's summary line says.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Summary {
     /// "read 6 files, edited 3, ran 4 commands"; empty with no tool calls.
     pub what: String,
     pub failed: usize,
+    /// Errors folded in, which Pi got past.
+    pub retries: usize,
     pub additions: usize,
     pub deletions: usize,
 }
@@ -149,6 +164,9 @@ pub fn summarize(items: &[Item]) -> Summary {
     let mut used: Vec<(String, usize)> = Vec::new();
     let mut summary = Summary::default();
     for item in items {
+        if matches!(item, Item::Error { .. }) {
+            summary.retries += 1;
+        }
         let Item::Tool(tool) = item else { continue };
         if tool.status == ToolStatus::Failed {
             summary.failed += 1;
@@ -218,6 +236,9 @@ pub fn summarize(items: &[Item]) -> Summary {
     files("read", read.len(), &mut parts);
     if searches > 0 {
         parts.push(format!("searched {}", plural(searches, "time", "times")));
+    }
+    if summary.retries > 0 {
+        parts.push(plural(summary.retries, "retry", "retries"));
     }
     summary.what = parts.join(", ");
     summary
@@ -328,20 +349,24 @@ mod tests {
                     range: 1..4,
                     working: true
                 }),
-                Segment::Items(4..7),
+                Segment::Items(4..5),
+                // After the card, one step is enough while Pi works.
+                Segment::Fold(Fold {
+                    range: 5..6,
+                    working: true
+                }),
+                Segment::Items(6..7),
             ]
         );
     }
 
     #[test]
-    fn a_running_turn_keeps_its_note_and_current_step() {
+    fn a_running_turn_folds_every_step_from_the_first() {
         let items = [
             user(0),
             done(1, "read", "a"),
-            done(2, "read", "b"),
-            done(3, "edit", "c"),
-            text(4, false),
-            tool(5, "edit", "d", ToolStatus::Running),
+            text(2, false),
+            tool(3, "edit", "d", ToolStatus::Running),
         ];
         assert_eq!(
             segments(&items, true),
@@ -351,7 +376,63 @@ mod tests {
                     range: 1..4,
                     working: true
                 }),
-                Segment::Items(4..6),
+            ]
+        );
+        // One step is enough, but the text Pi is writing stays out.
+        let items = [user(0), done(1, "read", "a"), text(2, true)];
+        assert_eq!(
+            segments(&items, true),
+            [
+                Segment::Items(0..1),
+                Segment::Fold(Fold {
+                    range: 1..2,
+                    working: true
+                }),
+                Segment::Items(2..3),
+            ]
+        );
+    }
+
+    #[test]
+    fn errors_pi_got_past_fold_and_one_that_ended_the_turn_stays() {
+        let error = |id: u64, retrying: bool| Item::Error {
+            id: ItemId(id),
+            text: "Request failed".into(),
+            retrying,
+        };
+        let items = [
+            user(0),
+            done(1, "read", "a"),
+            error(2, false),
+            done(3, "bash", ""),
+            done(4, "edit", "b"),
+            error(5, false),
+        ];
+        assert_eq!(
+            segments(&items, false),
+            [
+                Segment::Items(0..1),
+                Segment::Fold(Fold {
+                    range: 1..5,
+                    working: false
+                }),
+                Segment::Items(5..6),
+            ]
+        );
+        assert_eq!(
+            summarize(&items[1..5]).what,
+            "edited 1 file, ran 1 command, read 1, 1 retry"
+        );
+        // Being retried now: it folds, as Pi is still at it.
+        let items = [user(0), done(1, "read", "a"), error(2, true)];
+        assert_eq!(
+            segments(&items, true),
+            [
+                Segment::Items(0..1),
+                Segment::Fold(Fold {
+                    range: 1..3,
+                    working: true
+                }),
             ]
         );
     }

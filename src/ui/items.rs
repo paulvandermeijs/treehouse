@@ -61,6 +61,31 @@ pub fn render_items(view: &ChatView, cx: &mut Context<ChatView>) -> Vec<AnyEleme
     out
 }
 
+/// What Pi is doing now, for a running turn's fold line.
+fn activity(steps: &[Item]) -> Option<String> {
+    let live = steps
+        .iter()
+        .rev()
+        .find(|item| crate::steps::is_live(item))?;
+    Some(match live {
+        Item::Thinking { .. } => "thinking".to_string(),
+        Item::Text { .. } => "writing".to_string(),
+        Item::Error { .. } => "retrying after an error".to_string(),
+        Item::Tool(tool) => {
+            let text = describe(tool);
+            let verb = if tool.checking {
+                "auto mode is checking".to_string()
+            } else {
+                text.running.to_lowercase()
+            };
+            format!("{verb} {}", one_line(&text.target))
+                .trim()
+                .to_string()
+        }
+        _ => return None,
+    })
+}
+
 /// Renders items as they are, grouping three or more finished reads in a row.
 /// Inside opened steps Pi's notes are muted, so they read as detail.
 fn render_run(
@@ -111,6 +136,12 @@ fn render_fold(
     let first = steps[0].id();
     let open = view.steps_open(first);
     let summary = crate::steps::summarize(steps);
+    // While Pi works, what it's doing now; between steps, the counts.
+    let what = fold
+        .working
+        .then(|| activity(steps))
+        .flatten()
+        .unwrap_or_else(|| summary.what.clone());
     // What ran without asking stays visible without opening the steps.
     let auto_count = steps
         .iter()
@@ -169,16 +200,39 @@ fn render_fold(
         .text_color(p.subtext0)
         .cursor_pointer()
         .hover(|s| s.text_color(p.text))
-        .child(div().ml(px(3.)).mr(px(7.)).child(icon(if open {
-            IconName::ChevronDown
+        // While Pi works the spinner leads, as on the Working row it
+        // replaces.
+        .child(if fold.working {
+            div()
+                .ml(px(4.))
+                .mr(px(8.))
+                .child(Spinner::new(px(14.), p.subtext1))
+                .into_any_element()
         } else {
-            IconName::ChevronRight
-        })))
+            div()
+                .ml(px(3.))
+                .mr(px(7.))
+                .child(icon(if open {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                }))
+                .into_any_element()
+        })
         .child(
             h_flex()
                 .flex_1()
                 .min_w_0()
-                .child(div().flex_none().whitespace_nowrap().child(label))
+                .child(
+                    div()
+                        .flex_none()
+                        .whitespace_nowrap()
+                        .child(if fold.working {
+                            ShimmerText::new(label).into_any_element()
+                        } else {
+                            label.into_any_element()
+                        }),
+                )
                 .child(
                     div()
                         .min_w_0()
@@ -186,8 +240,8 @@ fn render_fold(
                         .text_ellipsis()
                         .whitespace_nowrap()
                         .text_color(p.subtext1)
-                        .when(!summary.what.is_empty(), |this| {
-                            this.child(format!("\u{a0}· {}", summary.what))
+                        .when(!what.is_empty(), |this| {
+                            this.child(format!("\u{a0}· {what}"))
                         }),
                 ),
         )

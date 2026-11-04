@@ -1817,6 +1817,12 @@ impl Render for ChatView {
         }
         let jump = self.render_jump(items.len(), task.is_some() as usize, cx);
         let running = self.session.read(cx).is_running();
+        // A running turn's fold line says Pi is working; the row would repeat it.
+        let working_fold = running
+            && crate::config::Config::global(cx).collapse_steps
+            && crate::steps::segments(self.session.read(cx).items(), true)
+                .iter()
+                .any(|s| matches!(s, crate::steps::Segment::Fold(f) if f.working));
         let compacting = self.session.read(cx).is_compacting();
         let setup_pending = {
             let s = self.session.read(cx);
@@ -1887,7 +1893,7 @@ impl Render for ChatView {
                             .when(self.session.read(cx).auto_paused, |this| {
                                 this.child(self.render_auto_paused(cx))
                             })
-                            .when(running || compacting, |this| {
+                            .when((running && !working_fold) || compacting, |this| {
                                 this.child(
                                     h_flex()
                                         .gap_2()
