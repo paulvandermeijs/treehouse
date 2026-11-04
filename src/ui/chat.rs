@@ -8,7 +8,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::StyledExt as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{InputEvent, Textarea, TextareaState};
-use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
+use gpui_kit::component::menu::{PopupMenu, PopupMenuItem};
 use gpui_kit::component::{IconName, Selectable as _, Sizable as _, h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
@@ -90,6 +90,8 @@ pub struct ChatView {
     slash_scroll: ScrollHandle,
     model_picker: Entity<ModelPicker>,
     picker_open: bool,
+    /// The status bar menu that's open (thinking or approval), by key.
+    bar_menu: Option<(&'static str, Entity<PopupMenu>)>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -220,6 +222,7 @@ impl ChatView {
             slash_scroll: ScrollHandle::new(),
             model_picker,
             picker_open: false,
+            bar_menu: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1160,6 +1163,54 @@ impl ChatView {
             )
     }
 
+    /// A status bar menu, opened above the bar like the model picker: the
+    /// kit's dropdown can't be moved off the button, so it covered the bar.
+    fn bar_menu_popover(
+        &self,
+        key: &'static str,
+        trigger: Button,
+        build: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let build = std::rc::Rc::new(build);
+        let menu = self
+            .bar_menu
+            .as_ref()
+            .filter(|(open, _)| *open == key)
+            .map(|(_, menu)| menu.clone());
+        Popover::new(SharedString::from(format!("{key}-menu")))
+            .anchor(Anchor::BottomLeft)
+            .offset(px(16.))
+            .appearance(false)
+            .open(menu.is_some())
+            .on_open_change({
+                let view = cx.entity().downgrade();
+                move |open, window, cx| {
+                    let open = *open;
+                    let build = build.clone();
+                    let _ = view.update(cx, |view, cx| {
+                        view.bar_menu = open.then(|| {
+                            let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+                                build(menu, window, cx)
+                            });
+                            cx.subscribe(&menu, |view, _, _: &DismissEvent, cx| {
+                                view.bar_menu = None;
+                                cx.notify();
+                            })
+                            .detach();
+                            menu.focus_handle(cx).focus(window, cx);
+                            (key, menu)
+                        });
+                        cx.notify();
+                    });
+                }
+            })
+            .trigger(trigger)
+            .when_some(menu, |this, menu| {
+                this.track_focus(&menu.focus_handle(cx)).child(menu)
+            })
+    }
+
     /// Auto mode paused after too many asks in a row: a centred line with
     /// Resume. Live state, not history.
     fn render_auto_paused(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -1280,12 +1331,14 @@ impl ChatView {
                     .child(self.model_picker.clone()),
             )
             .child(
-                Button::new("thinking")
-                    .ghost()
-                    .small()
-                    .icon(icon(Lucide::Lightbulb))
-                    .label(thinking)
-                    .dropdown_menu_with_anchor(Anchor::BottomLeft, {
+                self.bar_menu_popover(
+                    "thinking",
+                    Button::new("thinking")
+                        .ghost()
+                        .small()
+                        .icon(icon(Lucide::Lightbulb))
+                        .label(thinking),
+                    {
                         let session = session_entity.clone();
                         move |mut menu, _, _| {
                             for level in THINKING_LEVELS {
@@ -1300,7 +1353,9 @@ impl ChatView {
                             }
                             menu
                         }
-                    }),
+                    },
+                    cx,
+                ),
             )
             .when(read_only, |this| {
                 this.child(
@@ -1331,18 +1386,20 @@ impl ChatView {
                 let session = self.session.clone();
                 let auto = mode == ApprovalMode::Auto;
                 this.child(
-                    Button::new("approval")
-                        .ghost()
-                        .small()
-                        // Auto stands out, since calls may run without you.
-                        .icon(if auto {
-                            icon(Lucide::ShieldCheck).text_color(p.mauve)
-                        } else {
-                            icon(Lucide::Shield)
-                        })
-                        .label(mode.label())
-                        .when(auto, |b| b.text_color(p.mauve))
-                        .dropdown_menu(move |menu, _, _| {
+                    self.bar_menu_popover(
+                        "approval",
+                        Button::new("approval")
+                            .ghost()
+                            .small()
+                            // Auto stands out, since calls may run without you.
+                            .icon(if auto {
+                                icon(Lucide::ShieldCheck).text_color(p.mauve)
+                            } else {
+                                icon(Lucide::Shield)
+                            })
+                            .label(mode.label())
+                            .when(auto, |b| b.text_color(p.mauve)),
+                        move |menu, _, _| {
                             let mut menu = menu;
                             for choice in ApprovalMode::ALL {
                                 let session = session.clone();
@@ -1366,11 +1423,10 @@ impl ChatView {
                                             .child(
                                                 v_flex()
                                                     .min_w_0()
+                                                    // The menu's own size, like the
+                                                    // thinking menu's items.
                                                     .child(
-                                                        div()
-                                                            .text_size(px(13.))
-                                                            .font_medium()
-                                                            .child(choice.label()),
+                                                        div().font_medium().child(choice.label()),
                                                     )
                                                     .child(
                                                         div()
@@ -1399,7 +1455,9 @@ impl ChatView {
                                     },
                                 ),
                             )
-                        }),
+                        },
+                        cx,
+                    ),
                 )
             })
             .child(div().flex_1())
