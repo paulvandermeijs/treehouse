@@ -6,7 +6,7 @@ license = "MIT"
 
 [dependencies]
 anyhow = "1.0.104"
-dirs = "6"
+dirs = "7"
 futures = "0.3.34"
 # Syntax highlighting for code blocks and the diff. Each grammar is its own
 # crate, compiled once and then cached.
