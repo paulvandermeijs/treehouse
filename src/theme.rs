@@ -210,10 +210,12 @@ pub fn apply(choice: ThemeChoice, window: Option<&mut Window>, cx: &mut App) {
     };
     let size = Config::global(cx).text_size;
     if let Some(config) = ThemeRegistry::global(cx).themes().get(name).cloned() {
-        Theme::update(cx, |theme| {
-            theme.apply_config(&config);
-            theme.font_size = gpui_kit::px(size);
-        });
+        // The size in its own update: for the pre-installed Mocha and Latte,
+        // `Theme::update` re-applies the theme config after the closure
+        // whenever the mode changes, which would put the file's size back
+        // over the user's.
+        Theme::update(cx, |theme| theme.apply_config(&config));
+        Theme::update(cx, |theme| theme.font_size = gpui_kit::px(size));
     }
     // Applying a theme loads the theme file's fonts again.
     apply_fonts(cx);
