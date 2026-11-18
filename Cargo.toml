@@ -10,7 +10,7 @@ dirs = "6"
 futures = "0.3.34"
 # Syntax highlighting for code blocks and the diff. Each grammar is its own
 # crate, compiled once and then cached.
-gpui-kit = { version = "0.8.0", features = [
+gpui-kit = { version = "0.9.1", features = [
     "tree-sitter-astro",
     "tree-sitter-bash",
     "tree-sitter-css",
